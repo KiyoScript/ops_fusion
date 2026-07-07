@@ -25,21 +25,25 @@ Today these run as separate apps with three different auth schemes and duplicate
 
 ## Tech Stack
 
-- [Next.js](https://nextjs.org) 16.2.10 (App Router)
-- [React](https://react.dev) 19
-- [TypeScript](https://www.typescriptlang.org) 5
-- [Tailwind CSS](https://tailwindcss.com) 4
-- [ESLint](https://eslint.org) 9
+- [Next.js](https://nextjs.org) 16.2.10 (App Router, Turbopack, Server Actions)
+- [React](https://react.dev) 19 + [TypeScript](https://www.typescriptlang.org) 5 (strict)
+- [Prisma](https://prisma.io) 7 + [PostgreSQL](https://postgresql.org) 17
+- [Auth.js v5](https://authjs.dev) — credentials + Google sign-in, RBAC (ADMIN / MANAGER / ENCODER / AUDITOR / VIEWER)
+- [Tailwind CSS](https://tailwindcss.com) 4 + [shadcn/ui](https://ui.shadcn.com)
+- [TanStack Query](https://tanstack.com/query) 5, [Zod](https://zod.dev) 4, [React Hook Form](https://react-hook-form.com)
+
+Architecture: **modular monolith** — see [src/modules/README.md](src/modules/README.md) for the layering rules every module follows.
 
 ## System Requirements
 
 Before running this project, make sure you have the following installed:
 
-| Requirement | Version                | Notes                                              |
-| ----------- | ---------------------- | -------------------------------------------------- |
-| Node.js     | `>= 20.9.0` (LTS)      | Required by Next.js 16 — [download](https://nodejs.org) |
-| npm         | `>= 10`                | Comes bundled with Node.js (project uses `package-lock.json`) |
-| Git         | Latest                 | [download](https://git-scm.com/downloads)          |
+| Requirement    | Version           | Notes                                                        |
+| -------------- | ----------------- | ------------------------------------------------------------ |
+| Node.js        | `>= 20.9.0` (LTS) | Required by Next.js 16 — [download](https://nodejs.org)      |
+| npm            | `>= 10`           | Comes bundled with Node.js (project uses `package-lock.json`) |
+| Git            | Latest            | [download](https://git-scm.com/downloads)                    |
+| Docker Desktop | Latest            | For the local PostgreSQL container — [download](https://docker.com). Optional if you use a hosted Postgres (Neon/Supabase) instead. |
 
 **OS:** Windows, macOS, or Linux are all supported.
 
@@ -49,6 +53,7 @@ To verify your installed versions:
 node -v
 npm -v
 git --version
+docker --version
 ```
 
 ## Getting Started
@@ -66,22 +71,44 @@ cd ops_enterprise_system
 npm install
 ```
 
-### 3. Run the development server
+### 3. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Fill in `AUTH_SECRET` (command to generate one is in the file). `DATABASE_URL` already points at the local Docker Postgres; swap it for a Neon/Supabase URL if you prefer a hosted database. Google sign-in works once `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are set — email/password works without it.
+
+### 4. Start the database, migrate, and seed
+
+```bash
+npm run db:up        # starts PostgreSQL 17 in Docker (skip if using hosted DB)
+npm run db:migrate   # applies Prisma migrations (also regenerates the client)
+npm run db:seed      # creates the initial user accounts
+```
+
+### 5. Run the development server
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) and sign in with a seeded account, e.g. `admin@ops.local` / `Admin123!` (see [prisma/seed.ts](prisma/seed.ts) for the full list — one account per role). Change these before any real deployment.
 
 ## Available Scripts
 
-| Command         | Description                              |
-| --------------- | ---------------------------------------- |
-| `npm run dev`   | Start the development server             |
-| `npm run build` | Create a production build                |
-| `npm run start` | Start the production server (after build) |
-| `npm run lint`  | Run ESLint checks                        |
+| Command             | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `npm run dev`       | Start the development server                   |
+| `npm run build`     | Create a production build                      |
+| `npm run start`     | Start the production server (after build)      |
+| `npm run lint`      | Run ESLint checks                              |
+| `npm run typecheck` | Run the TypeScript compiler (no emit)          |
+| `npm run db:up`     | Start the local PostgreSQL container (Docker)  |
+| `npm run db:down`   | Stop the local PostgreSQL container            |
+| `npm run db:migrate`| Create/apply Prisma migrations                 |
+| `npm run db:seed`   | Seed initial users                             |
+| `npm run db:studio` | Open Prisma Studio (DB browser)                |
 
 ## Development Notes
 

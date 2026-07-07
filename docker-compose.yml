@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: ops_erp_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ops_admin
+      POSTGRES_PASSWORD: ops_dev_password
+      POSTGRES_DB: ops_enterprise
+    ports:
+      - "5432:5432"
+    volumes:
+      - ops_erp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops_admin -d ops_enterprise"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ops_erp_pgdata:
