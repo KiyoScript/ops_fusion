@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Ops Enterprise System",
-    template: "%s | Ops Enterprise System",
+    default: "OPS Fusion",
+    template: "%s | OPS Fusion",
   },
   description:
-    "Unified ERP: quotations, job orders, sales audit, and delivery receipts.",
+    "One System. Every Department. Zero Gaps — unified ERP for quotations, job orders, sales audit, and delivery receipts.",
 };
 
 export default function RootLayout({

@@ -1,21 +1,24 @@
+# Pinned so Docker resources keep the same names regardless of folder name
+name: ops_fusion
+
 services:
   db:
     image: postgres:17-alpine
-    container_name: ops_erp_db
+    container_name: ops_fusion_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ops_admin
       POSTGRES_PASSWORD: ops_dev_password
-      POSTGRES_DB: ops_enterprise
+      POSTGRES_DB: ops_fusion
     ports:
       - "5432:5432"
     volumes:
-      - ops_erp_pgdata:/var/lib/postgresql/data
+      - ops_fusion_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ops_admin -d ops_enterprise"]
+      test: ["CMD-SHELL", "pg_isready -U ops_admin -d ops_fusion"]
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  ops_erp_pgdata:
+  ops_fusion_pgdata:

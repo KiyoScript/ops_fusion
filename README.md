@@ -1,6 +1,9 @@
-# Ops Enterprise System
+# OPS Fusion
 
-A unified operations platform for the print business (Ormoc Printshoppe / BeMore), built with [Next.js](https://nextjs.org). It consolidates three existing Google Apps Script + Google Sheets systems into one application covering the full business lifecycle: **Quotation → Job Order → Sales → Delivery → Audit**.
+**One System. Every Department. Zero Gaps.**
+*Fully Unified System Integrating Operations & iNventory*
+
+OPS Fusion is a unified ERP for the print business (Ormoc Printshoppe / BeMore), built with [Next.js](https://nextjs.org). Instead of departments operating in silos across separate tools, it creates a single source of truth covering the full business lifecycle: **Quotation → Job Order → Sales → Delivery → Audit**. It consolidates three existing Google Apps Script + Google Sheets systems into one application.
 
 > **Status:** Early development. Functional spec is at v0.1 draft (JO → Sales → DR System). Scope and data model are still being finalized.
 
@@ -61,8 +64,8 @@ docker --version
 ### 1. Clone the repository
 
 ```bash
-git clone <repository-url>
-cd ops_enterprise_system
+git clone https://github.com/KiyoScript/ops_fusion.git
+cd ops_fusion
 ```
 
 ### 2. Install dependencies

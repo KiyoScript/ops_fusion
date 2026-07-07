@@ -20,9 +20,9 @@ export default async function SignInPage() {
     <div className="flex min-h-svh items-center justify-center bg-muted/40 p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-xl">Ops Enterprise System</CardTitle>
+          <CardTitle className="text-xl">OPS Fusion</CardTitle>
           <CardDescription>
-            Sign in with your work account to continue
+            One System. Every Department. Zero Gaps.
           </CardDescription>
         </CardHeader>
         <CardContent>
