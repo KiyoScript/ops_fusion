@@ -1,6 +1,27 @@
 # Ops Enterprise System
 
-A [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+A unified operations platform for the print business (Ormoc Printshoppe / BeMore), built with [Next.js](https://nextjs.org). It consolidates three existing Google Apps Script + Google Sheets systems into one application covering the full business lifecycle: **Quotation → Job Order → Sales → Delivery → Audit**.
+
+> **Status:** Early development. Functional spec is at v0.1 draft (JO → Sales → DR System). Scope and data model are still being finalized.
+
+## Background — the three legacy systems
+
+This project unifies and replaces the following systems (all Google Apps Script + Google Sheets, in sibling repos under `BeMore/`):
+
+| Legacy System | What it does | Becomes |
+| --- | --- | --- |
+| `quotation_system` (SignQuote) | Quotation generator for ~27 product types, price database, public customer quote portal | Quote/QJOS integration feeding the JO Module |
+| `JOWebApp` (Job Order System 2026) | Job order tracking: JO CRUD, deadline calendar, EOD reports, incident reports, PRISM production sync | JO Module |
+| `Sales-Audit` | Cashier sales logging (SI/JO/CR), auditor reconciliation, day locking, BIR VAT tagging, doc series tracking | Sales Module (incl. Audit & Bank Recon) |
+
+Today these run as separate apps with three different auth schemes and duplicated customer/employee data. This system replaces them with one platform, one database, and one role-based access model.
+
+## Planned Modules
+
+- **JO Module** — Job Order lifecycle: inquiry → quote (supervisor-approved) → customer confirmation + payment gate → approval → printing (dot-matrix, continuous form) → production sub-workflows → completion.
+- **Sales Module** — Booklets (Sales Invoice VAT/Non-VAT, JO Order Slip, Collection Receipt), customer-classification-driven payment handling, non-JO transactions (photocopy, printing, laminate, supplies), CR-to-invoice settlement, reports, sales audit workflow, bank reconciliation.
+- **DR Module** — Delivery Receipt lifecycle: booklet maintenance with approval, per-line-item issuance with partial quantities, advance payment application, reports.
+- **Shared masters** — Customer & Customer Classification, Advance Payments, Booklet numbering (sequential series + approval-on-opening), roles & permissions.
 
 ## Tech Stack
 
@@ -53,10 +74,6 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
 ## Available Scripts
 
 | Command         | Description                              |
@@ -66,17 +83,8 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 | `npm run start` | Start the production server (after build) |
 | `npm run lint`  | Run ESLint checks                        |
 
-## Learn More
+## Development Notes
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Legacy business rules live in the legacy repos.** Before building a feature, check the corresponding implementation in `JOWebApp`, `quotation_system`, or `Sales-Audit` for statuses, roles, numbering schemes, BIR fields, and workflows.
+- **Next.js version caveat:** this project pins a Next.js version whose APIs and conventions may differ from older docs — read the guides bundled in `node_modules/next/dist/docs/` before writing framework-facing code (see `AGENTS.md`).
+- **Printing:** JOs print on dot-matrix printers with continuous 2-ply forms, which requires a raw/character-based print path rather than standard browser/PDF printing. Treat this as a technical spike.
