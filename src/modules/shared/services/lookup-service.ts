@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { assertRole, type Actor } from "@/lib/authz";
 import { Role } from "@/generated/prisma/enums";
 import type {
@@ -13,6 +13,7 @@ import { PrismaActivityLogRepository } from "../repositories/activity-log-reposi
 import type {
   LookupCreateInput,
   LookupDto,
+  LookupImportSummaryDto,
   LookupTypeInput,
   LookupUpdateInput,
 } from "../schemas/lookup";
@@ -85,6 +86,86 @@ export class LookupService {
         isActive: input.isActive ?? existing.isActive,
       },
     });
+  }
+
+  /** Import the legacy OPSServices sheet (col A = "Sales - <category>",
+   *  col B = "LF" marks large-format). The "Sales - " prefix is stripped,
+   *  exactly like the legacy cleanCategory rule. Existing labels are skipped. */
+  async importCategories(
+    actor: Actor,
+    rows: string[][]
+  ): Promise<LookupImportSummaryDto> {
+    assertRole(actor, MAINTAINER_ROLES);
+
+    const summary: LookupImportSummaryDto = {
+      created: 0,
+      skippedExisting: [],
+      errors: [],
+    };
+    if (rows.length === 0) throw new ValidationError("The file is empty.");
+
+    const seen = new Set<string>();
+    const parsed: { label: string; isLFP: boolean; line: number }[] = [];
+    rows.forEach((cells, index) => {
+      const raw = (cells[0] ?? "").trim();
+      if (!raw) return;
+      const label = raw.replace(/^sales\s*-\s*/i, "").trim();
+      if (!label) return;
+      if (seen.has(label.toLowerCase())) {
+        summary.errors.push({
+          line: index + 1,
+          message: `${label}: duplicated in the file`,
+        });
+        return;
+      }
+      seen.add(label.toLowerCase());
+      parsed.push({
+        label,
+        isLFP: (cells[1] ?? "").trim().toUpperCase() === "LF",
+        line: index + 1,
+      });
+    });
+    if (parsed.length === 0 && summary.errors.length === 0) {
+      throw new ValidationError(
+        "No category rows found. Upload the OPSServices sheet as .csv or .xlsx."
+      );
+    }
+
+    const existing = new Set(
+      (await this.lookups.listByType("JO_CATEGORY", true)).map((o) =>
+        o.label.toLowerCase()
+      )
+    );
+    const toCreate = parsed.filter((p) => {
+      if (existing.has(p.label.toLowerCase())) {
+        summary.skippedExisting.push(p.label);
+        return false;
+      }
+      return true;
+    });
+
+    const startOrder = await this.lookups.nextSortOrder("JO_CATEGORY");
+    summary.created = await this.lookups.createMany(
+      toCreate.map((p, i) => ({
+        type: "JO_CATEGORY" as const,
+        label: p.label,
+        isLFP: p.isLFP,
+        sortOrder: startOrder + i,
+        createdById: actor.id,
+      }))
+    );
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "LookupOption",
+      entityId: "opsservices-import",
+      action: "import",
+      payload: {
+        created: summary.created,
+        skipped: summary.skippedExisting.length,
+        errors: summary.errors.length,
+      },
+    });
+    return summary;
   }
 
   async remove(actor: Actor, id: string): Promise<void> {

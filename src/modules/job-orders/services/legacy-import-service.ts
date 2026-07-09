@@ -185,6 +185,9 @@ export class LegacyImportService {
     return summary;
   }
 
+  // TODO(PRISM): no PRISM sync on import — legacy only inserted LFP items to
+  // PRISM when a NEW JO was submitted, and imported rows already exist in the
+  // legacy PRISM database. Revisit when the PRISM module lands in ops_fusion.
   private async insertBatch(
     jos: { data: JobOrderCreateData; firstLine: number }[],
     actor: Actor

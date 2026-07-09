@@ -275,6 +275,13 @@ export class JobOrderService {
         },
         tx
       );
+
+      // TODO(PRISM): the legacy system inserted every LFP line item into the
+      // PRISM production database HERE — on JO creation ONLY, never on update
+      // (insertToPRISM_ in JobOrderCode.js, one row per isLFP item with
+      // joNumber/customer/desc/category/qty/dims/deadline/rush/lineItemId).
+      // Skipped until the PRISM module exists in ops_fusion.
+
       return { id: created.id };
     });
   }

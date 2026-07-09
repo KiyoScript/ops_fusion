@@ -38,9 +38,13 @@ export default async function JoMaintenancePage() {
         <LookupManager
           type="JO_CATEGORY"
           title="Service categories"
-          description="Item categories (legacy OPSServices). Categories marked LFP auto-tick the large-format flag when picked on a JO item."
+          description={`Item categories (legacy OPSServices). The "Sales - " prefix is stripped on import; categories marked LFP auto-tick the large-format flag when picked on a JO item.`}
           items={categories}
           withLFP
+          importConfig={{
+            url: "/api/lookups/import-categories",
+            hint: "Or import the OPSServices sheet (.xlsx or .csv):",
+          }}
         />
         <EmployeeManager items={employees} />
       </div>

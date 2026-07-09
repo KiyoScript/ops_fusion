@@ -24,6 +24,12 @@ export type LookupTypeInput = z.infer<typeof lookupTypeInput>;
 export type LookupCreateInput = z.infer<typeof lookupCreateInput>;
 export type LookupUpdateInput = z.infer<typeof lookupUpdateInput>;
 
+export type LookupImportSummaryDto = {
+  created: number;
+  skippedExisting: string[];
+  errors: { line: number; message: string }[];
+};
+
 export type LookupDto = {
   id: string;
   type: LookupTypeInput;

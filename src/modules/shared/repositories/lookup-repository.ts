@@ -35,6 +35,15 @@ export interface ILookupRepository {
     sortOrder: number;
     createdById: string;
   }): Promise<LookupRecord>;
+  createMany(
+    data: {
+      type: LookupType;
+      label: string;
+      isLFP: boolean;
+      sortOrder: number;
+      createdById: string;
+    }[]
+  ): Promise<number>;
   update(
     id: string,
     data: { label?: string; isLFP?: boolean; isActive?: boolean }
@@ -93,6 +102,20 @@ export class PrismaLookupRepository implements ILookupRepository {
     createdById: string;
   }): Promise<LookupRecord> {
     return prisma.lookupOption.create({ data, select: lookupSelect });
+  }
+
+  async createMany(
+    data: {
+      type: LookupType;
+      label: string;
+      isLFP: boolean;
+      sortOrder: number;
+      createdById: string;
+    }[]
+  ): Promise<number> {
+    if (data.length === 0) return 0;
+    const result = await prisma.lookupOption.createMany({ data });
+    return result.count;
   }
 
   async update(

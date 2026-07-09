@@ -4,7 +4,12 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { PlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  PlusIcon,
+  UploadIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ColorBadge } from "@/components/color-badge";
 import { Button } from "@/components/ui/button";
@@ -15,20 +20,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/data-states";
 import { fetchJson } from "@/lib/api-client";
 import {
   createEmployeeAction,
-  deleteEmployeeAction,
   updateEmployeeAction,
 } from "@/app/(app)/maintenance/job-orders/actions";
 import type {
@@ -42,10 +38,12 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({ code: "", name: "", team: "", email: "" });
-  const [confirmDelete, setConfirmDelete] = useState<EmployeeDto | null>(null);
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
+
+  const active = items.filter((i) => i.isActive);
+  const archived = items.filter((i) => !i.isActive);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["employees"] });
@@ -74,29 +72,17 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
     });
   };
 
-  const toggleActive = (item: EmployeeDto) => {
+  const setArchivedState = (item: EmployeeDto, archive: boolean) => {
     startTransition(async () => {
       const result = await updateEmployeeAction({
         id: item.id,
-        isActive: !item.isActive,
+        isActive: !archive,
       });
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
-      refresh();
-    });
-  };
-
-  const remove = (item: EmployeeDto) => {
-    startTransition(async () => {
-      const result = await deleteEmployeeAction({ id: item.id });
-      setConfirmDelete(null);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(`Deleted ${item.code}.`);
+      toast.success(archive ? `${item.code} archived.` : `${item.code} restored.`);
       refresh();
     });
   };
@@ -195,84 +181,71 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
           </Button>
         </div>
 
-        {items.length === 0 ? (
+        {active.length === 0 ? (
           <EmptyState
             title="No employees yet"
-            description="Add them above or import the EMPDATABASE CSV."
+            description="Add them above or import the EMPDATABASE file."
           />
         ) : (
           <ul className="grid gap-1">
-            {items.map((item) => (
+            {active.map((item) => (
               <li
                 key={item.id}
                 className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
               >
-                <span
-                  className={`font-mono text-xs ${item.isActive ? "" : "text-muted-foreground line-through"}`}
-                >
-                  {item.code}
-                </span>
-                <span className={item.isActive ? "" : "text-muted-foreground line-through"}>
-                  {item.name}
-                </span>
+                <span className="font-mono text-xs">{item.code}</span>
+                <span>{item.name}</span>
                 {item.team && <ColorBadge label={item.team} />}
                 {item.email && (
                   <span className="text-xs text-muted-foreground">
                     {item.email}
                   </span>
                 )}
-                {!item.isActive && <Badge variant="ghost">inactive</Badge>}
-                <span className="ml-auto flex items-center gap-1">
+                <span className="ml-auto">
                   <Button
                     variant="ghost"
                     size="xs"
-                    onClick={() => toggleActive(item)}
+                    onClick={() => setArchivedState(item, true)}
                     disabled={pending}
                   >
-                    {item.isActive ? "Deactivate" : "Activate"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Delete ${item.code}`}
-                    onClick={() => setConfirmDelete(item)}
-                    disabled={pending}
-                  >
-                    <Trash2Icon />
+                    <ArchiveIcon /> Archive
                   </Button>
                 </span>
               </li>
             ))}
           </ul>
         )}
-      </CardContent>
 
-      <Dialog
-        open={confirmDelete !== null}
-        onOpenChange={(open) => !open && setConfirmDelete(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Delete {confirmDelete?.code} — {confirmDelete?.name}?
-            </DialogTitle>
-            <DialogDescription>
-              Job orders keep the code they were assigned — this only removes
-              the employee from the picker. Deactivate instead if they might
-              come back.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter showCloseButton>
-            <Button
-              variant="destructive"
-              onClick={() => confirmDelete && remove(confirmDelete)}
-              disabled={pending}
-            >
-              {pending ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {archived.length > 0 && (
+          <details className="text-sm">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              Archived ({archived.length})
+            </summary>
+            <ul className="mt-2 grid gap-1">
+              {archived.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm text-muted-foreground"
+                >
+                  <span className="font-mono text-xs">{item.code}</span>
+                  <span>{item.name}</span>
+                  {item.team && <Badge variant="ghost">{item.team}</Badge>}
+                  <span className="ml-auto">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setArchivedState(item, false)}
+                      disabled={pending}
+                    >
+                      <ArchiveRestoreIcon /> Restore
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </CardContent>
     </Card>
   );
 }

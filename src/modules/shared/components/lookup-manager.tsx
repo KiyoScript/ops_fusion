@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { ArchiveIcon, ArchiveRestoreIcon, PlusIcon, UploadIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,44 +14,48 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/data-states";
+import { fetchJson } from "@/lib/api-client";
 import {
   createLookupAction,
-  deleteLookupAction,
   updateLookupAction,
 } from "@/app/(app)/maintenance/job-orders/actions";
-import type { LookupDto, LookupTypeInput } from "../schemas/lookup";
+import type {
+  LookupDto,
+  LookupImportSummaryDto,
+  LookupTypeInput,
+} from "../schemas/lookup";
 
-/** One maintained list (legacy DatabaseLink sheet equivalent): add, rename
- *  via re-add, activate/deactivate, delete. */
+/** One maintained list (legacy DatabaseLink sheet equivalent). Entries are
+ *  never hard-deleted: Archive hides them from pickers, Restore brings them
+ *  back — history on job orders is untouched either way. */
 export function LookupManager({
   type,
   title,
   description,
   items,
   withLFP = false,
+  importConfig,
 }: {
   type: LookupTypeInput;
   title: string;
   description: string;
   items: LookupDto[];
   withLFP?: boolean;
+  /** Optional legacy-sheet import (e.g. OPSServices for categories). */
+  importConfig?: { url: string; hint: string };
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
   const [isLFP, setIsLFP] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<LookupDto | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
+
+  const active = items.filter((i) => i.isActive);
+  const archived = items.filter((i) => !i.isActive);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["lookups", type] });
@@ -80,31 +84,52 @@ export function LookupManager({
     });
   };
 
-  const toggleActive = (item: LookupDto) => {
+  const setArchived = (item: LookupDto, archive: boolean) => {
     startTransition(async () => {
       const result = await updateLookupAction({
         id: item.id,
-        isActive: !item.isActive,
+        isActive: !archive,
       });
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
+      toast.success(
+        archive ? `"${item.label}" archived.` : `"${item.label}" restored.`
+      );
       refresh();
     });
   };
 
-  const remove = (item: LookupDto) => {
-    startTransition(async () => {
-      const result = await deleteLookupAction({ id: item.id });
-      setConfirmDelete(null);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(`Deleted "${item.label}".`);
+  const importFile = async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file || !importConfig) {
+      toast.error("Choose a .csv or .xlsx file first.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      const summary = await fetchJson<LookupImportSummaryDto>(
+        importConfig.url,
+        { method: "POST", body }
+      );
+      toast.success(
+        `Imported ${summary.created} entr${summary.created === 1 ? "y" : "ies"}` +
+          (summary.skippedExisting.length
+            ? `, skipped ${summary.skippedExisting.length} existing`
+            : "") +
+          (summary.errors.length ? `, ${summary.errors.length} error(s)` : "") +
+          "."
+      );
+      if (fileRef.current) fileRef.current.value = "";
       refresh();
-    });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Import failed.");
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -144,72 +169,88 @@ export function LookupManager({
           </Button>
         </div>
 
-        {items.length === 0 ? (
+        {importConfig && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3">
+            <UploadIcon className="size-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">
+              {importConfig.hint}
+            </span>
+            <Input
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              ref={fileRef}
+              className="max-w-64"
+              aria-label={`${title} import file`}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={importFile}
+              disabled={importing}
+            >
+              {importing ? "Importing…" : "Import file"}
+            </Button>
+          </div>
+        )}
+
+        {active.length === 0 ? (
           <EmptyState
             title="Nothing here yet"
             description="Entries you add appear in the matching dropdowns right away."
           />
         ) : (
           <ul className="grid gap-1">
-            {items.map((item) => (
+            {active.map((item) => (
               <li
                 key={item.id}
                 className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
               >
-                <span className={item.isActive ? "" : "text-muted-foreground line-through"}>
-                  {item.label}
-                </span>
+                <span>{item.label}</span>
                 {withLFP && item.isLFP && <Badge variant="outline">LFP</Badge>}
-                {!item.isActive && <Badge variant="ghost">inactive</Badge>}
-                <span className="ml-auto flex items-center gap-1">
+                <span className="ml-auto">
                   <Button
                     variant="ghost"
                     size="xs"
-                    onClick={() => toggleActive(item)}
+                    onClick={() => setArchived(item, true)}
                     disabled={pending}
                   >
-                    {item.isActive ? "Deactivate" : "Activate"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Delete ${item.label}`}
-                    onClick={() => setConfirmDelete(item)}
-                    disabled={pending}
-                  >
-                    <Trash2Icon />
+                    <ArchiveIcon /> Archive
                   </Button>
                 </span>
               </li>
             ))}
           </ul>
         )}
-      </CardContent>
 
-      <Dialog
-        open={confirmDelete !== null}
-        onOpenChange={(open) => !open && setConfirmDelete(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete “{confirmDelete?.label}”?</DialogTitle>
-            <DialogDescription>
-              Existing job orders keep the text they already have — this only
-              removes it from the dropdown. Deactivate instead if you may need
-              it again.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter showCloseButton>
-            <Button
-              variant="destructive"
-              onClick={() => confirmDelete && remove(confirmDelete)}
-              disabled={pending}
-            >
-              {pending ? "Deleting…" : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {archived.length > 0 && (
+          <details className="text-sm">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              Archived ({archived.length})
+            </summary>
+            <ul className="mt-2 grid gap-1">
+              {archived.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-center gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm text-muted-foreground"
+                >
+                  <span>{item.label}</span>
+                  {withLFP && item.isLFP && <Badge variant="ghost">LFP</Badge>}
+                  <span className="ml-auto">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setArchived(item, false)}
+                      disabled={pending}
+                    >
+                      <ArchiveRestoreIcon /> Restore
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </CardContent>
     </Card>
   );
 }

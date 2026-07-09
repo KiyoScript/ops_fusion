@@ -35,7 +35,35 @@ async function main() {
   check("LFP category created", cat.isLFP === true);
   let dup = ""; try { await lookups.create(actor, { type: "JO_CATEGORY", label: "verify tarp" }); } catch (e) { dup = (e as Error).constructor.name; }
   check("duplicate category rejected", dup === "ConflictError", dup);
+
+  console.log("Archive/restore (soft delete semantics)");
+  await lookups.update(actor, { id: cat.id, isActive: false });
+  const activeCats = await lookups.list(actor, "JO_CATEGORY");
+  check("archived category hidden from pickers", !activeCats.some((c) => c.id === cat.id));
+  await lookups.update(actor, { id: cat.id, isActive: true });
+  const restoredCats = await lookups.list(actor, "JO_CATEGORY");
+  check("restored category visible again", restoredCats.some((c) => c.id === cat.id));
   await lookups.remove(actor, cat.id);
+
+  console.log("OPSServices category import (Sales- prefix + LF flag)");
+  const OPS_CSV = [
+    "Sales - Verify Acrylic 3D,LF",
+    "Sales - Verify Photocopy,",
+    "Sales - Verify Acrylic 3D,LF", // in-file duplicate
+    ",",
+  ].join("\n");
+  const catImport = await lookups.importCategories(actor, parseCsv(OPS_CSV));
+  check("2 categories imported", catImport.created === 2, catImport);
+  check("in-file duplicate reported", catImport.errors.length === 1, catImport.errors);
+  const catList = await lookups.list(actor, "JO_CATEGORY");
+  const acrylic = catList.find((c) => c.label === "Verify Acrylic 3D");
+  check("'Sales - ' prefix stripped", !!acrylic, catList.map((c) => c.label).filter((l) => l.startsWith("Verify")));
+  check("LF column mapped to LFP flag", acrylic?.isLFP === true && catList.find((c) => c.label === "Verify Photocopy")?.isLFP === false);
+  const reimport = await lookups.importCategories(actor, parseCsv(OPS_CSV));
+  check("re-import skips existing", reimport.created === 0 && reimport.skippedExisting.length === 2, reimport);
+  for (const c of catList.filter((c) => c.label.startsWith("Verify"))) {
+    await lookups.remove(actor, c.id);
+  }
 
   console.log("Employee master");
   const created = await emps.create(actor, { code: "VRFY00", name: "Verify, Manual Add", team: "Digital" });
