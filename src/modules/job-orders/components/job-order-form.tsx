@@ -149,12 +149,14 @@ export function JobOrderForm({
       onSubmit={onSubmit}
       className={
         twoColumn
-          ? "grid items-start gap-6 lg:grid-cols-2"
+          ? "grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]"
           : "grid max-w-3xl gap-6"
       }
       noValidate
     >
-      <Card>
+      <Card
+        className={twoColumn ? "lg:col-start-1 lg:row-start-1" : undefined}
+      >
         <CardHeader>
           <CardTitle>Job order details</CardTitle>
         </CardHeader>
@@ -247,7 +249,11 @@ export function JobOrderForm({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card
+        className={
+          twoColumn ? "lg:col-start-2 lg:row-span-2 lg:row-start-1" : undefined
+        }
+      >
         <CardHeader>
           <CardTitle>Line items ({items.fields.length})</CardTitle>
         </CardHeader>
@@ -472,11 +478,15 @@ export function JobOrderForm({
       <div
         className={
           twoColumn
-            ? "flex items-center gap-2 lg:col-span-2"
+            ? "flex flex-col gap-2 lg:col-start-1 lg:row-start-2 lg:self-start"
             : "flex items-center gap-2"
         }
       >
-        <Button type="submit" disabled={isSubmitting}>
+        <Button
+          type="submit"
+          disabled={isSubmitting}
+          className={twoColumn ? "w-full" : undefined}
+        >
           {isSubmitting
             ? "Saving…"
             : mode === "create"
@@ -488,6 +498,7 @@ export function JobOrderForm({
           variant="ghost"
           onClick={() => (onCancel ? onCancel() : router.back())}
           disabled={isSubmitting}
+          className={twoColumn ? "w-full" : undefined}
         >
           Cancel
         </Button>

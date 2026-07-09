@@ -1,6 +1,6 @@
 # OPS Fusion
 
-**Fully Unified System Integrating Operations & iNventory**
+**Fully Unified System Integrating Operations & Inventory**
 
 OPS Fusion is a unified ERP for the print business (Ormoc Printshoppe / BeMore), built with [Next.js](https://nextjs.org). Instead of departments operating in silos across separate tools, it creates a single source of truth covering the full business lifecycle: **Quotation → Job Order → Sales → Delivery → Audit**. It consolidates three existing Google Apps Script + Google Sheets systems into one application.
 
@@ -10,11 +10,11 @@ OPS Fusion is a unified ERP for the print business (Ormoc Printshoppe / BeMore),
 
 This project unifies and replaces the following systems (all Google Apps Script + Google Sheets, in sibling repos under `BeMore/`):
 
-| Legacy System | What it does | Becomes |
-| --- | --- | --- |
-| `quotation_system` (SignQuote) | Quotation generator for ~27 product types, price database, public customer quote portal | Quote/QJOS integration feeding the JO Module |
-| `JOWebApp` (Job Order System 2026) | Job order tracking: JO CRUD, deadline calendar, EOD reports, incident reports, PRISM production sync | JO Module |
-| `Sales-Audit` | Cashier sales logging (SI/JO/CR), auditor reconciliation, day locking, BIR VAT tagging, doc series tracking | Sales Module (incl. Audit & Bank Recon) |
+| Legacy System                      | What it does                                                                                                | Becomes                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `quotation_system` (SignQuote)     | Quotation generator for ~27 product types, price database, public customer quote portal                     | Quote/QJOS integration feeding the JO Module |
+| `JOWebApp` (Job Order System 2026) | Job order tracking: JO CRUD, deadline calendar, EOD reports, incident reports, PRISM production sync        | JO Module                                    |
+| `Sales-Audit`                      | Cashier sales logging (SI/JO/CR), auditor reconciliation, day locking, BIR VAT tagging, doc series tracking | Sales Module (incl. Audit & Bank Recon)      |
 
 Today these run as separate apps with three different auth schemes and duplicated customer/employee data. This system replaces them with one platform, one database, and one role-based access model.
 
@@ -40,11 +40,11 @@ Architecture: **modular monolith** — see [src/modules/README.md](src/modules/R
 
 Before running this project, make sure you have the following installed:
 
-| Requirement    | Version           | Notes                                                        |
-| -------------- | ----------------- | ------------------------------------------------------------ |
-| Node.js        | `>= 20.9.0` (LTS) | Required by Next.js 16 — [download](https://nodejs.org)      |
-| npm            | `>= 10`           | Comes bundled with Node.js (project uses `package-lock.json`) |
-| Git            | Latest            | [download](https://git-scm.com/downloads)                    |
+| Requirement    | Version           | Notes                                                                                                                               |
+| -------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js        | `>= 20.9.0` (LTS) | Required by Next.js 16 — [download](https://nodejs.org)                                                                             |
+| npm            | `>= 10`           | Comes bundled with Node.js (project uses `package-lock.json`)                                                                       |
+| Git            | Latest            | [download](https://git-scm.com/downloads)                                                                                           |
 | Docker Desktop | Latest            | For the local PostgreSQL container — [download](https://docker.com). Optional if you use a hosted Postgres (Neon/Supabase) instead. |
 
 **OS:** Windows, macOS, or Linux are all supported.
@@ -99,18 +99,18 @@ Open [http://localhost:3000](http://localhost:3000) and sign in with a seeded ac
 
 ## Available Scripts
 
-| Command             | Description                                    |
-| ------------------- | ---------------------------------------------- |
-| `npm run dev`       | Start the development server                   |
-| `npm run build`     | Create a production build                      |
-| `npm run start`     | Start the production server (after build)      |
-| `npm run lint`      | Run ESLint checks                              |
-| `npm run typecheck` | Run the TypeScript compiler (no emit)          |
-| `npm run db:up`     | Start the local PostgreSQL container (Docker)  |
-| `npm run db:down`   | Stop the local PostgreSQL container            |
-| `npm run db:migrate`| Create/apply Prisma migrations                 |
-| `npm run db:seed`   | Seed initial users                             |
-| `npm run db:studio` | Open Prisma Studio (DB browser)                |
+| Command              | Description                                   |
+| -------------------- | --------------------------------------------- |
+| `npm run dev`        | Start the development server                  |
+| `npm run build`      | Create a production build                     |
+| `npm run start`      | Start the production server (after build)     |
+| `npm run lint`       | Run ESLint checks                             |
+| `npm run typecheck`  | Run the TypeScript compiler (no emit)         |
+| `npm run db:up`      | Start the local PostgreSQL container (Docker) |
+| `npm run db:down`    | Stop the local PostgreSQL container           |
+| `npm run db:migrate` | Create/apply Prisma migrations                |
+| `npm run db:seed`    | Seed initial users                            |
+| `npm run db:studio`  | Open Prisma Studio (DB browser)               |
 
 ## Development Notes
 

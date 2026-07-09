@@ -138,7 +138,7 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">OPS Fusion</span>
                 <span className="truncate text-xs text-muted-foreground">
-                  Fully Unified System Integrating Operations &amp; iNventory
+                  Fully Unified System Integrating Operations &amp; Inventory
                 </span>
               </div>
             </SidebarMenuButton>

@@ -64,7 +64,7 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   // ——— header ———
   text("ORMOC PRINTSHOPPE", { size: 16, font: bold, color: BRAND });
   y -= 14;
-  text("OPS Fusion — Fully Unified System Integrating Operations & iNventory", {
+  text("OPS Fusion — Fully Unified System Integrating Operations & Inventory", {
     size: 8,
     color: GRAY,
   });
