@@ -526,19 +526,37 @@ export class JobOrderService {
     });
   }
 
-  async softDelete(actor: Actor, id: string): Promise<void> {
+  /** Soft removal: archives every open item and cancels the JO — nothing is
+   *  hard-deleted, and the items stay browsable on the Archive page. */
+  async archiveJo(actor: Actor, id: string): Promise<void> {
     assertRole(actor, DELETE_ROLES);
     const detail = await this.jobOrders.findDetail(id);
     if (!detail) throw new NotFoundError("Job order not found.");
 
+    const now = new Date();
     await this.jobOrders.withTransaction(async (tx) => {
-      await this.jobOrders.softDelete(id, tx);
+      for (const item of detail.items) {
+        if (item.archivedAt === null) {
+          await this.jobOrders.updateItem(item.id, { archivedAt: now }, tx);
+        }
+      }
+      await this.jobOrders.setJoStatus(id, JobOrderStatus.CANCELLED, null, tx);
+      await this.jobOrders.addJoStatusHistory(
+        {
+          jobOrderId: id,
+          fromStatus: detail.status,
+          toStatus: JobOrderStatus.CANCELLED,
+          changedById: actor.id,
+          remarks: "archived",
+        },
+        tx
+      );
       await this.activity.log(
         {
           userId: actor.id,
           entityType: "JobOrder",
           entityId: id,
-          action: "delete",
+          action: "archive",
           payload: { joNumber: detail.joNumber },
         },
         tx
@@ -546,13 +564,27 @@ export class JobOrderService {
     });
   }
 
-  /** All items archived → JO COMPLETED; anything reopened → IN_PROGRESS. */
+  /** Legacy ARCHIVE_VIEW audit entry — the archive page is admin-only. */
+  async logArchiveView(actor: Actor): Promise<void> {
+    assertRole(actor, [Role.ADMIN]);
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "JobOrder",
+      entityId: "archive-view",
+      action: "archive-view",
+      payload: { viewedAt: new Date().toISOString() },
+    });
+  }
+
+  /** All items archived → JO COMPLETED; anything reopened → IN_PROGRESS.
+   *  Archived (CANCELLED) JOs never auto-flip. */
   private async syncJoStatus(
     actor: Actor,
     jobOrderId: string,
     currentStatus: JobOrderStatus,
     tx: Parameters<IJobOrderRepository["getItemsProduction"]>[1]
   ): Promise<void> {
+    if (currentStatus === JobOrderStatus.CANCELLED) return;
     const items = await this.jobOrders.getItemsProduction(jobOrderId, tx);
     const allDone =
       items.length > 0 && items.every((i) => i.archivedAt !== null);

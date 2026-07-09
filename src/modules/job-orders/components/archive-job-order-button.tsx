@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2Icon } from "lucide-react";
+import { ArchiveIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,17 +14,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { deleteJobOrderAction } from "@/app/(app)/job-orders/actions";
+import { archiveJobOrderAction } from "@/app/(app)/job-orders/actions";
 
-export function DeleteJobOrderButton({
+export function ArchiveJobOrderButton({
   id,
   joNumber,
-  onDeleted,
+  onArchived,
 }: {
   id: string;
   joNumber: string;
-  /** Modal usage: called after delete instead of navigating. */
-  onDeleted?: () => void;
+  /** Modal usage: called after archiving instead of navigating. */
+  onArchived?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,14 +32,14 @@ export function DeleteJobOrderButton({
 
   const confirm = () => {
     startTransition(async () => {
-      const result = await deleteJobOrderAction({ id });
+      const result = await archiveJobOrderAction({ id });
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
-      toast.success(`${joNumber} deleted.`);
+      toast.success(`${joNumber} archived.`);
       setOpen(false);
-      if (onDeleted) onDeleted();
+      if (onArchived) onArchived();
       else router.push("/job-orders");
       router.refresh();
     });
@@ -48,19 +48,20 @@ export function DeleteJobOrderButton({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="destructive" />}>
-        <Trash2Icon /> Delete
+        <ArchiveIcon /> Archive
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete {joNumber}?</DialogTitle>
+          <DialogTitle>Archive {joNumber}?</DialogTitle>
           <DialogDescription>
-            The job order is soft-deleted: it disappears from every list but
-            stays in the database for traceability.
+            Nothing is deleted: every item moves to the archive and the JO
+            leaves the active board. Admins can browse it anytime under
+            Archive JOs.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter showCloseButton>
           <Button variant="destructive" onClick={confirm} disabled={pending}>
-            {pending ? "Deleting…" : "Delete"}
+            {pending ? "Archiving…" : "Archive"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Archive,
   Building2,
   CalendarDays,
   ChevronsUpDown,
@@ -41,7 +42,14 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { signOutAction } from "@/lib/auth-actions";
 
-const navGroups = [
+type NavItem = {
+  title: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+};
+
+const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Overview",
     items: [{ title: "Dashboard", href: "/", icon: LayoutDashboard }],
@@ -58,6 +66,8 @@ const navGroups = [
     items: [
       { title: "Job Orders", href: "/job-orders", icon: ClipboardList },
       { title: "JO Calendar", href: "/job-orders/calendar", icon: CalendarDays },
+      // Legacy rule: the archive is admin-only
+      { title: "Archive JOs", href: "/job-orders/archive", icon: Archive, adminOnly: true },
       { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck },
     ],
   },
@@ -134,7 +144,9 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map((item) => (
+                {group.items
+                  .filter((item) => !item.adminOnly || user.role === "ADMIN")
+                  .map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       isActive={isActiveHref(item.href)}

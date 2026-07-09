@@ -272,7 +272,7 @@ export interface IJobOrderRepository {
   ): Promise<{ rows: JobOrderItemBoardRecord[]; nextCursor: string | null }>;
   updateItem(
     itemId: string,
-    data: ItemUpdateData & Partial<ItemProductionUpdateData>,
+    data: Partial<ItemUpdateData> & Partial<ItemProductionUpdateData>,
     tx?: DbTx
   ): Promise<void>;
   /** Active-board items with a deadline inside [start, end) — calendar pins.
@@ -503,7 +503,7 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
 
   async updateItem(
     itemId: string,
-    data: ItemUpdateData & Partial<ItemProductionUpdateData>,
+    data: Partial<ItemUpdateData> & Partial<ItemProductionUpdateData>,
     tx?: DbTx
   ): Promise<void> {
     await (tx ?? prisma).jobOrderItem.update({ where: { id: itemId }, data });

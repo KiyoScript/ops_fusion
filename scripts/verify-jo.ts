@@ -447,17 +447,25 @@ async function main() {
   const keychainAfter = d.items.find((i) => i.id === keychain.id)!;
   check("untouched item keeps archive + history", keychainAfter.archivedAt !== null && !(keychainAfter.statusHistory ?? "").includes("full-form"));
 
-  await jos.softDelete(actor, created.id);
-  let gone = "";
-  try {
-    await jos.get(actor, created.id);
-  } catch (e) {
-    gone = e instanceof Error ? e.constructor.name : "";
-  }
-  check("soft-deleted JO hidden (NotFoundError)", gone === "NotFoundError", gone);
+  console.log("5d) Archive JO (soft removal — nothing deleted)");
+  await jos.archiveJo(actor, created.id);
+  d = await jos.get(actor, created.id);
+  check("archived JO still readable (nothing deleted)", d.status === "CANCELLED", d.status);
+  check("all items archived", d.items.every((i) => i.archivedAt !== null));
+  const archBoard = await jos.listItems(actor, { q: "VERIFY", view: "done", take: 50 });
+  check("archived JO items on the Archive view", d.items.every((i) => archBoard.rows.some((r) => r.id === i.id)));
+  const activeBoard = await jos.listItems(actor, { q: "VERIFY", view: "active", take: 50 });
+  check("archived JO gone from active board", !activeBoard.rows.some((r) => r.jobOrderId === created.id));
+  // editing an item of an archived JO must NOT resurrect/auto-flip its status
+  await jos.updateItem(actor, {
+    id: itemId, jobOrderId: created.id, description: "Mug print",
+    qty: "12", amount: "1000", isLFP: false, isRush: false,
+  });
+  d = await jos.get(actor, created.id);
+  check("archived (CANCELLED) JO never auto-flips", d.status === "CANCELLED", d.status);
 
   const logs = await prisma.activityLog.count({
-    where: { action: { in: ["create", "update", "status", "delete", "import"] } },
+    where: { action: { in: ["create", "update", "status", "archive", "import"] } },
   });
   check("activity log rows written", logs > 0, logs);
 

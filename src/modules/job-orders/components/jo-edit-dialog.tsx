@@ -12,7 +12,7 @@ import { ErrorState } from "@/components/data-states";
 import type { JobOrderCreateInput, JobOrderDetailDto } from "../schemas/job-order";
 import { useInvalidateJobOrders, useJoDetail } from "../hooks/use-job-orders";
 import { JobOrderForm } from "./job-order-form";
-import { DeleteJobOrderButton } from "./delete-job-order-button";
+import { ArchiveJobOrderButton } from "./archive-job-order-button";
 
 /** The one-stop JO edit modal: whole JO (customer, dates, notes), every item
  *  with status + remark, add/remove items, delete — no page navigation. */
@@ -43,10 +43,10 @@ export function JoEditDialog({
               {jo ? `Edit ${jo.joNumber}` : "Edit Job Order"}
             </DialogTitle>
             {jo && canDelete && (
-              <DeleteJobOrderButton
+              <ArchiveJobOrderButton
                 id={jo.id}
                 joNumber={jo.joNumber}
-                onDeleted={done}
+                onArchived={done}
               />
             )}
           </div>

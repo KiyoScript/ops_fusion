@@ -99,7 +99,7 @@ export async function moveJoDeadlineAction(
   }
 }
 
-export async function deleteJobOrderAction(
+export async function archiveJobOrderAction(
   input: unknown
 ): Promise<ActionResult<null>> {
   try {
@@ -107,7 +107,7 @@ export async function deleteJobOrderAction(
     const parsed = z.object({ id: z.string().min(1) }).safeParse(input);
     if (!parsed.success) return fail(firstIssue(parsed.error));
 
-    await getJobOrderService().softDelete(actor, parsed.data.id);
+    await getJobOrderService().archiveJo(actor, parsed.data.id);
     revalidatePath("/job-orders");
     return ok(null);
   } catch (err) {
