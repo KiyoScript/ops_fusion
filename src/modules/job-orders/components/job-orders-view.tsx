@@ -108,7 +108,7 @@ export function JobOrdersView({
           {canImport && <ImportDialog />}
           {canWrite && (
             <Button nativeButton={false} render={<Link href="/job-orders/new" />}>
-              <PlusIcon /> New Job Order
+              <PlusIcon /> New JO/PO
             </Button>
           )}
         </div>
@@ -160,7 +160,12 @@ export function JobOrdersView({
                   >
                     <TableCell className="align-top whitespace-nowrap">
                       <div className="grid justify-items-start gap-1">
-                        <span className="font-semibold">{row.joNumber}</span>
+                        {/* per line item, like the legacy sheet: JO# + item suffix */}
+                        <span className="font-semibold">
+                          {row.lineItemId ?? row.joNumber}
+                        </span>
+                        {row.joIsPO && <ColorBadge tone="purple" label="PO" />}
+                        {row.joIsNonJo && <ColorBadge tone="gray" label="NON-JO" />}
                         {row.isRush && <ColorBadge tone="red" label="🔥 RUSH" />}
                       </div>
                     </TableCell>

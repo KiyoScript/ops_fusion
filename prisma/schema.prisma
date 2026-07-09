@@ -389,6 +389,10 @@ model JobOrder {
   planDateStart    DateTime? // legacy JOWebApp plan window (cols C/D)
   planDateEnd      DateTime?
   isLFP            Boolean           @default(false) // LFP JOs print 3 copies (spec 1.2 step 3)
+  // JO/PO typing (fusion-only): PO and non-JO records carry a manually typed
+  // number; when both are false the number is auto-generated (R-AD format).
+  isPO             Boolean           @default(false)
+  isNonJo          Boolean           @default(false)
   confirmationType ConfirmationType? // how customer confirmed (approval precondition)
   subtotal         Decimal           @default(0) @db.Decimal(12, 2)
   total            Decimal           @default(0) @db.Decimal(12, 2)

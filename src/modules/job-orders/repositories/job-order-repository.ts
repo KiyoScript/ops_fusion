@@ -30,6 +30,8 @@ const detailSelect = {
   id: true,
   joNumber: true,
   status: true,
+  isPO: true,
+  isNonJo: true,
   notes: true,
   planDateStart: true,
   planDateEnd: true,
@@ -49,6 +51,8 @@ const itemBoardInclude = {
     select: {
       id: true,
       joNumber: true,
+      isPO: true,
+      isNonJo: true,
       customer: { select: { name: true } },
     },
   },
@@ -105,6 +109,8 @@ export type ItemUpdateData = Omit<
 
 export type JobOrderCreateData = {
   joNumber: string;
+  isPO?: boolean;
+  isNonJo?: boolean;
   customerId: string;
   status: JobOrderStatus;
   deadline?: Date | null;
@@ -275,7 +281,13 @@ export interface IJobOrderRepository {
   /** Moves the deadline of every OPEN item of the JO + the JO header. */
   moveJoDeadline(jobOrderId: string, newDate: Date, tx?: DbTx): Promise<number>;
   findDetail(id: string): Promise<JobOrderDetailRecord | null>;
-  existsJoNumber(joNumber: string, excludeId?: string): Promise<boolean>;
+  existsJoNumber(
+    joNumber: string,
+    excludeId?: string,
+    tx?: DbTx
+  ): Promise<boolean>;
+  /** Atomically increments and returns the named counter (JO numbering). */
+  nextCounter(key: string, tx?: DbTx): Promise<number>;
   /** Returns the subset of joNumbers already in the DB (case-insensitive). */
   filterExistingJoNumbers(joNumbers: string[]): Promise<string[]>;
   createWithItems(
@@ -446,6 +458,7 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
         {
           OR: [
             { description: { contains: filter.q, mode: "insensitive" } },
+            { lineItemId: { contains: filter.q, mode: "insensitive" } },
             {
               jobOrder: {
                 joNumber: { contains: filter.q, mode: "insensitive" },
@@ -540,8 +553,12 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     });
   }
 
-  async existsJoNumber(joNumber: string, excludeId?: string): Promise<boolean> {
-    const found = await prisma.jobOrder.findFirst({
+  async existsJoNumber(
+    joNumber: string,
+    excludeId?: string,
+    tx?: DbTx
+  ): Promise<boolean> {
+    const found = await (tx ?? prisma).jobOrder.findFirst({
       where: {
         joNumber: { equals: joNumber, mode: "insensitive" },
         ...(excludeId ? { id: { not: excludeId } } : {}),
@@ -549,6 +566,15 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       select: { id: true },
     });
     return !!found;
+  }
+
+  async nextCounter(key: string, tx?: DbTx): Promise<number> {
+    const counter = await (tx ?? prisma).counter.upsert({
+      where: { key },
+      create: { key, value: 1 },
+      update: { value: { increment: 1 } },
+    });
+    return counter.value;
   }
 
   async filterExistingJoNumbers(joNumbers: string[]): Promise<string[]> {

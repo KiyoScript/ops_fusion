@@ -66,14 +66,39 @@ export const itemEditInput = itemFields
   })
   .check(lfpCheck);
 
-const jobOrderBaseInput = z.object({
-  joNumber: z.string().trim().min(1, "JO Number is required.").max(60),
-  customerName: z.string().trim().min(1, "Customer Name is required.").max(200),
-  notes: z.string().trim().max(2000).optional(),
-  planDateStart: dateString,
-  planDateEnd: dateString,
-  items: z.array(jobOrderItemInput).min(1, "At least one item is required."),
-});
+// JO/PO typing (fusion-only, not in legacy): PO and non-JO numbers are typed
+// manually; a plain JO gets an auto-generated "R-AD{yyyy}-{MM}-{dd}-{seq}".
+const jobOrderBaseInput = z
+  .object({
+    joNumber: z.string().trim().max(60).optional(),
+    isPO: z.boolean(),
+    isNonJo: z.boolean(),
+    customerName: z.string().trim().min(1, "Customer Name is required.").max(200),
+    notes: z.string().trim().max(2000).optional(),
+    planDateStart: dateString,
+    planDateEnd: dateString,
+    items: z.array(jobOrderItemInput).min(1, "At least one item is required."),
+  })
+  .check((ctx) => {
+    if (ctx.value.isPO && ctx.value.isNonJo) {
+      ctx.issues.push({
+        code: "custom",
+        message: "Pick either PO or Non-JO, not both.",
+        path: ["isPO"],
+        input: ctx.value,
+      });
+    }
+    if ((ctx.value.isPO || ctx.value.isNonJo) && !ctx.value.joNumber) {
+      ctx.issues.push({
+        code: "custom",
+        message: ctx.value.isPO
+          ? "PO Number is required."
+          : "Reference number is required.",
+        path: ["joNumber"],
+        input: ctx.value,
+      });
+    }
+  });
 
 // Legacy parity (submitNewJO): a NEW JO requires a deadline on every item.
 // Edits don't re-validate it (updateJO never did) so imported historical
@@ -206,6 +231,8 @@ export type JobOrderItemRowDto = JobOrderItemDto & {
   jobOrderId: string;
   joNumber: string;
   customerName: string;
+  joIsPO: boolean;
+  joIsNonJo: boolean;
 };
 
 export type JobOrderItemsPageDto = {
@@ -217,6 +244,8 @@ export type JobOrderDetailDto = {
   id: string;
   joNumber: string;
   status: string;
+  isPO: boolean;
+  isNonJo: boolean;
   customer: { id: string; name: string };
   notes: string | null;
   planDateStart: string | null;

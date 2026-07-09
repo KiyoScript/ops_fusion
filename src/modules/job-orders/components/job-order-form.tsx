@@ -73,6 +73,8 @@ export function JobOrderForm({
     ),
     defaultValues: initialValues ?? {
       joNumber: "",
+      isPO: false,
+      isNonJo: false,
       customerName: "",
       notes: "",
       planDateStart: "",
@@ -82,6 +84,8 @@ export function JobOrderForm({
   });
   const items = useFieldArray({ control: form.control, name: "items" });
   const watchedItems = useWatch({ control: form.control, name: "items" });
+  const watchedIsPO = useWatch({ control: form.control, name: "isPO" });
+  const watchedIsNonJo = useWatch({ control: form.control, name: "isNonJo" });
   const { errors, isSubmitting } = form.formState;
 
   // Maintained dropdown lists (Maintenance → Job Orders). Statuses fall back
@@ -115,7 +119,9 @@ export function JobOrderForm({
       return;
     }
     toast.success(
-      mode === "create" ? `${values.joNumber} created.` : "Job order updated."
+      mode === "create"
+        ? `${values.joNumber?.trim() || "Job order"} created.`
+        : "Job order updated."
     );
     if (onSuccess) {
       onSuccess();
@@ -134,15 +140,57 @@ export function JobOrderForm({
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
-            <Label htmlFor="joNumber">JO Number</Label>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label htmlFor="joNumber">
+                {watchedIsPO
+                  ? "PO Number"
+                  : watchedIsNonJo
+                    ? "Reference #"
+                    : "JO Number"}
+              </Label>
+              <span className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-primary"
+                    disabled={mode === "edit"}
+                    {...form.register("isPO", {
+                      onChange: (e) => {
+                        if (e.target.checked) form.setValue("isNonJo", false);
+                      },
+                    })}
+                  />
+                  PO
+                </label>
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-primary"
+                    disabled={mode === "edit"}
+                    {...form.register("isNonJo", {
+                      onChange: (e) => {
+                        if (e.target.checked) form.setValue("isPO", false);
+                      },
+                    })}
+                  />
+                  Non-JO
+                </label>
+              </span>
+            </div>
             <Input
               id="joNumber"
-              placeholder="From the physical JO slip"
-              disabled={mode === "edit"}
+              placeholder={
+                watchedIsPO
+                  ? "Type the customer's PO number"
+                  : watchedIsNonJo
+                    ? "Type the reference number"
+                    : "Auto-generated (R-AD…)"
+              }
+              disabled={mode === "edit" || (!watchedIsPO && !watchedIsNonJo)}
               aria-invalid={!!errors.joNumber}
               {...form.register("joNumber")}
             />
-            <FieldError message={errors.joNumber?.message} />
+            <FieldError message={errors.joNumber?.message ?? errors.isPO?.message} />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="customerName">Customer</Label>

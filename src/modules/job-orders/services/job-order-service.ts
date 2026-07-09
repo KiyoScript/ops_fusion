@@ -4,6 +4,7 @@ import { assertRole, type Actor } from "@/lib/authz";
 import { JobOrderStatus, Role } from "@/generated/prisma/enums";
 import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
+import type { DbTx } from "@/modules/shared/repositories/types";
 import type {
   IJobOrderRepository,
   ItemCreateData,
@@ -51,6 +52,27 @@ const dateOnly = (d: Date | null): string | null =>
   d ? format(d, "yyyy-MM-dd") : null;
 const money = (n: number): string => n.toFixed(2);
 
+// ══════════════════════════════════════════════════════════════════════════
+// TODO(QUOTATION + SALES-AUDIT + DR integration) — fusion-only workflow (NOT
+// in legacy JOWebApp), blocked until those modules exist in ops_fusion:
+//
+//   • Quotation → JO: an approved quotation converts into a JO. The schema
+//     link already exists (Quotation 1—0..1 JobOrder via quotationId).
+//   • Customer-approval gate for NON-PO JOs: before a JO can be APPROVED it
+//     needs a customer confirmation ATTACHMENT (signed quote or any file that
+//     proves agreement) plus confirmed specs, amount, and promise date. The
+//     JO status flow DRAFT → PENDING_REVIEW → APPROVED and the
+//     confirmationType column are reserved for this gate.
+//   • Items "needing layout" require approval before production starts.
+//   • JO printable: render "THIS IS FOR APPROVAL" until a "customer signed /
+//     approved" checkbox is ticked (the dot-matrix print path itself is a
+//     separate spike).
+//   • EDC — REORDER / recreate PER LINE ITEM: duplicate a line item into a
+//     new JO for repeat orders.
+//   • DR readiness: "ready for delivery" must check SALES for downpayment /
+//     payment status and expose the remaining DR balance — needs the Sales
+//     Audit + DR modules fully integrated.
+// ══════════════════════════════════════════════════════════════════════════
 export class JobOrderService {
   constructor(
     private readonly jobOrders: IJobOrderRepository,
@@ -64,6 +86,20 @@ export class JobOrderService {
   ): Promise<JobOrderListPageDto> {
     const { rows, nextCursor } = await this.jobOrders.listPage(filters);
     return { rows: rows.map(mapListRow), nextCursor };
+  }
+
+  /** Allocates the next "R-AD{yyyy}-{MM}-{dd}-{seq}" for today. Skips over
+   *  numbers that already exist (imported legacy JOs share this format). */
+  private async generateJoNumber(tx: DbTx): Promise<string> {
+    const prefix = `R-AD${format(new Date(), "yyyy-MM-dd")}`;
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const seq = await this.jobOrders.nextCounter(`jo:${prefix}`, tx);
+      const candidate = `${prefix}-${String(seq).padStart(2, "0")}`;
+      if (!(await this.jobOrders.existsJoNumber(candidate, undefined, tx))) {
+        return candidate;
+      }
+    }
+    throw new ValidationError("Could not allocate a JO number for today.");
   }
 
   /** Readable by every authenticated role (the route enforces the session). */
@@ -222,15 +258,27 @@ export class JobOrderService {
   ): Promise<{ id: string }> {
     assertRole(actor, WRITER_ROLES);
 
-    const joNumber = input.joNumber.trim();
-    if (await this.jobOrders.existsJoNumber(joNumber)) {
-      throw new ConflictError(`JO Number "${joNumber}" already exists.`);
+    // PO and non-JO numbers are typed by the user; a plain JO gets an
+    // auto-generated "R-AD{yyyy}-{MM}-{dd}-{seq}" (fusion-only behavior).
+    const manual = input.isPO || input.isNonJo;
+    const typedNumber = input.joNumber?.trim() ?? "";
+    if (manual) {
+      if (!typedNumber) {
+        throw new ValidationError(
+          input.isPO ? "PO Number is required." : "Reference number is required."
+        );
+      }
+      if (await this.jobOrders.existsJoNumber(typedNumber)) {
+        throw new ConflictError(`JO Number "${typedNumber}" already exists.`);
+      }
     }
 
-    const items = buildItems(joNumber, input.items, 0);
-    const header = deriveHeader(items);
-
     return this.jobOrders.withTransaction(async (tx) => {
+      const joNumber = manual
+        ? typedNumber
+        : await this.generateJoNumber(tx);
+      const items = buildItems(joNumber, input.items, 0);
+      const header = deriveHeader(items);
       const customer = await this.customers.findOrCreateByName(
         input.customerName,
         actor.id,
@@ -239,6 +287,8 @@ export class JobOrderService {
       const created = await this.jobOrders.createWithItems(
         {
           joNumber,
+          isPO: input.isPO,
+          isNonJo: input.isNonJo,
           customerId: customer.id,
           // Matches legacy JOWebApp semantics: a submitted JO is already in
           // production. DRAFT/PENDING_REVIEW are reserved for the future
@@ -276,11 +326,33 @@ export class JobOrderService {
         tx
       );
 
-      // TODO(PRISM): the legacy system inserted every LFP line item into the
-      // PRISM production database HERE — on JO creation ONLY, never on update
-      // (insertToPRISM_ in JobOrderCode.js, one row per isLFP item with
-      // joNumber/customer/desc/category/qty/dims/deadline/rush/lineItemId).
-      // Skipped until the PRISM module exists in ops_fusion.
+      // ══════════════════════════════════════════════════════════════════
+      // TODO(PRISM): implement the PRISM production sync here.
+      //
+      // Legacy behavior to replicate (JOWebApp → JobOrderCode.js):
+      //   • Trigger: JO CREATION ONLY — never on update/edit. The legacy code
+      //     has an explicit fix note: "PRISM insert on submitNewJO only —
+      //     NEVER touched on update".
+      //   • Which items: every line item where isLFP is true (one PRISM row
+      //     per LFP item).
+      //   • When: AFTER the JO rows are safely saved (legacy queued the
+      //     inserts and flushed them after the JO write, so a failure could
+      //     not leave orphaned PRISM rows). Here that means: after this
+      //     transaction commits, or as the last step inside it.
+      //   • Data per row — legacy "PRISM JobOrders" sheet, SCHEMA v6
+      //     (column map at the top of JobOrderCode.js):
+      //       A JO_Number      B Customer       C JobDescription
+      //       D Category       E Width (lfpWidth)  F Height (lfpHeight)
+      //       G Quantity       H Unit (lfpUnit)    I PlottingLink (empty)
+      //       J Status         K RollID (empty)    L CreatedBy (actor email)
+      //       M DateCreated    N CorrectedQty      O PRISM_Status
+      //       P PRISM_JO_ID    Q RefFolderUrl      R Rush (isRush)
+      //       S Deadline       T Line Item ID (item.lineItemId)
+      //   • Reference implementation: insertToPRISM_() in
+      //     BeMore/JOWebApp/JobOrderCode.js (called from submitNewJO_impl_).
+      //
+      // Skipped for now — the PRISM module does not exist in ops_fusion yet.
+      // ══════════════════════════════════════════════════════════════════
 
       return { id: created.id };
     });
@@ -666,6 +738,8 @@ function mapItemRow(record: JobOrderItemBoardRecord): JobOrderItemRowDto {
     jobOrderId: record.jobOrder.id,
     joNumber: record.jobOrder.joNumber,
     customerName: record.jobOrder.customer.name,
+    joIsPO: record.jobOrder.isPO,
+    joIsNonJo: record.jobOrder.isNonJo,
   };
 }
 
@@ -710,6 +784,8 @@ function mapDetail(detail: JobOrderDetailRecord): JobOrderDetailDto {
     id: detail.id,
     joNumber: detail.joNumber,
     status: detail.status,
+    isPO: detail.isPO,
+    isNonJo: detail.isNonJo,
     customer: detail.customer,
     notes: detail.notes,
     planDateStart: dateOnly(detail.planDateStart),

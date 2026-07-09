@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "JobOrder" ADD COLUMN     "isNonJo" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "isPO" BOOLEAN NOT NULL DEFAULT false;

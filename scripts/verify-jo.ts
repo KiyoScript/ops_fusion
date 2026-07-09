@@ -56,8 +56,22 @@ async function cleanup() {
   await prisma.jobOrder.deleteMany({
     where: { joNumber: { startsWith: "VERIFY-" } },
   });
+  // auto-numbered fixtures (R-AD…) are only traceable via their customer
+  await prisma.jobOrder.deleteMany({
+    where: {
+      customer: { name: { in: ["X"], mode: "insensitive" } },
+    },
+  });
+  await prisma.jobOrder.deleteMany({
+    where: { customer: { name: { startsWith: "Verify Customer" } } },
+  });
   await prisma.customer.deleteMany({
-    where: { name: { startsWith: "Verify Customer" } },
+    where: {
+      OR: [
+        { name: { startsWith: "Verify Customer" } },
+        { name: { equals: "X", mode: "insensitive" } },
+      ],
+    },
   });
   await prisma.activityLog.deleteMany({
     where: { payload: { path: ["joNumber"], string_starts_with: "VERIFY-" } },
@@ -131,17 +145,17 @@ async function main() {
   });
   await jos.create(actor, {
     joNumber: "VERIFY-SM-1",
-    customerName: "Verify Customer A",
+    isPO: false, isNonJo: true, customerName: "Verify Customer A",
     items: [mkItem("Waiting - Sales & Marketing", dateStr(-1))],
   });
   await jos.create(actor, {
     joNumber: "VERIFY-SM-2",
-    customerName: "Verify Customer A",
+    isPO: false, isNonJo: true, customerName: "Verify Customer A",
     items: [mkItem("Waiting - Sales & Marketing", dateStr(2))],
   });
   await jos.create(actor, {
     joNumber: "VERIFY-CA-1",
-    customerName: "Verify Customer A",
+    isPO: false, isNonJo: true, customerName: "Verify Customer A",
     items: [mkItem("Waiting - Customers Approval", dateStr(10))],
   });
   const m = await jos.getBoardMetrics();
@@ -183,7 +197,7 @@ async function main() {
   console.log("4c) Validation parity (legacy submitNewJO)");
   const noDeadline = {
     joNumber: "VERIFY-VAL-1",
-    customerName: "X",
+    isPO: false, isNonJo: false, customerName: "X",
     items: [{ description: "d", qty: "1", amount: "5", isLFP: false, isRush: false }],
   };
   const createParse = jobOrderCreateInput.safeParse(noDeadline);
@@ -195,10 +209,62 @@ async function main() {
   );
   check("edit allows blank deadline (imported data)", jobOrderEditFormInput.safeParse(noDeadline).success);
 
+  console.log("4d) JO/PO numbering (fusion: auto R-AD, manual for PO/non-JO)");
+  const plainItem = {
+    description: "auto-numbered item",
+    qty: "1",
+    amount: "50",
+    deadline: dateStr(3),
+    isLFP: false,
+    isRush: false,
+  };
+  const auto1 = await jos.create(actor, {
+    isPO: false, isNonJo: false, customerName: "Verify Customer A",
+    items: [plainItem, { ...plainItem, description: "second item" }],
+  });
+  const auto1Detail = await jos.get(actor, auto1.id);
+  const rx = /^R-AD\d{4}-\d{2}-\d{2}-\d{2,}$/;
+  check("auto-generated number matches R-AD{date}-{seq}", rx.test(auto1Detail.joNumber), auto1Detail.joNumber);
+  check(
+    "line items get -01/-02 suffixes",
+    auto1Detail.items[0]!.lineItemId === `${auto1Detail.joNumber}-01` &&
+      auto1Detail.items[1]!.lineItemId === `${auto1Detail.joNumber}-02`,
+    auto1Detail.items.map((i) => i.lineItemId)
+  );
+  const auto2 = await jos.create(actor, {
+    isPO: false, isNonJo: false, customerName: "Verify Customer A",
+    items: [plainItem],
+  });
+  const auto2Detail = await jos.get(actor, auto2.id);
+  check("second auto JO gets a new number (collision-safe)", auto2Detail.joNumber !== auto1Detail.joNumber && rx.test(auto2Detail.joNumber), auto2Detail.joNumber);
+
+  const po = await jos.create(actor, {
+    joNumber: "VERIFY-PO # 998877",
+    isPO: true, isNonJo: false, customerName: "Verify Customer A",
+    items: [plainItem],
+  });
+  const poDetail = await jos.get(actor, po.id);
+  check("PO keeps the typed number + flag", poDetail.joNumber === "VERIFY-PO # 998877" && poDetail.isPO, poDetail.joNumber);
+
+  let noNum = "";
+  try {
+    await jos.create(actor, { isPO: true, isNonJo: false, customerName: "X", items: [plainItem] });
+  } catch (e) { noNum = (e as Error).constructor.name; }
+  check("PO without a number rejected", noNum === "ValidationError", noNum);
+  const bothFlags = jobOrderCreateInput.safeParse({
+    isPO: true, isNonJo: true, joNumber: "X-1", customerName: "X",
+    items: [plainItem],
+  });
+  check("both PO + Non-JO rejected by schema", !bothFlags.success && bothFlags.error?.issues.some((i) => i.message.includes("not both")));
+  // numbering fixtures are not part of the later board counts — remove them
+  await prisma.jobOrder.deleteMany({
+    where: { id: { in: [auto1.id, auto2.id, po.id] } },
+  });
+
   console.log("5) Create / duplicate / status flow / edit / delete");
   const created = await jos.create(actor, {
     joNumber: "VERIFY-NEW-1",
-    customerName: "Verify Customer C",
+    isPO: false, isNonJo: true, customerName: "Verify Customer C",
     notes: "from verify script",
     items: [
       {
@@ -220,7 +286,7 @@ async function main() {
   try {
     await jos.create(actor, {
       joNumber: "verify-new-1", // case-insensitive duplicate
-      customerName: "X",
+      isPO: false, isNonJo: true, customerName: "X",
       items: [{ description: "d", qty: "1", amount: "1", isLFP: false, isRush: false }],
     });
   } catch (e) {
@@ -252,7 +318,7 @@ async function main() {
   await jos.update(actor, {
     id: created.id,
     joNumber: "VERIFY-NEW-1",
-    customerName: "Verify Customer C",
+    isPO: false, isNonJo: true, customerName: "Verify Customer C",
     items: [
       { id: itemId, description: "Mug print", qty: "12", amount: "1000", isLFP: false, isRush: false },
       { description: "Extra keychains", qty: "5", amount: "250", isLFP: false, isRush: false },
@@ -268,7 +334,7 @@ async function main() {
   try {
     await jos.create(viewer, {
       joNumber: "VERIFY-NOPE",
-      customerName: "X",
+      isPO: false, isNonJo: true, customerName: "X",
       items: [{ description: "d", qty: "1", amount: "1", isLFP: false, isRush: false }],
     });
   } catch (e) {
@@ -326,7 +392,7 @@ async function main() {
   await jos.update(actor, {
     id: created.id,
     joNumber: "VERIFY-NEW-1",
-    customerName: "Verify Customer C",
+    isPO: false, isNonJo: true, customerName: "Verify Customer C",
     items: [
       {
         id: itemId,

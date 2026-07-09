@@ -84,6 +84,8 @@ export function JoEditDialog({
 function detailToFormValues(jo: JobOrderDetailDto): JobOrderCreateInput {
   return {
     joNumber: jo.joNumber,
+    isPO: jo.isPO,
+    isNonJo: jo.isNonJo,
     customerName: jo.customer.name,
     notes: jo.notes ?? "",
     planDateStart: jo.planDateStart ?? "",

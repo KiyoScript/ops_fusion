@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { BackButton } from "@/components/back-button";
 import { JobOrderForm } from "@/modules/job-orders/components/job-order-form";
 
-export const metadata: Metadata = { title: "New Job Order" };
+export const metadata: Metadata = { title: "New JO/PO" };
 
 export default async function NewJobOrderPage() {
   const session = await auth();
@@ -18,8 +18,8 @@ export default async function NewJobOrderPage() {
     <>
       <BackButton fallbackHref="/job-orders" label="Job Orders" />
       <PageHeader
-        title="New Job Order"
-        description="Enter the JO number from the physical slip, then add its line items."
+        title="New JO/PO"
+        description="Plain JOs get an auto-generated number (R-AD…). Tick PO or Non-JO to type the number manually."
       />
       <JobOrderForm mode="create" />
     </>
