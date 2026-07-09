@@ -36,7 +36,7 @@ export function JoEditDialog({
 
   return (
     <Dialog open={jobOrderId !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <div className="flex flex-wrap items-center justify-between gap-2 pr-8">
             <DialogTitle>

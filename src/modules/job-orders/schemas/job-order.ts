@@ -271,6 +271,14 @@ export type BoardMetricsDto = {
   smOverdue: number;
 };
 
+/** One calendar-drag deadline move (legacy getJODeadlineHistory). */
+export type DeadlineMoveDto = {
+  dateDisplay: string;
+  user: string;
+  oldDeadline: string;
+  newDeadline: string;
+};
+
 export type ImportRowError = { line: number; message: string };
 
 export type ImportSummaryDto = {

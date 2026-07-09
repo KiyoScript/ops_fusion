@@ -191,6 +191,8 @@ async function main() {
   check("VIEWER cannot move deadlines", calForb === "ForbiddenError", calForb);
   const moveLog = await prisma.activityLog.findFirst({ where: { action: "deadline-moved", entityId: sm1Id } });
   check("deadline move audit-logged", !!moveLog);
+  const moveHistory = await jos.getDeadlineHistory(actor, sm1Id);
+  check("deadline history readable (legacy getJODeadlineHistory)", moveHistory.length >= 1 && moveHistory[0]!.newDeadline === dateStr(6), moveHistory[0]);
   // put it back so the metrics deltas in later runs stay deterministic
   await jos.moveJoDeadline(actor, { jobOrderId: sm1Id, newDate: dateStr(-1) });
 
@@ -370,6 +372,24 @@ async function main() {
   check("modal edit updated fields", keychain2.description.includes("engraved") && keychain2.isRush && keychain2.assignedTo === "JUAN01");
   check("modal edit total recomputed (1300)", d.total === "1300", d.total);
   check("modal edit status + remark in history", (keychain2.statusHistory ?? "").includes("modal edit test"), keychain2.statusHistory);
+
+  // legacy "ADD NEW STATUS UPDATE": note appends even without a status change
+  await jos.updateItem(actor, {
+    id: keychain.id,
+    jobOrderId: created.id,
+    description: keychain2.description,
+    qty: "5",
+    amount: "300",
+    deadline: dateStr(5),
+    productionStatus: "Ongoing - Printing", // unchanged
+    remark: "note-only progress update",
+    isLFP: false,
+    isRush: true,
+  });
+  d = await jos.get(actor, created.id);
+  const keychain3 = d.items.find((i) => i.id === keychain.id)!;
+  check("note-only update appended to history", (keychain3.statusHistory ?? "").includes("note-only progress update"), keychain3.statusHistory);
+  check("note-only update keeps status unchanged", keychain3.productionStatus === "Ongoing - Printing");
 
   await jos.updateItem(actor, {
     id: keychain.id,

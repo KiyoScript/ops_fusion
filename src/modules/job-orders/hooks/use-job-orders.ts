@@ -9,6 +9,7 @@ import {
 import { fetchJson } from "@/lib/api-client";
 import type {
   BoardMetricsDto,
+  DeadlineMoveDto,
   ImportSummaryDto,
   JobOrderDetailDto,
   JobOrderItemRowDto,
@@ -53,6 +54,19 @@ export function useJoDetail(jobOrderId: string | null) {
     queryKey: ["job-orders", "detail", jobOrderId],
     queryFn: () => fetchJson<JobOrderDetailDto>(`/api/job-orders/${jobOrderId}`),
     enabled: jobOrderId !== null,
+  });
+}
+
+/** Deadline-move history of one JO (shown in the item edit modal). */
+export function useJoDeadlineHistory(jobOrderId: string | null) {
+  return useQuery({
+    queryKey: ["job-orders", "deadline-history", jobOrderId],
+    queryFn: () =>
+      fetchJson<DeadlineMoveDto[]>(
+        `/api/job-orders/${jobOrderId}/deadline-history`
+      ),
+    enabled: jobOrderId !== null,
+    staleTime: 30_000,
   });
 }
 

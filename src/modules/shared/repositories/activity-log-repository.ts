@@ -10,9 +10,21 @@ export type ActivityEntry = {
   payload?: Prisma.InputJsonValue;
 };
 
+export type ActivityRecord = {
+  createdAt: Date;
+  action: string;
+  payload: Prisma.JsonValue;
+  user: { name: string };
+};
+
 export interface IActivityLogRepository {
   log(entry: ActivityEntry, tx?: DbTx): Promise<void>;
   logMany(entries: ActivityEntry[], tx?: DbTx): Promise<void>;
+  listByEntity(
+    entityType: string,
+    entityId: string,
+    action: string
+  ): Promise<ActivityRecord[]>;
 }
 
 export class PrismaActivityLogRepository implements IActivityLogRepository {
@@ -23,5 +35,23 @@ export class PrismaActivityLogRepository implements IActivityLogRepository {
   async logMany(entries: ActivityEntry[], tx?: DbTx): Promise<void> {
     if (entries.length === 0) return;
     await (tx ?? prisma).activityLog.createMany({ data: entries });
+  }
+
+  async listByEntity(
+    entityType: string,
+    entityId: string,
+    action: string
+  ): Promise<ActivityRecord[]> {
+    return prisma.activityLog.findMany({
+      where: { entityType, entityId, action },
+      select: {
+        createdAt: true,
+        action: true,
+        payload: true,
+        user: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
   }
 }

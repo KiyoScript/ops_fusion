@@ -15,6 +15,7 @@ import {
   useInvalidateJobOrders,
   useJoCalendar,
 } from "../hooks/use-job-orders";
+import { ItemEditDialog } from "./item-edit-dialog";
 import { JoEditDialog } from "./jo-edit-dialog";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -35,6 +36,7 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-based
+  const [editingItem, setEditingItem] = useState<JobOrderItemRowDto | null>(null);
   const [editingJoId, setEditingJoId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -215,7 +217,7 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
                                 })
                               )
                             }
-                            onClick={() => setEditingJoId(pin.jobOrderId)}
+                            onClick={() => setEditingItem(pin)}
                             title={`${pin.customerName} — ${pin.description}`}
                             className={cn(
                               "w-full truncate rounded-md px-1.5 py-0.5 text-left text-xs font-medium",
@@ -241,6 +243,14 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
         </Card>
       )}
 
+      <ItemEditDialog
+        row={editingItem}
+        onClose={() => setEditingItem(null)}
+        onEditJo={(joId) => {
+          setEditingItem(null);
+          setEditingJoId(joId);
+        }}
+      />
       <JoEditDialog
         jobOrderId={editingJoId}
         canDelete={canMove}

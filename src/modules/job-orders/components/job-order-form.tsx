@@ -224,16 +224,8 @@ export function JobOrderForm({
       </Card>
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Line items</CardTitle>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => items.append(EMPTY_ITEM)}
-          >
-            <PlusIcon /> Add item
-          </Button>
+        <CardHeader>
+          <CardTitle>Line items ({items.fields.length})</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-6">
           {typeof errors.items?.message === "string" && (
@@ -434,6 +426,16 @@ export function JobOrderForm({
               )}
             </div>
           ))}
+
+          {/* Bottom placement + full width, like the legacy "+ Add Item to
+              List" button — always visible after the last item. */}
+          <Button
+            type="button"
+            className="w-full"
+            onClick={() => items.append(EMPTY_ITEM)}
+          >
+            <PlusIcon /> Add Item to List
+          </Button>
         </CardContent>
       </Card>
 

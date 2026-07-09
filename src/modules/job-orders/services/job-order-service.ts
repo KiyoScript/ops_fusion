@@ -17,6 +17,7 @@ import type {
 } from "../repositories/job-order-repository";
 import type {
   BoardMetricsDto,
+  DeadlineMoveDto,
   ItemEditInput,
   ItemStatusUpdateInput,
   MoveDeadlineInput,
@@ -167,6 +168,27 @@ export class JobOrderService {
     });
   }
 
+  /** Deadline-move history from the audit trail (legacy getJODeadlineHistory). */
+  async getDeadlineHistory(
+    _actor: Actor,
+    jobOrderId: string
+  ): Promise<DeadlineMoveDto[]> {
+    const entries = await this.activity.listByEntity(
+      "JobOrder",
+      jobOrderId,
+      "deadline-moved"
+    );
+    return entries.map((entry) => {
+      const payload = (entry.payload ?? {}) as Record<string, unknown>;
+      return {
+        dateDisplay: format(entry.createdAt, "MMMM d, yyyy, h:mm a"),
+        user: entry.user.name,
+        oldDeadline: String(payload.oldDeadline ?? "(none)"),
+        newDeadline: String(payload.newDeadline ?? "—"),
+      };
+    });
+  }
+
   /** Per-item board rows (legacy JOWebApp table: one row per line item). */
   async listItems(
     _actor: Actor,
@@ -196,6 +218,10 @@ export class JobOrderService {
     const statusChanged = !!status && status !== item.productionStatus;
     if (statusChanged) {
       Object.assign(data, buildStatusTransition(item, status, input.remark));
+    } else if (input.remark?.trim()) {
+      // Legacy "ADD NEW STATUS UPDATE": a progress note appends to the
+      // history (auto-timestamped) even when the team status is unchanged.
+      data.statusHistory = appendHistory(item.statusHistory, input.remark.trim());
     }
 
     // Recompute the JO header from the edited set of items.
