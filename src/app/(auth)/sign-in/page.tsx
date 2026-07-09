@@ -22,7 +22,7 @@ export default async function SignInPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-xl">OPS Fusion</CardTitle>
           <CardDescription>
-            One System. Every Department. Zero Gaps.
+            Fully Unified System Integrating Operations &amp; iNventory
           </CardDescription>
         </CardHeader>
         <CardContent>

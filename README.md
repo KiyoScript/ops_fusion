@@ -1,7 +1,6 @@
 # OPS Fusion
 
-**One System. Every Department. Zero Gaps.**
-*Fully Unified System Integrating Operations & iNventory*
+**Fully Unified System Integrating Operations & iNventory**
 
 OPS Fusion is a unified ERP for the print business (Ormoc Printshoppe / BeMore), built with [Next.js](https://nextjs.org). Instead of departments operating in silos across separate tools, it creates a single source of truth covering the full business lifecycle: **Quotation → Job Order → Sales → Delivery → Audit**. It consolidates three existing Google Apps Script + Google Sheets systems into one application.
 

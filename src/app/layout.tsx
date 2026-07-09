@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     template: "%s | OPS Fusion",
   },
   description:
-    "One System. Every Department. Zero Gaps — unified ERP for quotations, job orders, sales audit, and delivery receipts.",
+    "Fully Unified System Integrating Operations & iNventory — for quotations, job orders, sales audit, and delivery receipts.",
 };
 
 export default function RootLayout({
