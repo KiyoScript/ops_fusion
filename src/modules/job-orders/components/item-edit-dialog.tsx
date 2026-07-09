@@ -179,6 +179,7 @@ export function ItemEditDialog({
                     value={field.value ?? ""}
                     onChange={field.onChange}
                     options={employeeOptions}
+                    multiple
                   />
                 )}
               />

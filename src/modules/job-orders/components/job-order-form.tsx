@@ -301,6 +301,7 @@ export function JobOrderForm({
                         value={field.value ?? ""}
                         onChange={field.onChange}
                         options={employeeOptions}
+                        multiple
                       />
                     )}
                   />

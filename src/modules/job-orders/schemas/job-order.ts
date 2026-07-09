@@ -30,7 +30,7 @@ const itemFields = z.object({
   amount: amountString, // line total, like the legacy "JO Amount"
   deadline: dateString,
   productionStatus: z.string().trim().max(120).optional(),
-  assignedTo: z.string().trim().max(120).optional(),
+  assignedTo: z.string().trim().max(300).optional(), // comma-separated codes
   category: z.string().trim().max(120).optional(),
   isLFP: z.boolean(),
   lfpWidth: z.string().trim().max(20).optional(),
