@@ -19,7 +19,7 @@ export default async function NewJobOrderPage() {
         title="New JO/PO"
         description="Plain JOs get an auto-generated number (R-AD…). Tick PO or Non-JO to type the number manually."
       />
-      <JobOrderForm mode="create" />
+      <JobOrderForm mode="create" twoColumn />
     </>
   );
 }

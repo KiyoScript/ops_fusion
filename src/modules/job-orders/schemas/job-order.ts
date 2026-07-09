@@ -233,6 +233,16 @@ export type JobOrderItemRowDto = JobOrderItemDto & {
   customerName: string;
   joIsPO: boolean;
   joIsNonJo: boolean;
+  joIsApproved: boolean;
+};
+
+export type AttachmentDto = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  uploadedByName: string;
 };
 
 export type JobOrderItemsPageDto = {
@@ -246,6 +256,9 @@ export type JobOrderDetailDto = {
   status: string;
   isPO: boolean;
   isNonJo: boolean;
+  isApprovedByCustomer: boolean;
+  customerApprovedAt: string | null;
+  attachments: AttachmentDto[];
   customer: { id: string; name: string };
   notes: string | null;
   planDateStart: string | null;

@@ -28,6 +28,7 @@ export type AppAction =
   | "archive"
   | "import"
   | "move-deadline"
+  | "approve" // record the customer's approval (attachment required)
   | "maintain";
 
 export type AppSubject =
@@ -54,14 +55,16 @@ export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
       can("manage", "all");
       break;
     case Role.MANAGER: // ≈ legacy Branch Supervisor / Production Planner
-      can(["create", "update"], ["JobOrder", "JobOrderItem"]);
+      can(["create", "update", "approve"], ["JobOrder"]);
+      can(["create", "update"], ["JobOrderItem"]);
       can("archive", "JobOrder");
       can("import", "JobOrder");
       can("move-deadline", "JobOrder"); // legacy: Admin + Production Planner
       can("maintain", "Maintenance");
       break;
     case Role.ENCODER: // ≈ legacy Sales/Cashier submit rights
-      can(["create", "update"], ["JobOrder", "JobOrderItem"]);
+      can(["create", "update", "approve"], ["JobOrder"]);
+      can(["create", "update"], ["JobOrderItem"]);
       break;
     case Role.AUDITOR:
     case Role.VIEWER:

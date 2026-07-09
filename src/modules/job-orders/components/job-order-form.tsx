@@ -56,6 +56,7 @@ export function JobOrderForm({
   initialValues,
   onSuccess,
   onCancel,
+  twoColumn = false,
 }: {
   mode: "create" | "edit";
   jobOrderId?: string;
@@ -63,6 +64,8 @@ export function JobOrderForm({
   /** When set (modal usage), called after save instead of navigating. */
   onSuccess?: () => void;
   onCancel?: () => void;
+  /** Page layout: JO details on the left, line items on the right. */
+  twoColumn?: boolean;
 }) {
   const router = useRouter();
   const form = useForm<JobOrderCreateInput>({
@@ -123,6 +126,15 @@ export function JobOrderForm({
         ? `${values.joNumber?.trim() || "Job order"} created.`
         : "Job order updated."
     );
+    if (mode === "create") {
+      // open the printable right away (says "THIS IS FOR APPROVAL" until the
+      // customer approves)
+      window.open(
+        `/api/job-orders/${(result.data as { id: string }).id}/pdf`,
+        "_blank",
+        "noopener"
+      );
+    }
     if (onSuccess) {
       onSuccess();
       router.refresh();
@@ -133,12 +145,24 @@ export function JobOrderForm({
   });
 
   return (
-    <form onSubmit={onSubmit} className="grid max-w-3xl gap-6" noValidate>
+    <form
+      onSubmit={onSubmit}
+      className={
+        twoColumn
+          ? "grid items-start gap-6 lg:grid-cols-2"
+          : "grid max-w-3xl gap-6"
+      }
+      noValidate
+    >
       <Card>
         <CardHeader>
           <CardTitle>Job order details</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent
+          className={
+            twoColumn ? "grid gap-4" : "grid gap-4 sm:grid-cols-2"
+          }
+        >
           <div className="grid gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label htmlFor="joNumber">
@@ -293,29 +317,33 @@ export function JobOrderForm({
                     {...form.register(`items.${index}.deadline`)}
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor={`item-category-${index}`}>Category</Label>
-                  <Controller
-                    control={form.control}
-                    name={`items.${index}.category`}
-                    render={({ field }) => (
-                      <SuggestInput
-                        id={`item-category-${index}`}
-                        value={field.value ?? ""}
-                        onChange={(value) => {
-                          field.onChange(value);
-                          // Legacy OPSServices "LF" rule: LFP categories flip
-                          // the large-format flag automatically.
-                          if (lfpCategories.has(value.trim().toLowerCase())) {
-                            form.setValue(`items.${index}.isLFP`, true);
-                          }
-                        }}
-                        options={categoryOptions}
-                        placeholder="Tarpaulin, Photocopy…"
-                      />
-                    )}
-                  />
-                </div>
+                {/* Category + LFP appear on create only, matching the legacy
+                    forms (updateJORow had neither). */}
+                {mode === "create" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor={`item-category-${index}`}>Category</Label>
+                    <Controller
+                      control={form.control}
+                      name={`items.${index}.category`}
+                      render={({ field }) => (
+                        <SuggestInput
+                          id={`item-category-${index}`}
+                          value={field.value ?? ""}
+                          onChange={(value) => {
+                            field.onChange(value);
+                            // Legacy OPSServices "LF" rule: LFP categories flip
+                            // the large-format flag automatically.
+                            if (lfpCategories.has(value.trim().toLowerCase())) {
+                              form.setValue(`items.${index}.isLFP`, true);
+                            }
+                          }}
+                          options={categoryOptions}
+                          placeholder="Tarpaulin, Photocopy…"
+                        />
+                      )}
+                    />
+                  </div>
+                )}
                 <div className="grid gap-2">
                   <Label htmlFor={`item-status-${index}`}>
                     {mode === "create" ? "Initial status" : "Status"}
@@ -384,17 +412,19 @@ export function JobOrderForm({
                   />
                   Rush
                 </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    {...form.register(`items.${index}.isLFP`)}
-                  />
-                  LFP (large format)
-                </label>
+                {mode === "create" && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      {...form.register(`items.${index}.isLFP`)}
+                    />
+                    LFP (large format)
+                  </label>
+                )}
               </div>
 
-              {watchedItems?.[index]?.isLFP && (
+              {mode === "create" && watchedItems?.[index]?.isLFP && (
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="grid gap-2">
                     <Label htmlFor={`item-lfpw-${index}`}>Width</Label>
@@ -439,7 +469,13 @@ export function JobOrderForm({
         </CardContent>
       </Card>
 
-      <div className="flex items-center gap-2">
+      <div
+        className={
+          twoColumn
+            ? "flex items-center gap-2 lg:col-span-2"
+            : "flex items-center gap-2"
+        }
+      >
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting
             ? "Saving…"

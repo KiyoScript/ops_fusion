@@ -210,6 +210,7 @@ model User {
   activityLogs       ActivityLog[]
   lookupsCreated     LookupOption[]              @relation("LookupCreatedBy")
   employeesCreated   Employee[]                  @relation("EmployeeCreatedBy")
+  attachmentsUploaded JobOrderAttachment[]       @relation("AttachmentUploadedBy")
 }
 
 // Auth.js OAuth account linking (Google)
@@ -393,6 +394,12 @@ model JobOrder {
   // number; when both are false the number is auto-generated (R-AD format).
   isPO             Boolean           @default(false)
   isNonJo          Boolean           @default(false)
+  // Customer approval gate (fusion-only): checking this REQUIRES at least one
+  // attachment as proof (signed quote, photo, any file) — the signal that the
+  // JO is final and production may start. The printable says "THIS IS FOR
+  // APPROVAL" until this is set.
+  isApprovedByCustomer Boolean       @default(false)
+  customerApprovedAt   DateTime?
   confirmationType ConfirmationType? // how customer confirmed (approval precondition)
   subtotal         Decimal           @default(0) @db.Decimal(12, 2)
   total            Decimal           @default(0) @db.Decimal(12, 2)
@@ -410,6 +417,7 @@ model JobOrder {
 
   items            JobOrderItem[]
   statusHistory    JobOrderStatusHistory[]
+  attachments      JobOrderAttachment[]
   sale             Sale?
   deliveryReceipts DeliveryReceipt[]
   apApplications   AdvancePaymentApplication[]
@@ -466,6 +474,24 @@ model JobOrderItem {
   @@index([deadline])
   @@index([archivedAt])
   @@index([lineItemId])
+}
+
+// Customer-approval proof files (signed quote, photo of PO, screenshots…).
+// Stored in the database — small files, atomic with the approval itself.
+model JobOrderAttachment {
+  id           String   @id @default(cuid())
+  jobOrderId   String
+  jobOrder     JobOrder @relation(fields: [jobOrderId], references: [id], onDelete: Cascade)
+  fileName     String
+  mimeType     String
+  size         Int
+  data         Bytes
+  uploadedById String
+  uploadedBy   User     @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([jobOrderId])
+  @@index([uploadedById])
 }
 
 model JobOrderStatusHistory {

@@ -1,5 +1,7 @@
 "use client";
 
+import { FileTextIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -13,6 +15,7 @@ import type { JobOrderCreateInput, JobOrderDetailDto } from "../schemas/job-orde
 import { useInvalidateJobOrders, useJoDetail } from "../hooks/use-job-orders";
 import { JobOrderForm } from "./job-order-form";
 import { ArchiveJobOrderButton } from "./archive-job-order-button";
+import { CustomerApprovalSection } from "./customer-approval-section";
 
 /** The one-stop JO edit modal: whole JO (customer, dates, notes), every item
  *  with status + remark, add/remove items, delete — no page navigation. */
@@ -42,13 +45,31 @@ export function JoEditDialog({
             <DialogTitle>
               {jo ? `Edit ${jo.joNumber}` : "Edit Job Order"}
             </DialogTitle>
-            {jo && canDelete && (
-              <ArchiveJobOrderButton
-                id={jo.id}
-                joNumber={jo.joNumber}
-                onArchived={done}
-              />
-            )}
+            <span className="flex items-center gap-2">
+              {jo && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={
+                    <a
+                      href={`/api/job-orders/${jo.id}/pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    />
+                  }
+                >
+                  <FileTextIcon /> PDF
+                </Button>
+              )}
+              {jo && canDelete && (
+                <ArchiveJobOrderButton
+                  id={jo.id}
+                  joNumber={jo.joNumber}
+                  onArchived={done}
+                />
+              )}
+            </span>
           </div>
           <DialogDescription>
             {jo
@@ -68,13 +89,16 @@ export function JoEditDialog({
             onRetry={() => detail.refetch()}
           />
         ) : jo ? (
-          <JobOrderForm
-            mode="edit"
-            jobOrderId={jo.id}
-            initialValues={detailToFormValues(jo)}
-            onSuccess={done}
-            onCancel={onClose}
-          />
+          <div className="grid gap-4">
+            <CustomerApprovalSection jo={jo} onChanged={invalidate} />
+            <JobOrderForm
+              mode="edit"
+              jobOrderId={jo.id}
+              initialValues={detailToFormValues(jo)}
+              onSuccess={done}
+              onCancel={onClose}
+            />
+          </div>
         ) : null}
       </DialogContent>
     </Dialog>

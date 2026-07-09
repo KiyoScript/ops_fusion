@@ -465,6 +465,54 @@ async function main() {
   d = await jos.get(actor, created.id);
   check("archived (CANCELLED) JO never auto-flips", d.status === "CANCELLED", d.status);
 
+  console.log("5e) Customer approval (attachment required) + PDF printable");
+  const apJo = await jos.create(actor, {
+    joNumber: "VERIFY-AP-1",
+    isPO: false, isNonJo: true, customerName: "Verify Customer A",
+    items: [plainItem],
+  });
+  let noFile = "";
+  try { await jos.approveByCustomer(actor, apJo.id, []); } catch (e) { noFile = (e as Error).constructor.name; }
+  check("approval without attachment rejected", noFile === "ValidationError", noFile);
+
+  await jos.approveByCustomer(actor, apJo.id, [
+    { fileName: "signed-quote.png", mimeType: "image/png", size: 4, data: new Uint8Array([1, 2, 3, 4]) },
+  ]);
+  let apDetail = await jos.get(actor, apJo.id);
+  check("approved flag + timestamp set", apDetail.isApprovedByCustomer && apDetail.customerApprovedAt !== null);
+  check("attachment stored + listed", apDetail.attachments.length === 1 && apDetail.attachments[0]!.fileName === "signed-quote.png", apDetail.attachments);
+  const att = await jos.getAttachment(actor, apDetail.attachments[0]!.id);
+  check("attachment downloadable (bytes + mime)", att.data.length === 4 && att.mimeType === "image/png");
+  const apRows = await jos.listItems(actor, { q: "VERIFY-AP-1", view: "all", take: 5 });
+  check("board row carries approved flag", apRows.rows[0]!.joIsApproved === true);
+
+  const { renderJoPdf } = await import("../src/modules/job-orders/services/jo-pdf");
+  const { PDFDocument } = await import("pdf-lib");
+  const approvedPdfBytes = await renderJoPdf(apDetail);
+  check("PDF renders (%PDF header)", Buffer.from(approvedPdfBytes.slice(0, 5)).toString() === "%PDF-");
+  check("approved PDF parses (>=1 page)", (await PDFDocument.load(approvedPdfBytes)).getPageCount() >= 1);
+
+  await jos.revokeCustomerApproval(actor, apJo.id);
+  apDetail = await jos.get(actor, apJo.id);
+  check("revoke clears flag, keeps attachments", !apDetail.isApprovedByCustomer && apDetail.attachments.length === 1);
+  const unapprovedPdfBytes = await renderJoPdf(apDetail);
+  check("unapproved PDF parses (>=1 page)", (await PDFDocument.load(unapprovedPdfBytes)).getPageCount() >= 1);
+  // text is font-encoded in the stream, so compare structurally: the approval
+  // branch (stamp vs FOR-APPROVAL banner + signature block) must change output
+  check(
+    "approved vs unapproved printables differ (banner/signature branch)",
+    unapprovedPdfBytes.length !== approvedPdfBytes.length,
+    [approvedPdfBytes.length, unapprovedPdfBytes.length]
+  );
+
+  let apForb = "";
+  try {
+    await jos.approveByCustomer(viewer, apJo.id, [
+      { fileName: "x.png", mimeType: "image/png", size: 1, data: new Uint8Array([1]) },
+    ]);
+  } catch (e) { apForb = (e as Error).constructor.name; }
+  check("VIEWER cannot approve", apForb === "ForbiddenError", apForb);
+
   const logs = await prisma.activityLog.count({
     where: { action: { in: ["create", "update", "status", "archive", "import"] } },
   });
@@ -488,9 +536,10 @@ async function main() {
       abilityOf("MANAGER").cannot("read", "Archive")
   );
   check(
-    "ENCODER: create/update only",
+    "ENCODER: create/update/approve only",
     abilityOf("ENCODER").can("create", "JobOrder") &&
       abilityOf("ENCODER").can("update", "JobOrderItem") &&
+      abilityOf("ENCODER").can("approve", "JobOrder") &&
       abilityOf("ENCODER").cannot("import", "JobOrder") &&
       abilityOf("ENCODER").cannot("archive", "JobOrder") &&
       abilityOf("ENCODER").cannot("maintain", "Maintenance")

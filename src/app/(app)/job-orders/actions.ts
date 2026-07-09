@@ -99,6 +99,22 @@ export async function moveJoDeadlineAction(
   }
 }
 
+export async function revokeCustomerApprovalAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const parsed = z.object({ id: z.string().min(1) }).safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+
+    await getJobOrderService().revokeCustomerApproval(actor, parsed.data.id);
+    revalidatePath("/job-orders");
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export async function archiveJobOrderAction(
   input: unknown
 ): Promise<ActionResult<null>> {

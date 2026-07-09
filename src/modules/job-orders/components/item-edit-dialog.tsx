@@ -48,7 +48,6 @@ export function ItemEditDialog({
 }) {
   const invalidate = useInvalidateJobOrders();
   const statusLookups = useLookupOptions("JO_STATUS");
-  const categoryLookups = useLookupOptions("JO_CATEGORY");
   const employees = useEmployeeOptions();
   const deadlineMoves = useJoDeadlineHistory(row?.jobOrderId ?? null);
 
@@ -63,13 +62,11 @@ export function ItemEditDialog({
   }, [row, form]);
 
   const watchedStatus = useWatch({ control: form.control, name: "productionStatus" });
-  const watchedLFP = useWatch({ control: form.control, name: "isLFP" });
   const { errors, isSubmitting } = form.formState;
 
   const statusOptions = statusLookups.data?.length
     ? statusLookups.data.map((o) => o.label)
     : [...PRODUCTION_STATUS_SUGGESTIONS];
-  const categoryOptions = categoryLookups.data?.map((o) => o.label) ?? [];
   const employeeOptions = (employees.data ?? []).map((e) => ({
     value: e.code,
     label: `${e.code} — ${e.name}${e.team ? ` (${e.team})` : ""}`,
@@ -169,80 +166,33 @@ export function ItemEditDialog({
             </p>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label htmlFor="ie-assigned">Assigned to</Label>
-              <Controller
-                control={form.control}
-                name="assignedTo"
-                render={({ field }) => (
-                  <SuggestInput
-                    id="ie-assigned"
-                    value={field.value ?? ""}
-                    onChange={field.onChange}
-                    options={employeeOptions}
-                    multiple
-                  />
-                )}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="ie-category">Category</Label>
-              <Controller
-                control={form.control}
-                name="category"
-                render={({ field }) => (
-                  <SuggestInput
-                    id="ie-category"
-                    value={field.value ?? ""}
-                    onChange={field.onChange}
-                    options={categoryOptions}
-                  />
-                )}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-6">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
-                {...form.register("isRush")}
-              />
-              🔥 Rush item
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
-                {...form.register("isLFP")}
-              />
-              LFP (large format)
-            </label>
-          </div>
-
-          {watchedLFP && (
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="grid gap-2">
-                <Label htmlFor="ie-lfpw">Width</Label>
-                <Input
-                  id="ie-lfpw"
-                  aria-invalid={!!errors.lfpWidth}
-                  {...form.register("lfpWidth")}
+          {/* Category + LFP live only on the create form, matching the legacy
+              updateJORow modal (which had neither). */}
+          <div className="grid gap-2">
+            <Label htmlFor="ie-assigned">Assigned to</Label>
+            <Controller
+              control={form.control}
+              name="assignedTo"
+              render={({ field }) => (
+                <SuggestInput
+                  id="ie-assigned"
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  options={employeeOptions}
+                  multiple
                 />
-                <FieldError message={errors.lfpWidth?.message} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ie-lfph">Height</Label>
-                <Input id="ie-lfph" {...form.register("lfpHeight")} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ie-lfpu">Unit</Label>
-                <Input id="ie-lfpu" placeholder="ft" {...form.register("lfpUnit")} />
-              </div>
-            </div>
-          )}
+              )}
+            />
+          </div>
+
+          <label className="flex w-fit items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              {...form.register("isRush")}
+            />
+            🔥 Rush item
+          </label>
 
           <div className="grid gap-1 text-xs">
             <span className="font-medium">Deadline moves</span>

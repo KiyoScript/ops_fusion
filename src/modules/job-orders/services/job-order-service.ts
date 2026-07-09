@@ -562,6 +562,83 @@ export class JobOrderService {
     });
   }
 
+  /** Marks the JO as approved by the customer — the "work may start" signal.
+   *  Fusion-only rule: approval REQUIRES at least one proof attachment
+   *  (signed quote, photo, any file showing the customer agreed). */
+  async approveByCustomer(
+    actor: Actor,
+    jobOrderId: string,
+    files: {
+      fileName: string;
+      mimeType: string;
+      size: number;
+      data: Uint8Array<ArrayBuffer>;
+    }[]
+  ): Promise<void> {
+    assertCan(actor, "approve", "JobOrder");
+    const detail = await this.jobOrders.findDetail(jobOrderId);
+    if (!detail) throw new NotFoundError("Job order not found.");
+
+    if (!detail.isApprovedByCustomer && files.length === 0) {
+      throw new ValidationError(
+        "Attach at least one file proving the customer approved (signed quote, photo, screenshot…)."
+      );
+    }
+
+    await this.jobOrders.withTransaction(async (tx) => {
+      await this.jobOrders.addAttachments(
+        jobOrderId,
+        files.map((file) => ({ ...file, uploadedById: actor.id })),
+        tx
+      );
+      await this.jobOrders.setCustomerApproval(jobOrderId, true, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: jobOrderId,
+          action: "customer-approved",
+          payload: {
+            joNumber: detail.joNumber,
+            attachments: files.map((f) => f.fileName),
+          },
+        },
+        tx
+      );
+    });
+  }
+
+  /** Undo an approval recorded by mistake — proof attachments are kept. */
+  async revokeCustomerApproval(actor: Actor, jobOrderId: string): Promise<void> {
+    assertCan(actor, "approve", "JobOrder");
+    const detail = await this.jobOrders.findDetail(jobOrderId);
+    if (!detail) throw new NotFoundError("Job order not found.");
+
+    await this.jobOrders.withTransaction(async (tx) => {
+      await this.jobOrders.setCustomerApproval(jobOrderId, false, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: jobOrderId,
+          action: "customer-approval-revoked",
+          payload: { joNumber: detail.joNumber },
+        },
+        tx
+      );
+    });
+  }
+
+  /** Proof-attachment download (any authenticated role may view). */
+  async getAttachment(
+    _actor: Actor,
+    attachmentId: string
+  ): Promise<{ fileName: string; mimeType: string; data: Uint8Array }> {
+    const attachment = await this.jobOrders.findAttachment(attachmentId);
+    if (!attachment) throw new NotFoundError("Attachment not found.");
+    return attachment;
+  }
+
   /** Legacy ARCHIVE_VIEW audit entry — the archive page is admin-only. */
   async logArchiveView(actor: Actor): Promise<void> {
     assertCan(actor, "read", "Archive");
@@ -796,6 +873,7 @@ function mapItemRow(record: JobOrderItemBoardRecord): JobOrderItemRowDto {
     customerName: record.jobOrder.customer.name,
     joIsPO: record.jobOrder.isPO,
     joIsNonJo: record.jobOrder.isNonJo,
+    joIsApproved: record.jobOrder.isApprovedByCustomer,
   };
 }
 
@@ -842,6 +920,16 @@ function mapDetail(detail: JobOrderDetailRecord): JobOrderDetailDto {
     status: detail.status,
     isPO: detail.isPO,
     isNonJo: detail.isNonJo,
+    isApprovedByCustomer: detail.isApprovedByCustomer,
+    customerApprovedAt: toIso(detail.customerApprovedAt),
+    attachments: detail.attachments.map((a) => ({
+      id: a.id,
+      fileName: a.fileName,
+      mimeType: a.mimeType,
+      size: a.size,
+      createdAt: a.createdAt.toISOString(),
+      uploadedByName: a.uploadedBy.name,
+    })),
     customer: detail.customer,
     notes: detail.notes,
     planDateStart: dateOnly(detail.planDateStart),

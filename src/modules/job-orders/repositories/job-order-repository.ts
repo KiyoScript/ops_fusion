@@ -32,6 +32,8 @@ const detailSelect = {
   status: true,
   isPO: true,
   isNonJo: true,
+  isApprovedByCustomer: true,
+  customerApprovedAt: true,
   notes: true,
   planDateStart: true,
   planDateEnd: true,
@@ -44,6 +46,17 @@ const detailSelect = {
   customer: { select: { id: true, name: true } },
   createdBy: { select: { name: true } },
   items: { orderBy: { sortOrder: "asc" as const } },
+  attachments: {
+    select: {
+      id: true,
+      fileName: true,
+      mimeType: true,
+      size: true,
+      createdAt: true,
+      uploadedBy: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" as const },
+  },
 } satisfies Prisma.JobOrderSelect;
 
 const itemBoardInclude = {
@@ -53,6 +66,7 @@ const itemBoardInclude = {
       joNumber: true,
       isPO: true,
       isNonJo: true,
+      isApprovedByCustomer: true,
       customer: { select: { name: true } },
     },
   },
@@ -280,6 +294,30 @@ export interface IJobOrderRepository {
   listCalendarItems(start: Date, end: Date): Promise<JobOrderItemBoardRecord[]>;
   /** Moves the deadline of every OPEN item of the JO + the JO header. */
   moveJoDeadline(jobOrderId: string, newDate: Date, tx?: DbTx): Promise<number>;
+  addAttachments(
+    jobOrderId: string,
+    files: {
+      fileName: string;
+      mimeType: string;
+      size: number;
+      data: Uint8Array<ArrayBuffer>;
+      uploadedById: string;
+    }[],
+    tx?: DbTx
+  ): Promise<void>;
+  findAttachment(
+    attachmentId: string
+  ): Promise<{
+    jobOrderId: string;
+    fileName: string;
+    mimeType: string;
+    data: Uint8Array;
+  } | null>;
+  setCustomerApproval(
+    jobOrderId: string,
+    approved: boolean,
+    tx?: DbTx
+  ): Promise<void>;
   findDetail(id: string): Promise<JobOrderDetailRecord | null>;
   existsJoNumber(
     joNumber: string,
@@ -544,6 +582,49 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       data: { deadline: newDate },
     });
     return result.count;
+  }
+
+  async addAttachments(
+    jobOrderId: string,
+    files: {
+      fileName: string;
+      mimeType: string;
+      size: number;
+      data: Uint8Array<ArrayBuffer>;
+      uploadedById: string;
+    }[],
+    tx?: DbTx
+  ): Promise<void> {
+    if (files.length === 0) return;
+    await (tx ?? prisma).jobOrderAttachment.createMany({
+      data: files.map((file) => ({ ...file, jobOrderId })),
+    });
+  }
+
+  async findAttachment(attachmentId: string): Promise<{
+    jobOrderId: string;
+    fileName: string;
+    mimeType: string;
+    data: Uint8Array;
+  } | null> {
+    return prisma.jobOrderAttachment.findUnique({
+      where: { id: attachmentId },
+      select: { jobOrderId: true, fileName: true, mimeType: true, data: true },
+    });
+  }
+
+  async setCustomerApproval(
+    jobOrderId: string,
+    approved: boolean,
+    tx?: DbTx
+  ): Promise<void> {
+    await (tx ?? prisma).jobOrder.update({
+      where: { id: jobOrderId },
+      data: {
+        isApprovedByCustomer: approved,
+        customerApprovedAt: approved ? new Date() : null,
+      },
+    });
   }
 
   async findDetail(id: string): Promise<JobOrderDetailRecord | null> {

@@ -172,6 +172,11 @@ export function JobOrdersView({
                         {row.joIsPO && <ColorBadge tone="purple" label="PO" />}
                         {row.joIsNonJo && <ColorBadge tone="gray" label="NON-JO" />}
                         {row.isRush && <ColorBadge tone="red" label="🔥 RUSH" />}
+                        {row.joIsApproved ? (
+                          <ColorBadge tone="green" label="✓ Approved" />
+                        ) : (
+                          <ColorBadge tone="gray" label="For approval" />
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="align-top">
