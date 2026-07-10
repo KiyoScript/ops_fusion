@@ -46,7 +46,7 @@ async function main() {
       { description: "Stickers", qty: "4", amount: "800", deadline: dateStr(1), isLFP: false, isRush: false },
     ],
   });
-  let detail = await jos.get(actor, created.id);
+  const detail = await jos.get(actor, created.id);
   const tarp = detail.items.find((i) => i.description.startsWith("Tarpaulin"))!;
   const sticker = detail.items.find((i) => i.description === "Stickers")!;
   // mark both done (auto-archive)
@@ -59,7 +59,7 @@ async function main() {
   }
 
   console.log("Deliverable list");
-  const deliverable = await drs.listDeliverable(actor, created.id);
+  const deliverable = await drs.listDeliverable(actor, { jobOrderId: created.id });
   check("JO appears as deliverable", deliverable.length === 1 && deliverable[0]!.joNumber === "VDR-JO-1");
   const dItems = deliverable[0]!.items;
   check("both done items deliverable, remaining = ordered", dItems.length === 2 && dItems.every((i) => i.remaining === i.qty));
@@ -80,7 +80,7 @@ async function main() {
   check("DR has 1 line (zero-qty line skipped)", dr1Detail.lines.length === 1 && dr1Detail.lines[0]!.qty === 6);
   check("DR amount = 6 x unit price (3000)", dr1Detail.amount === "3000.00", dr1Detail.amount);
 
-  const afterFirst = await drs.listDeliverable(actor, created.id);
+  const afterFirst = await drs.listDeliverable(actor, { jobOrderId: created.id });
   const tarpRemain = afterFirst[0]!.items.find((i) => i.id === tarp.id)!;
   check("tarp remaining now 4 (10-6)", tarpRemain.remaining === 4, tarpRemain.remaining);
 
@@ -89,12 +89,12 @@ async function main() {
     jobOrderId: created.id,
     lines: [{ jobOrderItemId: tarp.id, qty: "4" }, { jobOrderItemId: sticker.id, qty: "4" }],
   });
-  const afterSecond = await drs.listDeliverable(actor, created.id);
+  const afterSecond = await drs.listDeliverable(actor, { jobOrderId: created.id });
   check("tarp fully delivered → dropped; only stickers left? no, stickers delivered too", afterSecond.length === 0, afterSecond.map((g) => g.items.length));
 
   console.log("Cancel returns quantities");
   await drs.cancel(actor, dr2.id);
-  const afterCancel = await drs.listDeliverable(actor, created.id);
+  const afterCancel = await drs.listDeliverable(actor, { jobOrderId: created.id });
   const backItems = afterCancel[0]?.items ?? [];
   check("cancel restores deliverable quantities", backItems.some((i) => i.id === tarp.id && i.remaining === 4) && backItems.some((i) => i.id === sticker.id && i.remaining === 4), backItems.map((i) => [i.id === tarp.id ? "tarp" : "stk", i.remaining]));
   const dr2After = await drs.get(actor, dr2.id);

@@ -26,16 +26,22 @@ export function useDrList(q: string) {
   });
 }
 
-/** Completed JO items still to deliver (issue picker). Pass `null` to fetch
- *  every deliverable JO, `undefined` to disable the query. */
-export function useDeliverable(jobOrderId: string | null | undefined) {
+/** Completed JO items still to deliver (issue picker). Pass `null` to disable.
+ *  `q` searches the picker list; `jobOrderId` returns one JO's full item set. */
+export function useDeliverable(
+  params: { q?: string; jobOrderId?: string } | null
+) {
   return useQuery({
-    queryKey: ["delivery-receipts", "deliverable", jobOrderId ?? "all"],
-    queryFn: () =>
-      fetchJson<DeliverableJoDto[]>(
-        `/api/delivery-receipts/deliverable${jobOrderId ? `?jobOrderId=${jobOrderId}` : ""}`
-      ),
-    enabled: jobOrderId !== undefined,
+    queryKey: ["delivery-receipts", "deliverable", params],
+    queryFn: () => {
+      const search = new URLSearchParams();
+      if (params?.q) search.set("q", params.q);
+      if (params?.jobOrderId) search.set("jobOrderId", params.jobOrderId);
+      return fetchJson<DeliverableJoDto[]>(
+        `/api/delivery-receipts/deliverable?${search}`
+      );
+    },
+    enabled: params !== null,
   });
 }
 

@@ -84,8 +84,13 @@ export type DrListFilter = { q?: string; cursor?: string; take: number };
 export interface IDeliveryReceiptRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T>;
   /** Done items (production finished) of non-cancelled JOs — the service
-   *  drops any whose quantity is already fully delivered. */
-  listDeliverableItems(jobOrderId?: string): Promise<DeliverableItemRecord[]>;
+   *  drops any whose quantity is already fully delivered. With `jobOrderId`,
+   *  returns every item of that JO; otherwise a recent, optionally
+   *  search-filtered slice for the issue picker. */
+  listDeliverableItems(opts?: {
+    jobOrderId?: string;
+    q?: string;
+  }): Promise<DeliverableItemRecord[]>;
   drNumberExists(drNumber: string, tx?: DbTx): Promise<boolean>;
   nextCounter(key: string, tx: DbTx): Promise<number>;
   createDr(
@@ -111,23 +116,29 @@ export class PrismaDeliveryReceiptRepository
   }
 
   async listDeliverableItems(
-    jobOrderId?: string
+    opts: { jobOrderId?: string; q?: string } = {}
   ): Promise<DeliverableItemRecord[]> {
+    const { jobOrderId, q } = opts;
+    const joWhere: Prisma.JobOrderWhereInput = {
+      deletedAt: null,
+      status: { not: JobOrderStatus.CANCELLED },
+      ...(jobOrderId ? { id: jobOrderId } : {}),
+    };
+    if (q) {
+      joWhere.OR = [
+        { joNumber: { contains: q, mode: "insensitive" } },
+        { customer: { name: { contains: q, mode: "insensitive" } } },
+      ];
+    }
     return prisma.jobOrderItem.findMany({
-      where: {
-        archivedAt: { not: null }, // production finished / done
-        jobOrder: {
-          deletedAt: null,
-          status: { not: JobOrderStatus.CANCELLED },
-          // Legacy JOs imported from JOWebApp were already delivered in the
-          // old system (we didn't import DR history), so they're not offered
-          // for delivery here — the DR module works on new-system JOs.
-          importedAt: null,
-          ...(jobOrderId ? { id: jobOrderId } : {}),
-        },
-      },
+      where: { archivedAt: { not: null }, jobOrder: joWhere }, // done / finished
       select: deliverableItemSelect,
-      orderBy: [{ jobOrder: { joNumber: "asc" } }, { sortOrder: "asc" }],
+      // A specific JO → all its items in order; the picker → most-recently
+      // finished first, capped so the search stays fast.
+      orderBy: jobOrderId
+        ? [{ sortOrder: "asc" }]
+        : [{ archivedAt: "desc" }, { id: "desc" }],
+      ...(jobOrderId ? {} : { take: 400 }),
     });
   }
 

@@ -45,9 +45,9 @@ export class DeliveryReceiptService {
    *  (spec 3.2 — filter by customer/JO handled at the query/UI level). */
   async listDeliverable(
     _actor: Actor,
-    jobOrderId?: string
+    opts: { jobOrderId?: string; q?: string } = {}
   ): Promise<DeliverableJoDto[]> {
-    const items = await this.drs.listDeliverableItems(jobOrderId);
+    const items = await this.drs.listDeliverableItems(opts);
     const byJo = new Map<string, DeliverableJoDto>();
 
     for (const item of items) {
@@ -86,7 +86,9 @@ export class DeliveryReceiptService {
     assertCan(actor, "issue", "DeliveryReceipt");
 
     // Current deliverable state for this JO (source of truth for remaining qty).
-    const deliverable = await this.drs.listDeliverableItems(input.jobOrderId);
+    const deliverable = await this.drs.listDeliverableItems({
+      jobOrderId: input.jobOrderId,
+    });
     if (deliverable.length === 0) {
       throw new NotFoundError("No deliverable items for this job order.");
     }

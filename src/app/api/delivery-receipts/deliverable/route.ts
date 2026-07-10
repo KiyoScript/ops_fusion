@@ -8,12 +8,11 @@ import { getDeliveryReceiptService } from "@/modules/delivery-receipts/services"
 export async function GET(request: Request) {
   try {
     const actor = await requireActor();
-    const jobOrderId =
-      new URL(request.url).searchParams.get("jobOrderId") ?? undefined;
-    const groups = await getDeliveryReceiptService().listDeliverable(
-      actor,
-      jobOrderId
-    );
+    const params = new URL(request.url).searchParams;
+    const groups = await getDeliveryReceiptService().listDeliverable(actor, {
+      jobOrderId: params.get("jobOrderId") ?? undefined,
+      q: params.get("q") ?? undefined,
+    });
     return NextResponse.json(ok(groups));
   } catch (err) {
     return NextResponse.json(fail(err), {

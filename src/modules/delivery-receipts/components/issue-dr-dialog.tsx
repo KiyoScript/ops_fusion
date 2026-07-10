@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,16 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { EmptyState } from "@/components/data-states";
 import { Skeleton } from "@/components/ui/skeleton";
 import { sanitizeInteger } from "@/lib/form-numeric";
+import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { issueDrAction } from "@/app/(app)/delivery-receipts/actions";
 import { useDeliverable, useInvalidateDrs } from "../hooks/use-delivery-receipts";
 
@@ -39,42 +33,37 @@ export function IssueDrDialog() {
   const router = useRouter();
   const invalidate = useInvalidateDrs();
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [jobOrderId, setJobOrderId] = useState<string | null>(null);
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
+  const debounced = useDebounce(search);
 
-  // All deliverable JOs (for the picker); once a JO is chosen we filter to it.
-  const deliverable = useDeliverable(open ? null : undefined);
-  const groups = useMemo(() => deliverable.data ?? [], [deliverable.data]);
-  const selected = useMemo(
-    () => groups.find((g) => g.jobOrderId === jobOrderId) ?? null,
-    [groups, jobOrderId]
-  );
+  // Search list of deliverable JOs (recent when blank); refetched on typing.
+  const list = useDeliverable(open && !jobOrderId ? { q: debounced } : null);
+  // Full item set for the chosen JO.
+  const picked = useDeliverable(jobOrderId ? { jobOrderId } : null);
+  const selected = picked.data?.[0] ?? null;
 
   const reset = (next: boolean) => {
     setOpen(next);
     if (!next) {
+      setSearch("");
       setJobOrderId(null);
       setQtys({});
       setNotes("");
     }
   };
 
-  const pickJo = (id: string) => {
+  const pickJo = (id: string, items: { id: string; remaining: number }[]) => {
     setJobOrderId(id);
-    const g = groups.find((x) => x.jobOrderId === id);
     // Prefill each line with its full remaining quantity (deliver-all default).
-    const next: Record<string, string> = {};
-    for (const item of g?.items ?? []) next[item.id] = String(item.remaining);
-    setQtys(next);
+    setQtys(Object.fromEntries(items.map((i) => [i.id, String(i.remaining)])));
   };
 
   const submit = () => {
-    if (!selected) {
-      toast.error("Pick a job order first.");
-      return;
-    }
+    if (!selected) return;
     const lines = selected.items
       .map((i) => ({ jobOrderItemId: i.id, qty: qtys[i.id] ?? "0" }))
       .filter((l) => parseInt(l.qty, 10) > 0);
@@ -108,95 +97,113 @@ export function IssueDrDialog() {
         <DialogHeader>
           <DialogTitle>Issue Delivery Receipt</DialogTitle>
           <DialogDescription>
-            Pick a completed job order, then set the quantity to deliver per
+            Find a completed job order, then set the quantity to deliver per
             line (partial allowed).
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label>Job order</Label>
-            {deliverable.isPending ? (
-              <Skeleton className="h-8 w-full" />
-            ) : groups.length === 0 ? (
-              <EmptyState
-                title="Nothing to deliver"
-                description="A JO's items appear here once they're marked done and still have undelivered quantity."
+        {!selected ? (
+          /* ── Step 1: search + pick a JO ── */
+          <div className="grid gap-3">
+            <div className="relative">
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                autoFocus
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search JO # or customer…"
+                className="pl-8"
               />
-            ) : (
-              <Select
-                value={jobOrderId ?? ""}
-                onValueChange={(v) => v && pickJo(v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a completed JO…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {groups.map((g) => (
-                    <SelectItem key={g.jobOrderId} value={g.jobOrderId}>
-                      {g.joNumber} — {g.customerName} ({g.items.length} item
-                      {g.items.length !== 1 ? "s" : ""})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          {selected && (
-            <>
-              <div className="grid gap-2 rounded-lg border p-3">
-                <div className="text-sm font-medium">{selected.customerName}</div>
-                {selected.items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex flex-wrap items-center gap-3 border-b pb-2 last:border-b-0 last:pb-0"
+            </div>
+            <div className="grid max-h-80 gap-1 overflow-y-auto">
+              {list.isPending ? (
+                Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)
+              ) : (list.data ?? []).length === 0 ? (
+                <EmptyState
+                  title="Nothing to deliver"
+                  description="A JO's items appear here once they're marked done with undelivered quantity."
+                />
+              ) : (
+                (list.data ?? []).map((g) => (
+                  <button
+                    key={g.jobOrderId}
+                    type="button"
+                    onClick={() => pickJo(g.jobOrderId, g.items)}
+                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left hover:bg-muted/50"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm">{item.description}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {item.lineItemId} · ordered {item.qty} · delivered{" "}
-                        {item.qtyDelivered} · {peso(item.unitPrice)}/pc
-                      </div>
+                    <div className="min-w-0">
+                      <div className="font-medium">{g.joNumber}</div>
+                      <div className="truncate text-xs text-muted-foreground">{g.customerName}</div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <Label htmlFor={`dr-qty-${item.id}`} className="text-xs">
-                        Deliver
-                      </Label>
-                      <Input
-                        id={`dr-qty-${item.id}`}
-                        inputMode="numeric"
-                        value={qtys[item.id] ?? ""}
-                        onChange={(e) => {
-                          const clean = sanitizeInteger(e.target.value);
-                          const capped =
-                            clean === ""
-                              ? ""
-                              : String(Math.min(parseInt(clean, 10), item.remaining));
-                          setQtys((q) => ({ ...q, [item.id]: capped }));
-                        }}
-                        className="h-8 w-20"
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        / {item.remaining} left
-                      </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {g.items.length} item{g.items.length !== 1 ? "s" : ""} to deliver
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          /* ── Step 2: set quantities ── */
+          <div className="grid gap-4">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-medium">{selected.joNumber}</div>
+                <div className="text-xs text-muted-foreground">{selected.customerName}</div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setJobOrderId(null);
+                  setQtys({});
+                }}
+              >
+                ← Change JO
+              </Button>
+            </div>
+
+            <div className="grid gap-2 rounded-lg border p-3">
+              {selected.items.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex flex-wrap items-center gap-3 border-b pb-2 last:border-b-0 last:pb-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">{item.description}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {item.lineItemId} · ordered {item.qty} · delivered {item.qtyDelivered} ·{" "}
+                      {peso(item.unitPrice)}/pc
                     </div>
                   </div>
-                ))}
-              </div>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor={`dr-qty-${item.id}`} className="text-xs">Deliver</Label>
+                    <Input
+                      id={`dr-qty-${item.id}`}
+                      inputMode="numeric"
+                      value={qtys[item.id] ?? ""}
+                      onChange={(e) => {
+                        const clean = sanitizeInteger(e.target.value);
+                        const capped =
+                          clean === ""
+                            ? ""
+                            : String(Math.min(parseInt(clean, 10), item.remaining));
+                        setQtys((q) => ({ ...q, [item.id]: capped }));
+                      }}
+                      className="h-8 w-20"
+                    />
+                    <span className="text-xs text-muted-foreground">/ {item.remaining} left</span>
+                  </div>
+                </div>
+              ))}
+            </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="dr-notes">Notes</Label>
-                <Textarea
-                  id="dr-notes"
-                  rows={2}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
-            </>
-          )}
-        </div>
+            <div className="grid gap-2">
+              <Label htmlFor="dr-notes">Notes</Label>
+              <Textarea id="dr-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+          </div>
+        )}
 
         <DialogFooter showCloseButton>
           <Button onClick={submit} disabled={pending || !selected}>
