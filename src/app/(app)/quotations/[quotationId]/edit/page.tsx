@@ -47,6 +47,7 @@ export default async function EditQuotationPage({
     notes: detail.notes ?? "",
     items: detail.items.map((item) => ({
       id: item.id,
+      productId: item.productId ?? undefined,
       description: item.description,
       qty: String(item.qty),
       unitPrice: item.unitPrice,

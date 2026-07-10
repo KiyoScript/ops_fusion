@@ -423,6 +423,7 @@ function buildItems(
   totals: Totals
 ): ItemCreateData[] {
   return items.map((item, index) => ({
+    productId: item.productId || null,
     description: item.description,
     qty: parseInt(item.qty, 10),
     unitPrice: money(parseFloat(item.unitPrice)),
@@ -487,6 +488,7 @@ function mapListRow(row: QuotationListRecord): QuotationListRowDto {
 function mapItem(item: QuotationItemRecord): QuotationItemDto {
   return {
     id: item.id,
+    productId: item.productId,
     description: item.description,
     qty: item.qty,
     unitPrice: item.unitPrice.toString(),

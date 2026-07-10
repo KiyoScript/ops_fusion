@@ -34,12 +34,13 @@ export const TAX_TYPES = ["NON_VAT", "VAT_EXCLUSIVE", "VAT_INCLUSIVE"] as const;
 
 export const quotationItemInput = z.object({
   id: z.string().optional(), // present when editing an existing item
+  productId: z.string().optional(), // catalog link; empty = custom item
   description: z.string().trim().min(1, "Item description is required").max(500),
   qty: qtyString,
   unitPrice: moneyString,
   discount: moneyString.optional(), // per-line discount amount
   // Product-type specifics (size, material, eyelets…) — written by the
-  // per-product calculators (Phase 4), carried opaquely until then.
+  // per-product calculators, carried opaquely otherwise.
   specs: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -111,6 +112,7 @@ export type QuotationListFilters = z.infer<typeof quotationListFilters>;
 
 export type QuotationItemDto = {
   id: string;
+  productId: string | null;
   description: string;
   qty: number;
   unitPrice: string;

@@ -29,6 +29,8 @@ import {
 } from "../schemas/quotation";
 import { computeTotals } from "../services/totals";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
+import { useProductOptions } from "@/modules/shared/hooks/use-products";
+import { TarpCalculator } from "./tarp-calculator";
 
 // Legacy Payment Terms tab of the price DB (label ↔ downpayment fraction).
 const PAYMENT_TERMS = [
@@ -45,11 +47,15 @@ const TAX_OPTIONS = [
 ] as const;
 
 const EMPTY_ITEM: QuotationCreateInput["items"][number] = {
+  productId: "",
   description: "",
   qty: "1",
   unitPrice: "",
   discount: "",
 };
+
+// Select components reject empty values — sentinel for "no catalog product".
+const CUSTOM_ITEM = "custom";
 
 export function QuotationForm({
   mode,
@@ -77,6 +83,37 @@ export function QuotationForm({
   const items = useFieldArray({ control: form.control, name: "items" });
   const watched = useWatch({ control: form.control });
   const { errors, isSubmitting } = form.formState;
+
+  const products = useProductOptions();
+  const productById = new Map((products.data ?? []).map((p) => [p.id, p]));
+
+  // Picking a catalog product prefills price/description without clobbering
+  // anything the user already typed.
+  const onProductChange = (index: number, productId: string) => {
+    form.setValue(`items.${index}.productId`, productId);
+    const product = productById.get(productId);
+    if (!product) return;
+    const current = form.getValues(`items.${index}`);
+    if (!current.unitPrice && parseFloat(product.basePrice) > 0) {
+      form.setValue(`items.${index}.unitPrice`, product.basePrice);
+    }
+    if (!current.description) {
+      form.setValue(`items.${index}.description`, product.name);
+    }
+  };
+
+  const applyCalculator = (
+    index: number,
+    result: { description: string; unitPrice: string; specs: Record<string, unknown> }
+  ) => {
+    form.setValue(`items.${index}.description`, result.description, {
+      shouldValidate: true,
+    });
+    form.setValue(`items.${index}.unitPrice`, result.unitPrice, {
+      shouldValidate: true,
+    });
+    form.setValue(`items.${index}.specs`, result.specs);
+  };
 
   // Live preview with the SAME math the service uses on save.
   const totals = computeTotals({
@@ -233,11 +270,50 @@ export function QuotationForm({
             {typeof errors.items?.message === "string" && (
               <p className="text-sm text-destructive">{errors.items.message}</p>
             )}
-            {items.fields.map((field, index) => (
-              <div
-                key={field.id}
-                className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_5rem_7rem_7rem_auto]"
-              >
+            {items.fields.map((field, index) => {
+              const watchedItem = watched.items?.[index];
+              const product = watchedItem?.productId
+                ? productById.get(watchedItem.productId)
+                : undefined;
+              const isTarp = product?.name === "Tarpaulin";
+              return (
+              <div key={field.id} className="grid gap-3 rounded-lg border p-3">
+                <div className="grid gap-1 sm:max-w-96">
+                  <Label>Product</Label>
+                  <Controller
+                    control={form.control}
+                    name={`items.${index}.productId`}
+                    render={({ field: pf }) => (
+                      <Select
+                        value={pf.value || CUSTOM_ITEM}
+                        onValueChange={(value) =>
+                          onProductChange(
+                            index,
+                            !value || value === CUSTOM_ITEM ? "" : value
+                          )
+                        }
+                      >
+                        <SelectTrigger aria-label="Product">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={CUSTOM_ITEM}>
+                            Custom item / service
+                          </SelectItem>
+                          {(products.data ?? []).map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                              {parseFloat(p.basePrice) > 0
+                                ? ` — ₱${p.basePrice}/${p.unit}`
+                                : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[1fr_5rem_7rem_7rem_auto]">
                 <div className="grid gap-1">
                   <Label htmlFor={`item-desc-${index}`}>Description</Label>
                   <Input
@@ -296,8 +372,18 @@ export function QuotationForm({
                     <Trash2Icon />
                   </Button>
                 </div>
+                </div>
+                {isTarp && (
+                  <TarpCalculator
+                    qty={parseInt(watchedItem?.qty || "1", 10) || 1}
+                    defaultRate={parseFloat(product?.basePrice ?? "50") || 50}
+                    initialSpecs={watchedItem?.specs ?? null}
+                    onApply={(result) => applyCalculator(index, result)}
+                  />
+                )}
               </div>
-            ))}
+              );
+            })}
             <Button
               type="button"
               variant="outline"

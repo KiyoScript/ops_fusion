@@ -52,6 +52,7 @@ export type QuotationItemRecord = QuotationDetailRecord["items"][number];
 // ——— write payloads (plain data in, no Prisma types leak to services) ———
 
 export type ItemCreateData = {
+  productId?: string | null;
   description: string;
   qty: number;
   unitPrice: string;
