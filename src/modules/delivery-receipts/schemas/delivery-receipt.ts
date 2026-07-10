@@ -88,7 +88,13 @@ export type DrDetailDto = {
   notes: string | null;
   createdByName: string;
   jobOrder: { id: string; joNumber: string };
-  customer: { id: string; name: string };
+  customer: {
+    id: string;
+    name: string;
+    address: string | null;
+    tin: string | null;
+    company: string | null;
+  };
   amount: string;
   lines: DrLineDetailDto[];
   // TODO(SALES): advancePaymentApplied / balance once Sales is integrated

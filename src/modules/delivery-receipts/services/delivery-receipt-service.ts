@@ -238,7 +238,13 @@ function mapDetail(record: DrDetailRecord): DrDetailDto {
     notes: record.notes,
     createdByName: record.createdBy.name,
     jobOrder: record.jobOrder,
-    customer: record.customer,
+    customer: {
+      id: record.customer.id,
+      name: record.customer.name,
+      address: record.customer.address,
+      tin: record.customer.tin,
+      company: record.customer.company,
+    },
     amount: money(lineAmount(record)),
     lines: record.lines.map((l) => ({
       id: l.id,

@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { FileTextIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,10 +66,27 @@ export function DrDetailDialog({
     <Dialog open={drId !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 pr-8">
             {dr ? dr.drNumber : "Delivery Receipt"}
             {dr?.status === "CANCELLED" && (
               <Badge variant="destructive">Cancelled</Badge>
+            )}
+            {dr && (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                className="ml-auto"
+                render={
+                  <a
+                    href={`/api/delivery-receipts/${dr.id}/pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  />
+                }
+              >
+                <FileTextIcon /> PDF
+              </Button>
             )}
           </DialogTitle>
           <DialogDescription>

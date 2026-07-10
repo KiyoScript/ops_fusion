@@ -109,6 +109,13 @@ async function main() {
   } catch (e) { forb = (e as Error).constructor.name; }
   check("VIEWER cannot issue (ForbiddenError)", forb === "ForbiddenError", forb);
 
+  console.log("DR PDF printable");
+  const { renderDrPdf } = await import("../src/modules/delivery-receipts/services/dr-pdf");
+  const { PDFDocument } = await import("pdf-lib");
+  const bytes = await renderDrPdf(dr1Detail);
+  check("DR PDF has %PDF header", Buffer.from(bytes.slice(0, 5)).toString() === "%PDF-");
+  check("DR PDF parses (>=1 page)", (await PDFDocument.load(bytes)).getPageCount() >= 1);
+
   await cleanup();
   console.log(fails === 0 ? "\nALL DR CHECKS PASSED" : `\n${fails} FAILED`);
   process.exitCode = fails ? 1 : 0;

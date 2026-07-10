@@ -137,9 +137,20 @@ export function IssueDrDialog() {
                         {g.items.length} item{g.items.length !== 1 ? "s" : ""} to deliver
                       </span>
                     </div>
-                    <span className="text-xs wrap-break-word text-muted-foreground">
+                    <span className="text-xs font-medium wrap-break-word">
                       {g.customerName}
                     </span>
+                    {/* item descriptions so same-customer JOs are distinguishable */}
+                    <ul className="mt-0.5 grid gap-0.5 text-xs text-muted-foreground">
+                      {g.items.map((it) => (
+                        <li key={it.id} className="wrap-break-word">
+                          • {it.description.replace(/\s*\n\s*/g, " / ")}{" "}
+                          <span className="whitespace-nowrap">
+                            ({it.remaining} pc{it.remaining !== 1 ? "s" : ""})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </button>
                 ))
               )}

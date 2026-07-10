@@ -43,7 +43,9 @@ const drDetailSelect = {
   notes: true,
   createdBy: { select: { name: true } },
   jobOrder: { select: { id: true, joNumber: true } },
-  customer: { select: { id: true, name: true } },
+  customer: {
+    select: { id: true, name: true, address: true, tin: true, company: true },
+  },
   lines: {
     select: {
       id: true,
