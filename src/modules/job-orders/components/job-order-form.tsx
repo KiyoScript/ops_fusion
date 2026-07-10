@@ -30,6 +30,7 @@ import {
   PRODUCTION_STATUS_SUGGESTIONS,
 } from "../services/production-status";
 import { SuggestInput } from "@/components/suggest-input";
+import { numericField } from "@/lib/form-numeric";
 import { useLookupOptions } from "@/modules/shared/hooks/use-lookups";
 import { useEmployeeOptions } from "@/modules/shared/hooks/use-employees";
 import { CustomerCombobox } from "./customer-combobox";
@@ -299,9 +300,11 @@ export function JobOrderForm({
                   <Label htmlFor={`item-qty-${index}`}>Qty</Label>
                   <Input
                     id={`item-qty-${index}`}
-                    inputMode="numeric"
                     aria-invalid={!!errors.items?.[index]?.qty}
-                    {...form.register(`items.${index}.qty`)}
+                    {...numericField(
+                      form.register(`items.${index}.qty`),
+                      "integer"
+                    )}
                   />
                   <FieldError message={errors.items?.[index]?.qty?.message} />
                 </div>
@@ -309,9 +312,11 @@ export function JobOrderForm({
                   <Label htmlFor={`item-amount-${index}`}>JO Amount (₱)</Label>
                   <Input
                     id={`item-amount-${index}`}
-                    inputMode="decimal"
                     aria-invalid={!!errors.items?.[index]?.amount}
-                    {...form.register(`items.${index}.amount`)}
+                    {...numericField(
+                      form.register(`items.${index}.amount`),
+                      "decimal"
+                    )}
                   />
                   <FieldError message={errors.items?.[index]?.amount?.message} />
                 </div>

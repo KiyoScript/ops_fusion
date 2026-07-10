@@ -10,11 +10,13 @@ import { fetchJson } from "@/lib/api-client";
 import type {
   BoardMetricsDto,
   DeadlineMoveDto,
+  EodReportDto,
   ImportSummaryDto,
   JobOrderDetailDto,
   JobOrderItemRowDto,
   JobOrderItemsPageDto,
   JobOrderListPageDto,
+  ReportRowDto,
 } from "../schemas/job-order";
 
 export type JobOrderListParams = { q: string; view: string };
@@ -66,6 +68,18 @@ export function useJoDeadlineHistory(jobOrderId: string | null) {
         `/api/job-orders/${jobOrderId}/deadline-history`
       ),
     enabled: jobOrderId !== null,
+    staleTime: 30_000,
+  });
+}
+
+/** JO / EOD reports for a chosen "as of" date (legacy JOsReport). */
+export function useJoReports(asOf: string) {
+  return useQuery({
+    queryKey: ["job-orders", "reports", asOf],
+    queryFn: () =>
+      fetchJson<{ eod: EodReportDto; rows: ReportRowDto[] }>(
+        `/api/job-orders/reports?asOf=${asOf}`
+      ),
     staleTime: 30_000,
   });
 }

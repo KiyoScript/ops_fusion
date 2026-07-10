@@ -212,6 +212,15 @@ const SM_KEYWORDS = ["sales & marketing", "sales and marketing"];
 // Canonical overdue exclusions: finished or awaiting collection items are
 // never overdue (matches isWaitingPickupStatus/isDoneStatus in the domain).
 const PICKUP_EXCLUDE_KEYWORDS = ["pick up", "pickup", "delivery"];
+// EOD "Waiting (blocked)" bucket — broader than pickup (legacy computeEODStats_).
+const WAITING_BROAD_KEYWORDS = ["waiting", "pick up", "pickup", "delivery", "hold"];
+// "Sales & Marketing" slice (both "Ongoing -" and "Waiting -" variants).
+const SM_WHERE: Prisma.JobOrderItemWhereInput = {
+  OR: [
+    { productionStatus: { contains: "sales & marketing", mode: "insensitive" } },
+    { productionStatus: { contains: "sales and marketing", mode: "insensitive" } },
+  ],
+};
 
 const containsAny = (
   keywords: readonly string[]
@@ -277,6 +286,45 @@ const boardBase: Prisma.JobOrderItemWhereInput = {
   jobOrder: { deletedAt: null, status: { not: JobOrderStatus.CANCELLED } },
 };
 
+const DAY = 86_400_000;
+const startOfDay = (d: Date): Date => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+// Items still active at the END of `asOf` (legacy Line-up sheet as of a day):
+// not archived, or archived only after that day. Cancelling a JO archives its
+// items, so cancelled work drops out automatically.
+const activeAsOf = (nextDay: Date): Prisma.JobOrderItemWhereInput => ({
+  jobOrder: { deletedAt: null },
+  OR: [{ archivedAt: null }, { archivedAt: { gte: nextDay } }],
+});
+
+const and = (
+  ...w: Prisma.JobOrderItemWhereInput[]
+): Prisma.JobOrderItemWhereInput => ({ AND: w });
+
+/** Raw EOD numbers (legacy computeEODStats_); the service formats them. */
+export type EodStatsRaw = {
+  receivedToday: { count: number; amount: string };
+  active: { count: number; amount: string };
+  overdue: { count: number; amount: string };
+  overdueSM: number;
+  overdueYesterday: number;
+  dueToday: { count: number; amount: string };
+  dueTodaySM: number;
+  due1to3: number;
+  ongoing: number;
+  waiting: number;
+  noDeadline: number;
+  releasedToday: number;
+  cancelledToday: number;
+  longestOverdueDays: number;
+  longestOverdueCount: number;
+  longestOverdueStatus: string;
+};
+
 export interface IJobOrderRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T>;
   countBoardMetrics(): Promise<Record<BoardMetricKey, number>>;
@@ -294,6 +342,10 @@ export interface IJobOrderRepository {
   /** Active-board items with a deadline inside [start, end) — calendar pins.
    *  Waiting-pickup items are excluded (legacy: production is finished). */
   listCalendarItems(start: Date, end: Date): Promise<JobOrderItemBoardRecord[]>;
+  /** All active line items for the JO Report by Department (unpaginated). */
+  listReportRows(): Promise<JobOrderItemBoardRecord[]>;
+  /** End-of-day statistics as of the given date (legacy computeEODStats_). */
+  getEodStats(asOf: Date): Promise<EodStatsRaw>;
   /** Moves the deadline of every OPEN item of the JO + the JO header. */
   moveJoDeadline(jobOrderId: string, newDate: Date, tx?: DbTx): Promise<number>;
   addAttachments(
@@ -567,6 +619,120 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       include: itemBoardInclude,
       orderBy: [{ deadline: "asc" }, { id: "asc" }],
     });
+  }
+
+  async listReportRows(): Promise<JobOrderItemBoardRecord[]> {
+    return prisma.jobOrderItem.findMany({
+      where: boardBase,
+      include: itemBoardInclude,
+      orderBy: [{ deadline: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    });
+  }
+
+  async getEodStats(asOf: Date): Promise<EodStatsRaw> {
+    const day = startOfDay(asOf);
+    const nextDay = new Date(day.getTime() + DAY);
+    const yesterday = new Date(day.getTime() - DAY);
+    const in4 = new Date(day.getTime() + 4 * DAY);
+
+    const base = activeAsOf(nextDay);
+    const notWaitingPickup: Prisma.JobOrderItemWhereInput = {
+      NOT: containsAny(PICKUP_EXCLUDE_KEYWORDS),
+    };
+    const overdueWhere = and(base, { deadline: { lt: day } }, notWaitingPickup);
+    const archivedOn: Prisma.JobOrderItemWhereInput = {
+      archivedAt: { gte: day, lt: nextDay },
+      jobOrder: { deletedAt: null },
+    };
+
+    const countSum = async (where: Prisma.JobOrderItemWhereInput) => {
+      const [count, agg] = await Promise.all([
+        prisma.jobOrderItem.count({ where }),
+        prisma.jobOrderItem.aggregate({ where, _sum: { lineTotal: true } }),
+      ]);
+      return { count, amount: String(agg._sum.lineTotal ?? 0) };
+    };
+    const count = (where: Prisma.JobOrderItemWhereInput) =>
+      prisma.jobOrderItem.count({ where });
+
+    const [
+      receivedToday,
+      active,
+      overdue,
+      overdueSM,
+      overdueYesterday,
+      dueToday,
+      dueTodaySM,
+      due1to3,
+      ongoing,
+      waiting,
+      noDeadline,
+      releasedToday,
+      cancelledToday,
+      oldest,
+    ] = await Promise.all([
+      countSum(and(base, { jobOrder: { createdAt: { gte: day, lt: nextDay } } })),
+      countSum(base),
+      countSum(overdueWhere),
+      count(and(overdueWhere, SM_WHERE)),
+      count(
+        and(
+          activeAsOf(day),
+          { deadline: { lt: yesterday } },
+          notWaitingPickup
+        )
+      ),
+      countSum(and(base, { deadline: { gte: day, lt: nextDay } })),
+      count(and(base, { deadline: { gte: day, lt: nextDay } }, SM_WHERE)),
+      count(and(base, { deadline: { gte: nextDay, lt: in4 } })),
+      count(and(base, containsAny(ONGOING_KEYWORDS))),
+      count(and(base, containsAny(WAITING_BROAD_KEYWORDS))),
+      count(and(base, { deadline: null })),
+      count(and(archivedOn, { jobOrder: { status: { not: JobOrderStatus.CANCELLED } } })),
+      count(and(archivedOn, { jobOrder: { status: JobOrderStatus.CANCELLED } })),
+      prisma.jobOrderItem.aggregate({ where: overdueWhere, _min: { deadline: true } }),
+    ]);
+
+    // Longest overdue = oldest deadline among overdue items.
+    let longestOverdueDays = 0;
+    let longestOverdueCount = 0;
+    let longestOverdueStatus = "";
+    const oldestDeadline = oldest._min.deadline;
+    if (oldestDeadline) {
+      longestOverdueDays = Math.round(
+        (day.getTime() - startOfDay(oldestDeadline).getTime()) / DAY
+      );
+      const atOldest = await prisma.jobOrderItem.findMany({
+        where: and(overdueWhere, {
+          deadline: {
+            gte: startOfDay(oldestDeadline),
+            lt: new Date(startOfDay(oldestDeadline).getTime() + DAY),
+          },
+        }),
+        select: { productionStatus: true },
+      });
+      longestOverdueCount = atOldest.length;
+      longestOverdueStatus = atOldest[0]?.productionStatus ?? "";
+    }
+
+    return {
+      receivedToday,
+      active,
+      overdue,
+      overdueSM,
+      overdueYesterday,
+      dueToday,
+      dueTodaySM,
+      due1to3,
+      ongoing,
+      waiting,
+      noDeadline,
+      releasedToday,
+      cancelledToday,
+      longestOverdueDays,
+      longestOverdueCount,
+      longestOverdueStatus,
+    };
   }
 
   async moveJoDeadline(

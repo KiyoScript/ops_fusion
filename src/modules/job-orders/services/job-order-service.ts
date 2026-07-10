@@ -7,6 +7,7 @@ import type { ICustomerRepository } from "@/modules/shared/repositories/customer
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type { DbTx } from "@/modules/shared/repositories/types";
 import type {
+  EodStatsRaw,
   IJobOrderRepository,
   ItemCreateData,
   ItemProductionUpdateData,
@@ -19,6 +20,8 @@ import type {
 import type {
   BoardMetricsDto,
   DeadlineMoveDto,
+  EodReportDto,
+  ReportRowDto,
   ItemEditInput,
   ItemStatusUpdateInput,
   MoveDeadlineInput,
@@ -193,6 +196,57 @@ export class JobOrderService {
         newDeadline: String(payload.newDeadline ?? "—"),
       };
     });
+  }
+
+  /** JO Report by Department — all active items, grouped by status then
+   *  soonest deadline (legacy getJOReportAllDepts). Session enforced by route. */
+  async getReportRows(): Promise<ReportRowDto[]> {
+    const rows = await this.jobOrders.listReportRows();
+    const now = Date.now();
+    return rows
+      .map((r) => ({
+        id: r.id,
+        lineItemId: r.lineItemId ?? r.jobOrder.joNumber,
+        joNumber: r.jobOrder.joNumber,
+        customerName: r.jobOrder.customer.name,
+        description: r.description,
+        qty: r.qty,
+        lineTotal: r.lineTotal.toString(),
+        statusDepartment: r.productionStatus,
+        deadline: dateOnly(r.deadline),
+        daysLeft: r.deadline
+          ? Math.ceil((r.deadline.getTime() - now) / DAY_MS)
+          : null,
+        assignedTo: r.assignedTo,
+      }))
+      .sort((a, b) => {
+        const s = (a.statusDepartment ?? "").localeCompare(
+          b.statusDepartment ?? ""
+        );
+        if (s !== 0) return s;
+        const da = a.daysLeft ?? 9999;
+        const db = b.daysLeft ?? 9999;
+        return da - db;
+      });
+  }
+
+  /** End-of-day report (legacy computeEODStats_ + buildEODReportText_). */
+  async getEodReport(_actor: Actor, asOfInput?: string): Promise<EodReportDto> {
+    const asOf = asOfInput ? new Date(`${asOfInput}T00:00:00`) : new Date();
+    const raw = await this.jobOrders.getEodStats(asOf);
+    const asOfStr = format(asOf, "yyyy-MM-dd");
+    const dateLabel = format(asOf, "MMM d, yyyy");
+    // Previous EOD snapshot doesn't persist here — the trend is computed from
+    // live data as "overdue as of the day before", so it's always present.
+    const overdueYesterday = raw.overdueYesterday;
+
+    return {
+      asOf: asOfStr,
+      dateLabel,
+      ...raw,
+      overdueYesterday,
+      text: buildEodText({ ...raw, overdueYesterday }, dateLabel),
+    };
   }
 
   /** Per-item board rows (legacy JOWebApp table: one row per line item). */
@@ -696,6 +750,57 @@ export class JobOrderService {
       );
     }
   }
+}
+
+// ——— EOD report text (legacy fmtPeso_ + buildEODReportText_) ———
+
+function fmtPeso(value: string | number): string {
+  const n = typeof value === "number" ? value : parseFloat(value);
+  return (
+    "P" +
+    (isNaN(n) ? 0 : n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  );
+}
+
+function buildEodText(
+  s: EodStatsRaw & { overdueYesterday: number | null },
+  dateLabel: string
+): string {
+  const pad = (n: number | string, w: number) => String(n).padStart(w);
+  let t = "";
+  t += `JO STATUS | ${dateLabel} | EOD\n\n`;
+  t += `RECEIVED TODAY:    ${pad(s.receivedToday.count, 6)} JOs   ${fmtPeso(s.receivedToday.amount)}\n`;
+  t += `ACTIVE (total):    ${pad(s.active.count, 6)} JOs   ${fmtPeso(s.active.amount)}\n\n`;
+  t += `--- URGENT ---\n`;
+  let ovd = `Overdue (past deadline):  ${pad(s.overdue.count, 4)} JOs   ${fmtPeso(s.overdue.amount)}`;
+  if (s.overdueYesterday !== null && s.overdueYesterday !== undefined) {
+    const arrow =
+      s.overdue.count < s.overdueYesterday
+        ? "▼"
+        : s.overdue.count > s.overdueYesterday
+          ? "▲"
+          : "=";
+    ovd += `  ${arrow} (yesterday: ${s.overdueYesterday})`;
+  }
+  t += ovd + "\n";
+  t += `  └ Sales & Marketing:    ${pad(s.overdueSM, 4)} JOs\n`;
+  t += `Due today (not released): ${pad(s.dueToday.count, 4)} JOs   ${fmtPeso(s.dueToday.amount)}\n`;
+  t += `  └ Sales & Marketing:    ${pad(s.dueTodaySM, 4)} JOs\n`;
+  t += `Due in 1-3 days:          ${pad(s.due1to3, 4)} JOs\n\n`;
+  t += `--- PIPELINE ---\n`;
+  t += `Ongoing:  ${s.ongoing} JOs\n`;
+  t += `Waiting:  ${s.waiting} JOs  (blocked - customer/file/pick-up)\n\n`;
+  t += `--- COMPLETED TODAY ---\n`;
+  t += `Released:   ${s.releasedToday} JOs\n`;
+  t += `Cancelled:  ${s.cancelledToday} JOs\n\n`;
+  t += `--- FLAGS ---\n`;
+  t += `No deadline set: ${s.noDeadline} JOs — needs encoding\n`;
+  if (s.longestOverdueDays > 0) {
+    t += `Longest overdue: ${s.longestOverdueDays} days (${s.longestOverdueCount} item${s.longestOverdueCount !== 1 ? "s" : ""}${s.longestOverdueStatus ? ", " + s.longestOverdueStatus.toLowerCase() : ""})\n`;
+  } else {
+    t += `Longest overdue: none\n`;
+  }
+  return t;
 }
 
 // ——— input → persistence payloads ———

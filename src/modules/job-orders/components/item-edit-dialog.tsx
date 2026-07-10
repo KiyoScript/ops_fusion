@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SuggestInput } from "@/components/suggest-input";
+import { numericField } from "@/lib/form-numeric";
 import { useLookupOptions } from "@/modules/shared/hooks/use-lookups";
 import { useEmployeeOptions } from "@/modules/shared/hooks/use-employees";
 import { updateItemAction } from "@/app/(app)/job-orders/actions";
@@ -114,9 +115,8 @@ export function ItemEditDialog({
               <Label htmlFor="ie-qty">Qty</Label>
               <Input
                 id="ie-qty"
-                inputMode="numeric"
                 aria-invalid={!!errors.qty}
-                {...form.register("qty")}
+                {...numericField(form.register("qty"), "integer")}
               />
               <FieldError message={errors.qty?.message} />
             </div>
@@ -128,10 +128,9 @@ export function ItemEditDialog({
                 </span>
                 <Input
                   id="ie-amount"
-                  inputMode="decimal"
                   className="pl-7"
                   aria-invalid={!!errors.amount}
-                  {...form.register("amount")}
+                  {...numericField(form.register("amount"), "decimal")}
                 />
               </div>
               <FieldError message={errors.amount?.message} />

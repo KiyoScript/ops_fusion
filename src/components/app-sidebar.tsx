@@ -73,6 +73,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { title: "Job Orders", href: "/job-orders", icon: ClipboardList },
       { title: "JO Calendar", href: "/job-orders/calendar", icon: CalendarDays },
+      { title: "JO Reports", href: "/job-orders/reports", icon: FileText },
       // Legacy rule: the archive is admin-only
       { title: "Archive JOs", href: "/job-orders/archive", icon: Archive, requires: ["read", "Archive"] },
       { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck },

@@ -465,6 +465,42 @@ async function main() {
   d = await jos.get(actor, created.id);
   check("archived (CANCELLED) JO never auto-flips", d.status === "CANCELLED", d.status);
 
+  console.log("5d2) EOD / JO Reports (legacy JOsReport parity)");
+  // Fresh JOs with known deadlines relative to today, one S&M overdue.
+  const rItem = (status: string, deadline: string, amount = "100") => ({
+    description: "report fixture", qty: "1", amount, deadline,
+    productionStatus: status, isLFP: false, isRush: false,
+  });
+  const before = await jos.getEodReport(actor);
+  await jos.create(actor, { joNumber: "VERIFY-RPT-OD", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Waiting - Sales & Marketing", dateStr(-2), "500")] });
+  await jos.create(actor, { joNumber: "VERIFY-RPT-DUE", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Ongoing - Printing", dateStr(0), "300")] });
+  await jos.create(actor, { joNumber: "VERIFY-RPT-SOON", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Ongoing - Production", dateStr(2))] });
+  const eod = await jos.getEodReport(actor);
+  check("received today +3", eod.receivedToday.count === before.receivedToday.count + 3, [before.receivedToday.count, eod.receivedToday.count]);
+  check("overdue +1 (past-deadline, not waiting-pickup)", eod.overdue.count === before.overdue.count + 1, [before.overdue.count, eod.overdue.count]);
+  check("overdue S&M slice counts the S&M overdue", eod.overdueSM >= 1, eod.overdueSM);
+  check("due today +1", eod.dueToday.count === before.dueToday.count + 1, [before.dueToday.count, eod.dueToday.count]);
+  check("due in 1-3 days +1", eod.due1to3 === before.due1to3 + 1, [before.due1to3, eod.due1to3]);
+  check("ongoing bucket grew", eod.ongoing >= before.ongoing + 2, [before.ongoing, eod.ongoing]);
+  check("EOD text carries legacy header + sections", eod.text.includes("JO STATUS |") && eod.text.includes("--- URGENT ---") && eod.text.includes("--- PIPELINE ---"), eod.text.slice(0, 40));
+  check("EOD amounts formatted as peso", eod.text.includes("P") && /P[\d,]+\.\d{2}/.test(eod.text));
+
+  const reportRows = await jos.getReportRows();
+  check("dept report lists active items", reportRows.some((r) => r.joNumber === "VERIFY-RPT-OD"));
+  check("dept report sorted by status then days-left", (() => {
+    for (let i = 1; i < reportRows.length; i++) {
+      const a = reportRows[i - 1]!, b = reportRows[i]!;
+      const s = (a.statusDepartment ?? "").localeCompare(b.statusDepartment ?? "");
+      if (s > 0) return false;
+      if (s === 0 && (a.daysLeft ?? 9999) > (b.daysLeft ?? 9999)) return false;
+    }
+    return true;
+  })());
+  // waiting-pickup items must NOT be counted overdue even when past deadline
+  await jos.create(actor, { joNumber: "VERIFY-RPT-WP", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Waiting - For Pick up / Delivery", dateStr(-5))] });
+  const eod2 = await jos.getEodReport(actor);
+  check("waiting-pickup past-deadline excluded from overdue", eod2.overdue.count === eod.overdue.count, [eod.overdue.count, eod2.overdue.count]);
+
   console.log("5e) Customer approval (attachment required) + PDF printable");
   const apJo = await jos.create(actor, {
     joNumber: "VERIFY-AP-1",

@@ -159,6 +159,14 @@ export const calendarMonthInput = z.object({
   month: z.coerce.number().int().min(1).max(12),
 });
 
+// "As of" date for the JO / EOD reports (defaults to today). yyyy-MM-dd.
+export const reportDateInput = z.object({
+  asOf: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+});
+
 // Calendar drag-drop moves the deadline of the WHOLE JO — every open item
 // together, exactly like legacy updateJODeadlineFromCalendar.
 export const moveDeadlineInput = z.object({
@@ -290,6 +298,48 @@ export type DeadlineMoveDto = {
   user: string;
   oldDeadline: string;
   newDeadline: string;
+};
+
+// ——— Reports (legacy JOsReport) ———
+
+type CountAmount = { count: number; amount: string };
+
+/** End-of-day statistics (legacy computeEODStats_). */
+export type EodReportDto = {
+  asOf: string; // yyyy-MM-dd
+  dateLabel: string; // "Jul 10, 2026"
+  receivedToday: CountAmount;
+  active: CountAmount;
+  overdue: CountAmount;
+  overdueSM: number;
+  overdueYesterday: number | null;
+  dueToday: CountAmount;
+  dueTodaySM: number;
+  due1to3: number;
+  ongoing: number;
+  waiting: number;
+  noDeadline: number;
+  releasedToday: number;
+  cancelledToday: number;
+  longestOverdueDays: number;
+  longestOverdueCount: number;
+  longestOverdueStatus: string;
+  text: string; // monospace report matching the legacy layout
+};
+
+/** One row in the JO Report by Department (legacy getJOReportAllDepts). */
+export type ReportRowDto = {
+  id: string;
+  lineItemId: string;
+  joNumber: string;
+  customerName: string;
+  description: string;
+  qty: number;
+  lineTotal: string;
+  statusDepartment: string | null;
+  deadline: string | null;
+  daysLeft: number | null;
+  assignedTo: string | null;
 };
 
 export type ImportRowError = { line: number; message: string };
