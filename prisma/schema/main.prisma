@@ -1,0 +1,24 @@
+// ============================================================
+// Ops Enterprise System — unified ERP schema (v1)
+// Unifies: JOWebApp (job orders), SignQuote (quotations),
+// Sales-Audit (sales/reconciliation) + new DR module.
+//
+// Rails-style layout: one file per domain in this folder —
+// Prisma merges every *.prisma file here into a single schema,
+// so cross-file relations and enums Just Work. Each enum lives
+// beside the model that owns it. File map mirrors src/modules/*.
+//
+// Conventions:
+// - Money: Decimal(12,2). Never Float.
+// - Business records: soft delete via deletedAt + createdById.
+// - Every FK / status / filter-date column is indexed.
+// ============================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}

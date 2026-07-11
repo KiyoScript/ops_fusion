@@ -1,0 +1,19 @@
+// Employee master (legacy EMPDATABASE: Code / Team / Name / Email).
+// JO items reference employees by CODE (plain text, like the legacy sheet),
+// so imported free-text assignments stay valid.
+model Employee {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  team        String?
+  email       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("EmployeeCreatedBy", fields: [createdById], references: [id])
+
+  @@index([isActive])
+  @@index([team])
+  @@index([createdById])
+}

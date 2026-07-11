@@ -1,0 +1,65 @@
+// ============================================================
+// QUOTATIONS (QJOS)
+// ============================================================
+
+enum QuotationStatus {
+  DRAFT
+  PENDING_APPROVAL
+  SENT
+  APPROVED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+model Quotation {
+  id             String          @id @default(cuid())
+  quoteNumber    String          @unique
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  status         QuotationStatus @default(DRAFT)
+  validUntil     DateTime?
+  subtotal       Decimal         @default(0) @db.Decimal(12, 2)
+  discount       Decimal         @default(0) @db.Decimal(12, 2)
+  total          Decimal         @default(0) @db.Decimal(12, 2)
+  notes          String?
+  sentAt         DateTime?
+  approvedById   String?
+  approvedBy     User?           @relation("QuotationApprovedBy", fields: [approvedById], references: [id])
+  approvedAt     DateTime?
+  rejectedReason String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+  createdById    String
+  createdBy      User            @relation("QuotationCreatedBy", fields: [createdById], references: [id])
+
+  items    QuotationItem[]
+  jobOrder JobOrder? // 1—0..1 conversion link
+  inquiry  Inquiry?
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([approvedById])
+  @@index([createdById])
+}
+
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  description String
+  specs       Json? // size, material, color, etc. — varies per product type
+  qty         Int
+  unitPrice   Decimal   @db.Decimal(12, 2)
+  discount    Decimal   @default(0) @db.Decimal(12, 2)
+  lineTotal   Decimal   @db.Decimal(12, 2)
+  sortOrder   Int       @default(0)
+
+  @@index([quotationId])
+  @@index([productId])
+}

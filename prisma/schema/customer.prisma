@@ -1,0 +1,41 @@
+// ============================================================
+// SHARED MASTERS — CUSTOMER
+// ============================================================
+
+// Placeholder classification — real client rules pending (spec 2.2 table missing).
+enum CustomerType {
+  TYPE_A
+  TYPE_B
+  TYPE_C
+}
+
+model Customer {
+  id            String       @id @default(cuid())
+  name          String
+  contactNumber String?
+  company       String?
+  email         String?
+  address       String?
+  tin           String?
+  customerType  CustomerType @default(TYPE_C)
+  vatRegistered Boolean      @default(false)
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+  createdById   String
+  createdBy     User         @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+
+  inquiries          Inquiry[]
+  quotations         Quotation[]
+  jobOrders          JobOrder[]
+  sales              Sale[]
+  collectionReceipts CollectionReceipt[]
+  advancePayments    AdvancePayment[]
+  deliveryReceipts   DeliveryReceipt[]
+
+  @@index([name])
+  @@index([customerType])
+  @@index([deletedAt])
+  @@index([createdById])
+}

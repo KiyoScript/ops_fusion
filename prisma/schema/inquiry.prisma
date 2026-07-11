@@ -1,0 +1,33 @@
+// ============================================================
+// QUOTATIONS (QJOS) — INQUIRY
+// ============================================================
+
+enum InquiryMedium {
+  MESSENGER
+  EMAIL
+  WALK_IN
+  CALL
+}
+
+// Spec 1.2 Step 1 — inquiry log (Type A JOs start here)
+model Inquiry {
+  id                String        @id @default(cuid())
+  customerId        String?
+  customer          Customer?     @relation(fields: [customerId], references: [id])
+  customerName      String
+  contactNumber     String?
+  medium            InquiryMedium
+  servicesRequested String
+  notes             String?
+  quotationId       String?       @unique
+  quotation         Quotation?    @relation(fields: [quotationId], references: [id])
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  createdById       String
+  createdBy         User          @relation("InquiryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([customerId])
+  @@index([medium])
+  @@index([createdAt])
+  @@index([createdById])
+}

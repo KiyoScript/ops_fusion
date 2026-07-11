@@ -1,0 +1,42 @@
+// ============================================================
+// SALES / AUDIT — SALE
+// ============================================================
+
+enum SaleType {
+  SI_VAT
+  SI_NON_VAT
+}
+
+// Sales invoice (VAT / Non-VAT). Created when a JO is completed,
+// or directly for non-JO transactions (photocopy, laminate, supplies).
+model Sale {
+  id          String    @id @default(cuid())
+  documentNo  String
+  bookletId   String?
+  booklet     Booklet?  @relation(fields: [bookletId], references: [id])
+  type        SaleType
+  customerId  String
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  jobOrderId  String?   @unique // null → non-JO transaction
+  jobOrder    JobOrder? @relation(fields: [jobOrderId], references: [id])
+  saleDate    DateTime
+  amount      Decimal   @db.Decimal(12, 2)
+  vatAmount   Decimal   @default(0) @db.Decimal(12, 2)
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String
+  createdBy   User      @relation("SaleCreatedBy", fields: [createdById], references: [id])
+
+  auditEntries  AuditEntry[]
+  crAllocations CrAllocation[]
+
+  @@index([documentNo])
+  @@index([customerId])
+  @@index([saleDate])
+  @@index([type])
+  @@index([deletedAt])
+  @@index([bookletId])
+  @@index([createdById])
+}

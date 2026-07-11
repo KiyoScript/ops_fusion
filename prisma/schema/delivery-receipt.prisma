@@ -1,0 +1,56 @@
+// ============================================================
+// DELIVERY RECEIPTS (spec section 3)
+// ============================================================
+
+enum DeliveryReceiptStatus {
+  ISSUED
+  CANCELLED
+}
+
+model DeliveryReceipt {
+  id          String                @id @default(cuid())
+  drNumber    String                @unique
+  bookletId   String?
+  booklet     Booklet?              @relation(fields: [bookletId], references: [id])
+  jobOrderId  String
+  jobOrder    JobOrder              @relation(fields: [jobOrderId], references: [id])
+  customerId  String
+  customer    Customer              @relation(fields: [customerId], references: [id])
+  status      DeliveryReceiptStatus @default(ISSUED)
+  // Snapshot at issuance: true when this DR delivered the JO's entire
+  // remaining quantity (spec 3.2 Full vs Partial delivery checkbox).
+  isFullDelivery Boolean            @default(false)
+  issuedAt    DateTime              @default(now())
+  notes       String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  deletedAt   DateTime?
+  createdById String
+  createdBy   User                  @relation("DrCreatedBy", fields: [createdById], references: [id])
+
+  lines          DeliveryReceiptLine[]
+  apApplications AdvancePaymentApplication[]
+
+  @@index([jobOrderId])
+  @@index([customerId])
+  @@index([deletedAt])
+  @@index([bookletId])
+  @@index([createdById])
+  // List page orders by issuedAt DESC; metrics count by status within
+  // issuedAt ranges (today / this month) — see delivery-receipt-repository.
+  @@index([issuedAt])
+  @@index([status, issuedAt])
+}
+
+// DR is issued per completed JO line item; partial by quantity (spec 3.2)
+model DeliveryReceiptLine {
+  id                String          @id @default(cuid())
+  deliveryReceiptId String
+  deliveryReceipt   DeliveryReceipt @relation(fields: [deliveryReceiptId], references: [id], onDelete: Cascade)
+  jobOrderItemId    String
+  jobOrderItem      JobOrderItem    @relation(fields: [jobOrderItemId], references: [id])
+  qty               Int
+
+  @@index([deliveryReceiptId])
+  @@index([jobOrderItemId])
+}

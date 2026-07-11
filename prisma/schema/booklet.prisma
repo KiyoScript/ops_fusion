@@ -1,0 +1,43 @@
+// ============================================================
+// SALES / AUDIT — BOOKLET
+// ============================================================
+
+enum BookletType {
+  SI_VAT
+  SI_NON_VAT
+  JO_SLIP
+  CR
+  DR
+}
+
+enum BookletStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  CLOSED
+}
+
+// One numbering pattern shared by SI / JO Slip / CR / DR booklets,
+// with approval-on-opening (spec 3.1, 4).
+model Booklet {
+  id           String        @id @default(cuid())
+  type         BookletType
+  seriesStart  Int
+  seriesEnd    Int
+  nextNumber   Int
+  status       BookletStatus @default(PENDING_APPROVAL)
+  openedById   String
+  openedBy     User          @relation("BookletOpenedBy", fields: [openedById], references: [id])
+  approvedById String?
+  approvedBy   User?         @relation("BookletApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  sales              Sale[]
+  collectionReceipts CollectionReceipt[]
+  deliveryReceipts   DeliveryReceipt[]
+
+  @@index([type, status])
+  @@index([openedById])
+  @@index([approvedById])
+}

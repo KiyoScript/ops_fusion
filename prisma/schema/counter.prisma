@@ -1,0 +1,6 @@
+// Transactional counters for system-generated numbers (quote/JO/DR)
+// — booklet-issued documents use Booklet.nextNumber instead.
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}

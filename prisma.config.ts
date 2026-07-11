@@ -4,7 +4,9 @@ import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
 export default defineConfig({
-  schema: "prisma/schema.prisma",
+  // Folder-based schema (Rails-style): every *.prisma file in this folder is
+  // merged into one schema — one file per domain, mirroring src/modules/*.
+  schema: "prisma/schema",
   migrations: {
     path: "prisma/migrations",
     seed: "tsx prisma/seed.ts",

@@ -1,0 +1,18 @@
+// ============================================================
+// TRACEABILITY
+// ============================================================
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  entityType String // "JobOrder", "Quotation", "Sale", ...
+  entityId   String
+  action     String // "create", "update", "approve", "convert", ...
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}

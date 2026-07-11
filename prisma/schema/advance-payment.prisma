@@ -1,0 +1,53 @@
+// ============================================================
+// SALES / AUDIT — ADVANCE PAYMENT
+// ============================================================
+
+enum AdvancePaymentStatus {
+  UNAPPLIED
+  PARTIALLY_APPLIED
+  FULLY_APPLIED
+}
+
+// Canonical advance-payment entity (spec section 4):
+// created in Sales, consumed by the JO approval gate and DR issuance.
+model AdvancePayment {
+  id          String               @id @default(cuid())
+  customerId  String
+  customer    Customer             @relation(fields: [customerId], references: [id])
+  amount      Decimal              @db.Decimal(12, 2)
+  method      PaymentMethod
+  status      AdvancePaymentStatus @default(UNAPPLIED)
+  reference   String? // OR / deposit slip / GCash ref
+  receivedAt  DateTime
+  notes       String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  deletedAt   DateTime?
+  createdById String
+  createdBy   User                 @relation("ApCreatedBy", fields: [createdById], references: [id])
+
+  applications AdvancePaymentApplication[]
+
+  @@index([customerId, status])
+  @@index([deletedAt])
+  @@index([createdById])
+}
+
+model AdvancePaymentApplication {
+  id                String           @id @default(cuid())
+  advancePaymentId  String
+  advancePayment    AdvancePayment   @relation(fields: [advancePaymentId], references: [id], onDelete: Cascade)
+  jobOrderId        String?
+  jobOrder          JobOrder?        @relation(fields: [jobOrderId], references: [id])
+  deliveryReceiptId String?
+  deliveryReceipt   DeliveryReceipt? @relation(fields: [deliveryReceiptId], references: [id])
+  amount            Decimal          @db.Decimal(12, 2)
+  appliedById       String
+  appliedBy         User             @relation("ApAppliedBy", fields: [appliedById], references: [id])
+  appliedAt         DateTime         @default(now())
+
+  @@index([advancePaymentId])
+  @@index([jobOrderId])
+  @@index([deliveryReceiptId])
+  @@index([appliedById])
+}

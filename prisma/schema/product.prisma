@@ -1,0 +1,29 @@
+// ============================================================
+// SHARED MASTERS — PRODUCT
+// ============================================================
+
+model Product {
+  id          String    @id @default(cuid())
+  name        String
+  // Free-text service category (Tarpaulin, Photocopy, Laminate, ...) —
+  // client's category list still unconfirmed; maps to production workflows later.
+  category    String
+  unit        String    @default("pcs")
+  basePrice   Decimal   @default(0) @db.Decimal(12, 2)
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String
+  createdBy   User      @relation("ProductCreatedBy", fields: [createdById], references: [id])
+
+  quotationItems QuotationItem[]
+  jobOrderItems  JobOrderItem[]
+
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@index([createdById])
+}

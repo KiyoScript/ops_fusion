@@ -1,0 +1,24 @@
+// Maintained dropdown lists — the new home of the legacy DatabaseLink
+// reference sheets (StatusDatabase "Status Department", PRISMDatabase
+// "OPSServices"). Employees have their own master table (employee.prisma).
+enum LookupType {
+  JO_STATUS
+  JO_CATEGORY
+}
+
+model LookupOption {
+  id          String     @id @default(cuid())
+  type        LookupType
+  label       String
+  isLFP       Boolean    @default(false) // JO_CATEGORY only: legacy "LF" flag
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  createdById String
+  createdBy   User       @relation("LookupCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([type, label])
+  @@index([type, isActive])
+  @@index([createdById])
+}

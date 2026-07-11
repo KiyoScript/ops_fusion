@@ -1,0 +1,151 @@
+// ============================================================
+// JOB ORDERS
+// ============================================================
+
+enum JobOrderStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  INVOICED
+  CANCELLED
+}
+
+// How the customer confirmed the quote (JO approval precondition, spec 1.2 step 2.1)
+enum ConfirmationType {
+  PO
+  SIGNED_QUOTE
+  EMAIL
+}
+
+model JobOrder {
+  id               String            @id @default(cuid())
+  joNumber         String            @unique
+  customerId       String
+  customer         Customer          @relation(fields: [customerId], references: [id])
+  quotationId      String?           @unique
+  quotation        Quotation?        @relation(fields: [quotationId], references: [id])
+  status           JobOrderStatus    @default(DRAFT)
+  deadline         DateTime? // earliest item deadline (denormalized for board sorting)
+  planDateStart    DateTime? // legacy JOWebApp plan window (cols C/D)
+  planDateEnd      DateTime?
+  isLFP            Boolean           @default(false) // LFP JOs print 3 copies (spec 1.2 step 3)
+  // JO/PO typing (fusion-only): PO and non-JO records carry a manually typed
+  // number; when both are false the number is auto-generated (R-AD format).
+  isPO             Boolean           @default(false)
+  isNonJo          Boolean           @default(false)
+  // Customer approval gate (fusion-only): checking this REQUIRES at least one
+  // attachment as proof (signed quote, photo, any file) — the signal that the
+  // JO is final and production may start. The printable says "THIS IS FOR
+  // APPROVAL" until this is set.
+  isApprovedByCustomer Boolean       @default(false)
+  customerApprovedAt   DateTime?
+  confirmationType ConfirmationType? // how customer confirmed (approval precondition)
+  subtotal         Decimal           @default(0) @db.Decimal(12, 2)
+  total            Decimal           @default(0) @db.Decimal(12, 2)
+  notes            String?
+  importedAt       DateTime? // set when the record came from the legacy sheet import
+  approvedById     String?
+  approvedBy       User?             @relation("JobOrderApprovedBy", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  createdById      String
+  createdBy        User              @relation("JobOrderCreatedBy", fields: [createdById], references: [id])
+
+  items            JobOrderItem[]
+  statusHistory    JobOrderStatusHistory[]
+  attachments      JobOrderAttachment[]
+  sale             Sale?
+  deliveryReceipts DeliveryReceipt[]
+  apApplications   AdvancePaymentApplication[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([deadline])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([approvedById])
+  @@index([createdById])
+}
+
+// Production tracking lives PER ITEM (decision 2026-07-07, matches legacy
+// JOWebApp): one JO's items move through departments independently.
+// productId is optional because legacy items are free-text descriptions.
+model JobOrderItem {
+  id          String   @id @default(cuid())
+  jobOrderId  String
+  jobOrder    JobOrder @relation(fields: [jobOrderId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+  description String
+  specs       Json?
+  qty         Int
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  lineTotal   Decimal  @db.Decimal(12, 2)
+
+  // — production tracking (legacy "Line-up JOs" cols A/B/F/G/H/K/N–T) —
+  productionStatus   String? // "Status - Department" string, e.g. "Ongoing - Printing"
+  department         String? // department part of productionStatus
+  deadline           DateTime?
+  actualDate         DateTime? // completion date
+  assignedTo         String? // employee name (free text, like legacy)
+  category           String? // service category (Tarpaulin, ...)
+  isLFP              Boolean   @default(false)
+  lfpWidth           String? // kept as text for import fidelity (legacy is free text)
+  lfpHeight          String?
+  lfpUnit            String?
+  isRush             Boolean   @default(false)
+  statusHistory      String? // timestamped lines, legacy format ("4/23 2:30 PM Ongoing")
+  waitingPickupSince DateTime? // stamped on "Waiting - For Pick up / Delivery"
+  archivedAt         DateTime? // done items auto-archive (legacy Date Archive)
+  lineItemId         String? // legacy id "<joNumber>-01"
+
+  qtyDelivered Int @default(0) // maintained by DR issuance (partial delivery)
+  sortOrder    Int @default(0)
+
+  drLines DeliveryReceiptLine[]
+
+  @@index([jobOrderId])
+  @@index([productId])
+  @@index([productionStatus])
+  @@index([deadline])
+  @@index([archivedAt])
+  @@index([lineItemId])
+}
+
+// Customer-approval proof files (signed quote, photo of PO, screenshots…).
+// Stored in the database — small files, atomic with the approval itself.
+model JobOrderAttachment {
+  id           String   @id @default(cuid())
+  jobOrderId   String
+  jobOrder     JobOrder @relation(fields: [jobOrderId], references: [id], onDelete: Cascade)
+  fileName     String
+  mimeType     String
+  size         Int
+  data         Bytes
+  uploadedById String
+  uploadedBy   User     @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([jobOrderId])
+  @@index([uploadedById])
+}
+
+model JobOrderStatusHistory {
+  id          String          @id @default(cuid())
+  jobOrderId  String
+  jobOrder    JobOrder        @relation(fields: [jobOrderId], references: [id], onDelete: Cascade)
+  fromStatus  JobOrderStatus?
+  toStatus    JobOrderStatus
+  remarks     String?
+  changedById String
+  changedBy   User            @relation("JoStatusChangedBy", fields: [changedById], references: [id])
+  createdAt   DateTime        @default(now())
+
+  @@index([jobOrderId])
+  @@index([changedById])
+}
