@@ -89,9 +89,11 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Maintenance",
     items: [
-      { title: "Job Orders", href: "/maintenance/job-orders", icon: Wrench },
-      { title: "Quotations", href: "/maintenance/quotations", icon: Wrench },
-      { title: "Sales Audit", href: "/maintenance/sales-audit", icon: Wrench },
+      // One maintenance section per system — every legacy system has its own
+      // reference lists (later: PRISM, Inventory, Task Assignment, …).
+      { title: "JO Maintenance", href: "/maintenance/job-orders", icon: Wrench },
+      { title: "Quotation Maintenance", href: "/maintenance/quotations", icon: Wrench },
+      { title: "Sales Audit Maintenance", href: "/maintenance/sales-audit", icon: Wrench },
     ],
   },
   {

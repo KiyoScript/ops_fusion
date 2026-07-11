@@ -48,3 +48,8 @@ items feed the LFP Production module.
   `src/lib/ability/policies/` (one CASL policy file per resource, registered
   in `policies/index.ts`). Modules: `src/modules/<module>/{components,services,repositories,schemas,hooks}`
   — repositories hold ALL Prisma calls; services hold logic + `assertCan`.
+- **Maintenance is per-system, never global** — every legacy system has its
+  own reference lists, so each module ships its own maintenance page named
+  "<System> Maintenance" at `/maintenance/<system>` (JO Maintenance exists;
+  Quotation and Sales Audit Maintenance are on the collaborator branch;
+  PRISM / Inventory / Task Assignment Maintenance come with their modules).
