@@ -24,6 +24,7 @@ import {
   type ProductRuleDto,
 } from "@/modules/shared/hooks/use-products";
 import { PriceListImportDialog } from "./price-list-import-dialog";
+import { WorkbookImportDialog } from "./workbook-import-dialog";
 import { ProductEditDialog } from "./product-edit-dialog";
 
 const COLS = 7;
@@ -55,9 +56,10 @@ export function PriceListView({ canMaintain }: { canMaintain: boolean }) {
           aria-label="Search price list"
         />
         {canMaintain && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             <ProductEditDialog />
             <PriceListImportDialog />
+            <WorkbookImportDialog />
           </div>
         )}
       </div>
