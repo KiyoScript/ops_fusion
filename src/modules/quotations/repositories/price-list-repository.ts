@@ -16,6 +16,14 @@ export type RuleCreateData = {
 
 export type ProductRef = { id: string; name: string; created: boolean };
 
+export type ProductFields = {
+  name: string;
+  category: string;
+  unit: string;
+  basePrice: string;
+  description?: string | null;
+};
+
 export interface IPriceListRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T>;
   /** Case-insensitive find-or-create; basePrice/category/unit apply only on create. */
@@ -35,6 +43,14 @@ export interface IPriceListRepository {
     rules: RuleCreateData[],
     tx?: DbTx
   ): Promise<void>;
+  findProductByName(name: string, excludeId?: string): Promise<string | null>;
+  findProductById(id: string): Promise<{ id: string; name: string } | null>;
+  createProduct(
+    data: ProductFields & { createdById: string },
+    tx?: DbTx
+  ): Promise<{ id: string }>;
+  updateProduct(id: string, data: ProductFields, tx?: DbTx): Promise<void>;
+  softDeleteProduct(id: string, tx?: DbTx): Promise<void>;
 }
 
 export class PrismaPriceListRepository implements IPriceListRepository {
@@ -80,5 +96,51 @@ export class PrismaPriceListRepository implements IPriceListRepository {
         data: rules.map((rule) => ({ ...rule, productId })),
       });
     }
+  }
+
+  async findProductByName(
+    name: string,
+    excludeId?: string
+  ): Promise<string | null> {
+    const found = await prisma.product.findFirst({
+      where: {
+        deletedAt: null,
+        name: { equals: name, mode: "insensitive" },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    return found?.id ?? null;
+  }
+
+  async findProductById(
+    id: string
+  ): Promise<{ id: string; name: string } | null> {
+    return prisma.product.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, name: true },
+    });
+  }
+
+  async createProduct(
+    data: ProductFields & { createdById: string },
+    tx?: DbTx
+  ): Promise<{ id: string }> {
+    return (tx ?? prisma).product.create({ data, select: { id: true } });
+  }
+
+  async updateProduct(
+    id: string,
+    data: ProductFields,
+    tx?: DbTx
+  ): Promise<void> {
+    await (tx ?? prisma).product.update({ where: { id }, data });
+  }
+
+  async softDeleteProduct(id: string, tx?: DbTx): Promise<void> {
+    await (tx ?? prisma).product.update({
+      where: { id },
+      data: { deletedAt: new Date(), isActive: false },
+    });
   }
 }

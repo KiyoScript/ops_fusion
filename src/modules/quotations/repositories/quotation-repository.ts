@@ -34,7 +34,15 @@ const detailSelect = {
   approvedAt: true,
   rejectedReason: true,
   createdAt: true,
-  customer: { select: { id: true, name: true } },
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      contactNumber: true,
+      email: true,
+      address: true,
+    },
+  },
   approvedBy: { select: { name: true } },
   createdBy: { select: { name: true } },
   items: { orderBy: { sortOrder: "asc" as const } },

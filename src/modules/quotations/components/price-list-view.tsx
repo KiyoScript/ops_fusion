@@ -24,8 +24,9 @@ import {
   type ProductRuleDto,
 } from "@/modules/shared/hooks/use-products";
 import { PriceListImportDialog } from "./price-list-import-dialog";
+import { ProductEditDialog } from "./product-edit-dialog";
 
-const COLS = 6;
+const COLS = 7;
 
 /** Quotation Maintenance — the price database (products + rules), the new
  *  home of the legacy price spreadsheet. Data changes come in via import;
@@ -54,7 +55,8 @@ export function PriceListView({ canMaintain }: { canMaintain: boolean }) {
           aria-label="Search price list"
         />
         {canMaintain && (
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <ProductEditDialog />
             <PriceListImportDialog />
           </div>
         )}
@@ -71,6 +73,9 @@ export function PriceListView({ canMaintain }: { canMaintain: boolean }) {
                 <TableHead className="min-w-56">Variants &amp; tiers</TableHead>
                 <TableHead className="min-w-44">Add-ons</TableHead>
                 <TableHead className="text-right">Base price</TableHead>
+                <TableHead className="w-12">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -100,7 +105,11 @@ export function PriceListView({ canMaintain }: { canMaintain: boolean }) {
                 </TableRow>
               ) : (
                 rows.map((product) => (
-                  <ProductRow key={product.id} product={product} />
+                  <ProductRow
+                    key={product.id}
+                    product={product}
+                    canMaintain={canMaintain}
+                  />
                 ))
               )}
             </TableBody>
@@ -111,7 +120,13 @@ export function PriceListView({ canMaintain }: { canMaintain: boolean }) {
   );
 }
 
-function ProductRow({ product }: { product: ProductOptionDto }) {
+function ProductRow({
+  product,
+  canMaintain,
+}: {
+  product: ProductOptionDto;
+  canMaintain: boolean;
+}) {
   const variants = groupVariants(
     product.rules.filter((r) => r.type === "VARIANT")
   );
@@ -167,6 +182,9 @@ function ProductRow({ product }: { product: ProductOptionDto }) {
         {parseFloat(product.basePrice) > 0
           ? `₱${product.basePrice}/${product.unit}`
           : "—"}
+      </TableCell>
+      <TableCell>
+        {canMaintain && <ProductEditDialog product={product} />}
       </TableCell>
     </TableRow>
   );

@@ -1,4 +1,4 @@
-/account# Pinned so Docker resources keep the same names regardless of folder name
+# Pinned so Docker resources keep the same names regardless of folder name
 name: ops_fusion
 
 services:

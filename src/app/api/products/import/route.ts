@@ -7,7 +7,9 @@ import { getPriceImportService } from "@/modules/quotations/services";
 const MAX_BYTES = 20 * 1024 * 1024;
 
 // Tab picked when a whole workbook is uploaded (falls back to first sheet).
-const PREFERRED_SHEETS = ["Price List", "PriceDatabase", "Prices", "Products"];
+// "Products" first — the legacy "Online Product specs" workbook keeps its
+// flattened Group/Name/Price/Type list there.
+const PREFERRED_SHEETS = ["Products", "Price List", "PriceDatabase", "Prices"];
 
 // POST /api/products/import — multipart upload of the price-list sheet
 // (.csv or .xlsx). Same pipeline as the JO legacy import.

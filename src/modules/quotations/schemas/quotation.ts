@@ -159,7 +159,13 @@ export type QuotationDetailDto = {
   id: string;
   quoteNumber: string;
   status: string;
-  customer: { id: string; name: string };
+  customer: {
+    id: string;
+    name: string;
+    contactNumber: string | null;
+    email: string | null;
+    address: string | null;
+  };
   validUntil: string | null;
   isExpired: boolean;
   notes: string | null;

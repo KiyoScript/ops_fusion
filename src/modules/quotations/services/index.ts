@@ -9,10 +9,12 @@ import { PrismaPriceListRepository } from "../repositories/price-list-repository
 import { QuotationService } from "./quotation-service";
 import { InquiryService } from "./inquiry-service";
 import { PriceImportService } from "./price-import-service";
+import { PriceListService } from "./price-list-service";
 
 let quotationService: QuotationService | undefined;
 let inquiryService: InquiryService | undefined;
 let priceImportService: PriceImportService | undefined;
+let priceListService: PriceListService | undefined;
 
 export function getQuotationService(): QuotationService {
   quotationService ??= new QuotationService(
@@ -41,4 +43,12 @@ export function getPriceImportService(): PriceImportService {
     new PrismaActivityLogRepository()
   );
   return priceImportService;
+}
+
+export function getPriceListService(): PriceListService {
+  priceListService ??= new PriceListService(
+    new PrismaPriceListRepository(),
+    new PrismaActivityLogRepository()
+  );
+  return priceListService;
 }
