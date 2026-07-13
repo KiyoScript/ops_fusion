@@ -31,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { useQuotationsInfinite } from "../hooks/use-quotations";
+import { ColorBadge, type BadgeTone } from "@/components/color-badge";
 import { QuotationStatusBadge } from "./quotation-status-badge";
 
 const STATUS_VIEWS = [
@@ -44,16 +45,30 @@ const STATUS_VIEWS = [
   { value: "all", label: "All" },
 ] as const;
 
-const COLS = 7;
+const TYPE_VIEWS = [
+  { value: "all", label: "All types" },
+  { value: "SALES", label: "Sales" },
+  { value: "PO", label: "PO" },
+  { value: "NON_JO", label: "Non-JO" },
+] as const;
+
+const TYPE_BADGES: Record<string, { tone: BadgeTone; label: string }> = {
+  SALES: { tone: "blue", label: "Sales" },
+  PO: { tone: "purple", label: "PO" },
+  NON_JO: { tone: "amber", label: "Non-JO" },
+};
+
+const COLS = 8;
 
 export function QuotationsView({ canWrite }: { canWrite: boolean }) {
   const router = useRouter();
   // Filters live in the URL so views are shareable and back-button friendly.
   const [q, setQ] = useQueryState("q", { defaultValue: "" });
   const [status, setStatus] = useQueryState("status", { defaultValue: "open" });
+  const [type, setType] = useQueryState("type", { defaultValue: "all" });
   const debouncedQ = useDebounce(q);
 
-  const query = useQuotationsInfinite({ q: debouncedQ, status });
+  const query = useQuotationsInfinite({ q: debouncedQ, status, type });
   const rows = query.data?.pages.flatMap((page) => page.rows) ?? [];
 
   return (
@@ -66,6 +81,18 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
           className="max-w-72"
           aria-label="Search quotations"
         />
+        <Select value={type} onValueChange={(value) => setType(value as string)}>
+          <SelectTrigger aria-label="Filter by type">
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            {TYPE_VIEWS.map((v) => (
+              <SelectItem key={v.value} value={v.value}>
+                {v.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={status} onValueChange={(value) => setStatus(value as string)}>
           <SelectTrigger aria-label="Filter by status">
             <SelectValue placeholder="Status" />
@@ -93,6 +120,7 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Quote #</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead className="min-w-56">Customer</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Items</TableHead>
@@ -141,6 +169,17 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
                       >
                         {row.quoteNumber}
                       </Link>
+                      {row.poNumber && (
+                        <p className="text-xs text-muted-foreground">
+                          PO: {row.poNumber}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <ColorBadge
+                        tone={TYPE_BADGES[row.type]?.tone ?? "gray"}
+                        label={TYPE_BADGES[row.type]?.label ?? row.type}
+                      />
                     </TableCell>
                     <TableCell className="max-w-64 truncate">
                       {row.customerName}

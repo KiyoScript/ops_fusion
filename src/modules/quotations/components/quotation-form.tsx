@@ -73,6 +73,8 @@ export function QuotationForm({
     resolver: zodResolver(quotationCreateInput),
     defaultValues: {
       ...(initialValues ?? {
+        type: "SALES",
+        poNumber: "",
         customerName: "",
         validUntil: "",
         taxType: "NON_VAT",
@@ -175,6 +177,48 @@ export function QuotationForm({
           <CardTitle>Quotation details</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
+          <div className="grid gap-2">
+            <Label>Quotation type</Label>
+            <Controller
+              control={form.control}
+              name="type"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  onValueChange={(v) => field.onChange(v ?? "SALES")}
+                >
+                  <SelectTrigger aria-label="Quotation type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SALES">Sales Quotation</SelectItem>
+                    <SelectItem value="PO">PO Quotation</SelectItem>
+                    <SelectItem value="NON_JO">Non-JO Quotation</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          {watched.type === "PO" && (
+            <div className="grid gap-2">
+              <Label htmlFor="po-number">
+                PO Number <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="po-number"
+                placeholder="Customer's PO reference"
+                aria-invalid={!!errors.poNumber}
+                {...form.register("poNumber")}
+              />
+              {errors.poNumber && (
+                <p className="text-sm text-destructive">
+                  {errors.poNumber.message}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="grid gap-2">
             <Label htmlFor="customer-name">Customer</Label>
             <Controller

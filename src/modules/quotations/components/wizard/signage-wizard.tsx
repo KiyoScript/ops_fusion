@@ -16,6 +16,7 @@ import {
   isClientValid,
   type ClientInfo,
 } from "./client-info-step";
+import { QuoteTypePicker, type QuoteType } from "./quote-type-picker";
 
 // Signage per-product wizard — 1:1 with legacy Index.html (7 steps):
 // Client Info → Signage Type → Dimensions → Mounting → Add-ons → Design →
@@ -117,6 +118,8 @@ export function SignageWizard({
   const [design, setDesign] = useState(false);
   const [rush, setRush] = useState(false);
   const [notes, setNotes] = useState("");
+  const [quoteType, setQuoteType] = useState<QuoteType>("SALES");
+  const [poNumber, setPoNumber] = useState("");
 
   const variant = variantIdx !== null ? variants[variantIdx] : undefined;
 
@@ -193,6 +196,10 @@ export function SignageWizard({
   };
 
   const submit = () => {
+    if (quoteType === "PO" && !poNumber.trim()) {
+      toast.error("PO number is required for a PO quotation.");
+      return;
+    }
     setSubmitting(true);
     const chosenComplexity = [...checkedComplexity]
       .map((i) => complexity[i]?.label)
@@ -223,6 +230,8 @@ export function SignageWizard({
 
     async function startCreate() {
       const result = await createQuotationAction({
+        type: quoteType,
+        poNumber: quoteType === "PO" ? poNumber.trim() : undefined,
         customerName: client.customerName,
         validUntil: "",
         taxType: "NON_VAT",
@@ -572,6 +581,20 @@ export function SignageWizard({
               {php(calc.total)}
             </span>
           </div>
+
+          <div className="border-t pt-4">
+            <QuoteTypePicker
+              type={quoteType}
+              poNumber={poNumber}
+              onType={setQuoteType}
+              onPoNumber={setPoNumber}
+            />
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Creates a DRAFT quotation — it does not become a Job Order yet. It
+            must be submitted for supervisor approval first.
+          </p>
         </div>
       )}
     </WizardShell>

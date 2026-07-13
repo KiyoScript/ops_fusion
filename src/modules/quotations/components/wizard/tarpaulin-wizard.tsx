@@ -16,6 +16,7 @@ import {
   isClientValid,
   type ClientInfo,
 } from "./client-info-step";
+import { QuoteTypePicker, type QuoteType } from "./quote-type-picker";
 
 // Tarpaulin per-product wizard — 1:1 with legacy Tarpauline.html:
 // Client Info → Dimensions → Eyelet → Print Layout → Quotation review.
@@ -76,6 +77,8 @@ export function TarpaulinWizard({
   const [rush, setRush] = useState(false);
   const [design, setDesign] = useState(false);
   const [notes, setNotes] = useState("");
+  const [quoteType, setQuoteType] = useState<QuoteType>("SALES");
+  const [poNumber, setPoNumber] = useState("");
 
   const ratePerSqft = rate(product);
   const rushFee = addon(product, /rush/i) || 150;
@@ -115,6 +118,10 @@ export function TarpaulinWizard({
   };
 
   const submit = () => {
+    if (quoteType === "PO" && !poNumber.trim()) {
+      toast.error("PO number is required for a PO quotation.");
+      return;
+    }
     setSubmitting(true);
     const descParts = [
       `Tarpaulin — ${calc.wFt.toFixed(2)} × ${calc.hFt.toFixed(2)} ft × ${calc.q} pc (${calc.totalSqft.toFixed(2)} sqft)`,
@@ -134,6 +141,8 @@ export function TarpaulinWizard({
 
     async function startCreate() {
       const result = await createQuotationAction({
+        type: quoteType,
+        poNumber: quoteType === "PO" ? poNumber.trim() : undefined,
         customerName: client.customerName,
         validUntil: "",
         taxType: "NON_VAT",
@@ -377,9 +386,20 @@ export function TarpaulinWizard({
               {php(calc.total)}
             </span>
           </div>
+
+          <div className="border-t pt-4">
+            <QuoteTypePicker
+              type={quoteType}
+              poNumber={poNumber}
+              onType={setQuoteType}
+              onPoNumber={setPoNumber}
+            />
+          </div>
+
           <p className="text-xs text-muted-foreground">
-            Creates a DRAFT quotation you can review, print, and submit for
-            approval. Tax and payment terms are editable afterwards.
+            Creates a DRAFT quotation — it does not become a Job Order yet. It
+            must be submitted for supervisor approval first. Tax and payment
+            terms are editable afterwards.
           </p>
         </div>
       )}

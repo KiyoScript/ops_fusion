@@ -5,6 +5,7 @@ import { assertCan, type AppAction } from "@/lib/ability";
 import {
   JobOrderStatus,
   QuotationStatus,
+  QuotationType,
   type TaxType,
 } from "@/generated/prisma/enums";
 import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
@@ -89,12 +90,22 @@ export class QuotationService {
     private readonly inquiries: IInquiryRepository
   ) {}
 
-  /** One yearly series for ALL products — replaces the 27 per-product
-   *  prefixes (TQ-, MUG-, …) of the legacy system. */
-  private async generateQuoteNumber(tx: DbTx): Promise<string> {
+  /** One yearly series PER TYPE — replaces the 27 per-product prefixes of
+   *  the legacy system, but keeps the JO-style discriminator prefix so a
+   *  glance at the number tells the flavor apart:
+   *    SALES → Q-  ·  PO → PO-  ·  NON_JO → NJ-  */
+  private async generateQuoteNumber(
+    type: QuotationType,
+    tx: DbTx
+  ): Promise<string> {
+    const prefix =
+      type === QuotationType.PO ? "PO" : type === QuotationType.NON_JO ? "NJ" : "Q";
     const year = format(new Date(), "yyyy");
-    const seq = await this.quotations.nextCounter(`quotation:${year}`, tx);
-    return `Q-${year}-${String(seq).padStart(4, "0")}`;
+    const seq = await this.quotations.nextCounter(
+      `quotation:${prefix}:${year}`,
+      tx
+    );
+    return `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
   }
 
   async list(
@@ -137,9 +148,12 @@ export class QuotationService {
         actor.id,
         tx
       );
+      const type = input.type as QuotationType;
       const created = await this.quotations.createWithItems(
         {
-          quoteNumber: await this.generateQuoteNumber(tx),
+          quoteNumber: await this.generateQuoteNumber(type, tx),
+          type,
+          poNumber: type === QuotationType.PO ? input.poNumber?.trim() || null : null,
           customerId: customer.id,
           status: QuotationStatus.DRAFT,
           validUntil: parseDate(input.validUntil),
@@ -218,9 +232,13 @@ export class QuotationService {
         actor.id,
         tx
       );
+      const updType = input.type as QuotationType;
       await this.quotations.updateHeader(
         input.id,
         {
+          type: updType,
+          poNumber:
+            updType === QuotationType.PO ? input.poNumber?.trim() || null : null,
           customerId: customer.id,
           validUntil: parseDate(input.validUntil),
           subtotal: money(totals.subtotal),
@@ -515,6 +533,8 @@ function mapListRow(row: QuotationListRecord): QuotationListRowDto {
   return {
     id: row.id,
     quoteNumber: row.quoteNumber,
+    type: row.type,
+    poNumber: row.poNumber,
     customerName: row.customer.name,
     status: row.status,
     total: row.total.toString(),
@@ -546,6 +566,8 @@ function mapDetail(detail: QuotationDetailRecord): QuotationDetailDto {
   return {
     id: detail.id,
     quoteNumber: detail.quoteNumber,
+    type: detail.type,
+    poNumber: detail.poNumber,
     status: detail.status,
     customer: detail.customer,
     validUntil: dateOnly(detail.validUntil),

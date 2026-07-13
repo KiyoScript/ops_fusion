@@ -232,7 +232,6 @@ export default async function QuotationDetailPage({
           canUpdate={canUpdate}
           canApprove={ability.can("approve", "Quotation")}
           canSend={ability.can("send", "Quotation")}
-          canConvert={ability.can("convert", "Quotation")}
           canArchive={ability.can("archive", "Quotation")}
         />
       </div>

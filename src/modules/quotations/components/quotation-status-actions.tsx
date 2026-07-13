@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import {
   ArchiveIcon,
   CheckIcon,
-  FactoryIcon,
   SendHorizonalIcon,
   SendIcon,
   XIcon,
@@ -25,7 +24,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   archiveQuotationAction,
-  convertQuotationAction,
   transitionQuotationAction,
 } from "@/app/(app)/quotations/actions";
 
@@ -38,7 +36,6 @@ export function QuotationStatusActions({
   canUpdate,
   canApprove,
   canSend,
-  canConvert,
   canArchive,
 }: {
   id: string;
@@ -47,14 +44,12 @@ export function QuotationStatusActions({
   canUpdate: boolean;
   canApprove: boolean;
   canSend: boolean;
-  canConvert: boolean;
   canArchive: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rejectOpen, setRejectOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [convertOpen, setConvertOpen] = useState(false);
   const [reason, setReason] = useState("");
 
   const run = (
@@ -70,19 +65,6 @@ export function QuotationStatusActions({
       }
       toast.success(successMessage);
       setRejectOpen(false);
-      router.refresh();
-    });
-  };
-
-  const convert = () => {
-    startTransition(async () => {
-      const result = await convertQuotationAction(id);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(`Converted to JO ${result.data.joNumber}.`);
-      setConvertOpen(false);
       router.refresh();
     });
   };
@@ -172,36 +154,6 @@ export function QuotationStatusActions({
         >
           <SendIcon /> Mark as sent
         </Button>
-      )}
-
-      {(status === "APPROVED" || status === "SENT") && canConvert && (
-        <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
-          <DialogTrigger render={<Button variant="outline" />}>
-            <FactoryIcon /> Convert to Job Order
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Convert {quoteNumber} to a Job Order?</DialogTitle>
-              <DialogDescription>
-                Creates a DRAFT JO with this quotation&apos;s items and locks
-                the quote as Converted. The JO still needs customer-approval
-                proof before production starts.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setConvertOpen(false)}
-                disabled={pending}
-              >
-                Cancel
-              </Button>
-              <Button onClick={convert} disabled={pending}>
-                Create Job Order
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       )}
 
       {canArchive && status !== "CONVERTED" && (

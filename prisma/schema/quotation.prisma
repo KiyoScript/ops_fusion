@@ -20,9 +20,24 @@ enum TaxType {
   VAT_INCLUSIVE
 }
 
+// Single-table discriminator (mirrors JobOrder.isPO/isNonJo). One Quotation
+// table, three flavors:
+//   SALES  — the default sales quotation (auto-numbered Q-…)
+//   PO     — quote raised against a customer's Purchase Order (poNumber set)
+//   NON_JO — quote for work that never becomes a JO (photocopy, supplies,
+//            walk-in) — priced and billed, but no production job.
+enum QuotationType {
+  SALES
+  PO
+  NON_JO
+}
+
 model Quotation {
   id             String          @id @default(cuid())
   quoteNumber    String          @unique
+  type           QuotationType   @default(SALES)
+  // Customer's PO reference (only for type PO).
+  poNumber       String?
   customerId     String
   customer       Customer        @relation(fields: [customerId], references: [id])
   status         QuotationStatus @default(DRAFT)
@@ -54,6 +69,7 @@ model Quotation {
 
   @@index([customerId])
   @@index([status])
+  @@index([type])
   @@index([createdAt])
   @@index([deletedAt])
   @@index([approvedById])

@@ -74,10 +74,12 @@ export function ProductChooser({ inquiryId }: { inquiryId?: string }) {
             </p>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {rows.map((p) => {
+                // Special wizards for Tarp/Signage; every other product uses
+                // the generic guided wizard.
                 const slug = WIZARD_SLUGS[p.name];
                 const href = slug
                   ? `/quotations/new/${slug}?product=${p.id}${suffix}`
-                  : `/quotations/new/custom?product=${p.id}${suffix}`;
+                  : `/quotations/new/product?product=${p.id}${suffix}`;
                 return (
                   <Link
                     key={p.id}
@@ -88,9 +90,7 @@ export function ProductChooser({ inquiryId }: { inquiryId?: string }) {
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium">{p.name}</p>
-                      {slug && (
-                        <p className="text-xs text-primary">Guided calculator</p>
-                      )}
+                      <p className="text-xs text-primary">Guided calculator</p>
                     </div>
                     {parseFloat(p.basePrice) > 0 && (
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">

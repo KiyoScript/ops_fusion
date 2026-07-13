@@ -38,6 +38,8 @@ export default async function EditQuotationPage({
   }
 
   const initialValues: QuotationCreateInput = {
+    type: detail.type as QuotationCreateInput["type"],
+    poNumber: detail.poNumber ?? "",
     customerName: detail.customer.name,
     validUntil: detail.validUntil ?? "",
     taxType: detail.totals.taxType as QuotationCreateInput["taxType"],

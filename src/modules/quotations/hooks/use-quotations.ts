@@ -11,13 +11,16 @@ import type {
   QuotationListPageDto,
 } from "../schemas/quotation";
 
-export type QuotationListParams = { q: string; status: string };
+export type QuotationListParams = { q: string; status: string; type: string };
 
 export function useQuotationsInfinite(params: QuotationListParams) {
   return useInfiniteQuery({
     queryKey: ["quotations", params],
     queryFn: ({ pageParam }) => {
-      const search = new URLSearchParams({ status: params.status });
+      const search = new URLSearchParams({
+        status: params.status,
+        type: params.type,
+      });
       if (params.q) search.set("q", params.q);
       if (pageParam) search.set("cursor", pageParam);
       return fetchJson<QuotationListPageDto>(`/api/quotations?${search}`);

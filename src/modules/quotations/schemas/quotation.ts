@@ -44,30 +44,55 @@ export const quotationItemInput = z.object({
   specs: z.record(z.string(), z.unknown()).optional(),
 });
 
-const quotationBaseInput = z.object({
-  customerName: z
-    .string()
-    .trim()
-    .min(1, "Customer Name is required.")
-    .max(200),
-  validUntil: dateString,
-  taxType: z.enum(TAX_TYPES),
-  paymentTermLabel: z.string().trim().max(120).optional(),
-  downpaymentRate: rateString,
-  discount: moneyString.optional(), // header-level discount amount
-  notes: z.string().trim().max(2000).optional(),
-  items: z.array(quotationItemInput).min(1, "At least one line item is required."),
-});
+export const QUOTATION_TYPES = ["SALES", "PO", "NON_JO"] as const;
 
-export const quotationCreateInput = quotationBaseInput.extend({
-  // Set when the quote is drafted from an inquiry (/quotations/new?inquiryId=…)
-  // — the service links Inquiry.quotationId in the same transaction.
-  inquiryId: z.string().optional(),
-});
+const quotationBaseInput = z
+  .object({
+    // SALES / PO (needs poNumber) / NON_JO. Single-table discriminator,
+    // same idea as JobOrder.isPO/isNonJo. Callers always send it (the form
+    // defaults to SALES), so it stays required for a clean form type.
+    type: z.enum(QUOTATION_TYPES),
+    poNumber: z.string().trim().max(80).optional(),
+    customerName: z
+      .string()
+      .trim()
+      .min(1, "Customer Name is required.")
+      .max(200),
+    validUntil: dateString,
+    taxType: z.enum(TAX_TYPES),
+    paymentTermLabel: z.string().trim().max(120).optional(),
+    downpaymentRate: rateString,
+    discount: moneyString.optional(), // header-level discount amount
+    notes: z.string().trim().max(2000).optional(),
+    items: z
+      .array(quotationItemInput)
+      .min(1, "At least one line item is required."),
+  })
+  .check((ctx) => {
+    if (ctx.value.type === "PO" && !ctx.value.poNumber?.trim()) {
+      ctx.issues.push({
+        code: "custom",
+        message: "PO number is required for a PO quotation.",
+        path: ["poNumber"],
+        input: ctx.value,
+      });
+    }
+  });
 
-export const quotationUpdateInput = quotationBaseInput.extend({
-  id: z.string().min(1),
-});
+export const quotationCreateInput = z.intersection(
+  quotationBaseInput,
+  z.object({
+    // Set when the quote is drafted from an inquiry
+    // (/quotations/new?inquiryId=…) — the service links Inquiry.quotationId
+    // in the same transaction.
+    inquiryId: z.string().optional(),
+  })
+);
+
+export const quotationUpdateInput = z.intersection(
+  quotationBaseInput,
+  z.object({ id: z.string().min(1) })
+);
 
 // One endpoint for every lifecycle step; the service enforces the legal
 // from-status and the CASL action per step.
@@ -102,6 +127,7 @@ export const quotationListFilters = z.object({
       "CONVERTED",
     ])
     .default("open"),
+  type: z.enum(["all", "SALES", "PO", "NON_JO"]).default("all"),
   cursor: z.string().optional(),
   take: z.coerce.number().int().min(1).max(100).default(25),
 });
@@ -140,6 +166,8 @@ export type QuotationTotalsDto = {
 export type QuotationListRowDto = {
   id: string;
   quoteNumber: string;
+  type: string;
+  poNumber: string | null;
   customerName: string;
   status: string;
   total: string;
@@ -158,6 +186,8 @@ export type QuotationListPageDto = {
 export type QuotationDetailDto = {
   id: string;
   quoteNumber: string;
+  type: string;
+  poNumber: string | null;
   status: string;
   customer: {
     id: string;

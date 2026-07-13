@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { QuotationStatus, type TaxType } from "@/generated/prisma/enums";
+import {
+  QuotationStatus,
+  type QuotationType,
+  type TaxType,
+} from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
 
 // ——— selection shapes (single source of truth for what queries fetch) ———
@@ -8,6 +12,8 @@ import type { DbTx } from "@/modules/shared/repositories/types";
 const listSelect = {
   id: true,
   quoteNumber: true,
+  type: true,
+  poNumber: true,
   status: true,
   total: true,
   validUntil: true,
@@ -20,6 +26,8 @@ const listSelect = {
 const detailSelect = {
   id: true,
   quoteNumber: true,
+  type: true,
+  poNumber: true,
   status: true,
   validUntil: true,
   subtotal: true,
@@ -74,6 +82,8 @@ export type ItemUpdateData = ItemCreateData;
 
 export type QuotationCreateData = {
   quoteNumber: string;
+  type: QuotationType;
+  poNumber?: string | null;
   customerId: string;
   status: QuotationStatus;
   validUntil?: Date | null;
@@ -90,6 +100,8 @@ export type QuotationCreateData = {
 };
 
 export type QuotationHeaderUpdateData = {
+  type?: QuotationType;
+  poNumber?: string | null;
   customerId?: string;
   validUntil?: Date | null;
   subtotal?: string;
@@ -123,6 +135,7 @@ export type ListFilter = {
     | "SENT"
     | "REJECTED"
     | "CONVERTED";
+  type: "all" | "SALES" | "PO" | "NON_JO";
   cursor?: string;
   take: number;
 };
@@ -185,6 +198,10 @@ export class PrismaQuotationRepository implements IQuotationRepository {
       where.status = { in: OPEN_STATUSES };
     } else if (filter.status !== "all") {
       where.status = filter.status as QuotationStatus;
+    }
+
+    if (filter.type !== "all") {
+      where.type = filter.type as QuotationType;
     }
 
     const rows = await prisma.quotation.findMany({

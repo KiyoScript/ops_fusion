@@ -46,6 +46,8 @@ export default async function CustomQuotationPage({
   const initialValues: QuotationCreateInput | undefined =
     inquiry || productId
       ? {
+          type: "SALES",
+          poNumber: "",
           customerName: inquiry?.customerName ?? "",
           validUntil: "",
           taxType: "NON_VAT",
