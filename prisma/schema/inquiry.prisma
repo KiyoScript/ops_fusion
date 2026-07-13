@@ -7,6 +7,7 @@ enum InquiryMedium {
   EMAIL
   WALK_IN
   CALL
+  PORTAL // anonymous submissions from the public /quote-request page
 }
 
 // Spec 1.2 Step 1 — inquiry log (Type A JOs start here)
@@ -16,6 +17,7 @@ model Inquiry {
   customer          Customer?     @relation(fields: [customerId], references: [id])
   customerName      String
   contactNumber     String?
+  email             String?
   medium            InquiryMedium
   servicesRequested String
   notes             String?

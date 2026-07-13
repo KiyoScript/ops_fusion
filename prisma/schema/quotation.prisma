@@ -12,6 +12,14 @@ enum QuotationStatus {
   CONVERTED
 }
 
+// Legacy quotation_system VAT toggle: every calculator offered Non-VAT,
+// VAT added on top (+12%), or VAT backed out of the quoted price.
+enum TaxType {
+  NON_VAT
+  VAT_EXCLUSIVE
+  VAT_INCLUSIVE
+}
+
 model Quotation {
   id             String          @id @default(cuid())
   quoteNumber    String          @unique
@@ -21,7 +29,13 @@ model Quotation {
   validUntil     DateTime?
   subtotal       Decimal         @default(0) @db.Decimal(12, 2)
   discount       Decimal         @default(0) @db.Decimal(12, 2)
+  taxType        TaxType         @default(NON_VAT)
+  taxAmount      Decimal         @default(0) @db.Decimal(12, 2)
   total          Decimal         @default(0) @db.Decimal(12, 2)
+  // Legacy payment terms (Payment Terms tab of the price DB): downpayment
+  // fraction 0 / 0.25 / 0.5 / 1 — drives downpayment/balance on the printable.
+  paymentTermLabel String?
+  downpaymentRate  Decimal       @default(0.5) @db.Decimal(3, 2)
   notes          String?
   sentAt         DateTime?
   approvedById   String?
@@ -46,12 +60,14 @@ model Quotation {
   @@index([createdById])
 }
 
+// productId is optional (same decision as JobOrderItem): items are free-text
+// descriptions until they're linked to the Product catalog / calculators.
 model QuotationItem {
   id          String    @id @default(cuid())
   quotationId String
   quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id])
+  productId   String?
+  product     Product?  @relation(fields: [productId], references: [id])
   description String
   specs       Json? // size, material, color, etc. — varies per product type
   qty         Int

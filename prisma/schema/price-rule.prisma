@@ -1,0 +1,35 @@
+// ============================================================
+// SHARED MASTERS — PRICE RULES
+// ============================================================
+
+// Parametric pricing (the legacy price DB tabs, as data). Two shapes cover
+// the catalog:
+//   VARIANT — a selectable option with its own unit price per product.unit;
+//     rows sharing a label with minQty > 1 form that variant's qty tiers
+//     (White Mug 180@5+ / 150@10+ / …). minCharge floors area pricing.
+//   ADDON — an optional fee: flat amount and/or percent of the base line
+//     (rush +150, design +250, rush +5%).
+enum PriceRuleType {
+  VARIANT
+  ADDON
+}
+
+model PriceRule {
+  id        String        @id @default(cuid())
+  productId String
+  product   Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type      PriceRuleType
+  label     String
+  unitPrice Decimal?      @db.Decimal(12, 2) // VARIANT: price per product.unit
+  minQty    Int           @default(1) // VARIANT: tier threshold
+  minCharge Decimal?      @db.Decimal(12, 2) // VARIANT: floor for area pricing
+  amount    Decimal?      @db.Decimal(12, 2) // ADDON: flat fee
+  pct       Decimal?      @db.Decimal(5, 2) // ADDON: percent of base line
+  notes     String?
+  sortOrder Int           @default(0)
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([productId, type, isActive])
+}

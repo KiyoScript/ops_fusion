@@ -20,6 +20,7 @@ model Product {
 
   quotationItems QuotationItem[]
   jobOrderItems  JobOrderItem[]
+  priceRules     PriceRule[]
 
   @@index([name])
   @@index([category])
