@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { PlusIcon, PencilIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ContactField } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -136,11 +137,16 @@ export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="inq-contact">Contact number</Label>
-              <Input
-                id="inq-contact"
-                inputMode="tel"
-                placeholder="09xx…"
-                {...form.register("contactNumber")}
+              <Controller
+                control={form.control}
+                name="contactNumber"
+                render={({ field }) => (
+                  <ContactField
+                    id="inq-contact"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                  />
+                )}
               />
             </div>
             <div className="grid gap-2">

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckCircle2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ContactField } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -81,12 +82,16 @@ export function QuoteRequestForm() {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="qr-contact">Contact number</Label>
-          <Input
-            id="qr-contact"
-            inputMode="tel"
-            placeholder="09xx…"
-            autoComplete="tel"
-            {...form.register("contactNumber")}
+          <Controller
+            control={form.control}
+            name="contactNumber"
+            render={({ field }) => (
+              <ContactField
+                id="qr-contact"
+                value={field.value ?? ""}
+                onChange={field.onChange}
+              />
+            )}
           />
         </div>
         <div className="grid gap-2">

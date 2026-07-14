@@ -2,6 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ContactField, isValidPhContact } from "@/components/validated-fields";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
 
 // Step 1 for every product wizard (legacy CLIENT INFO): name, contact,
@@ -50,13 +51,21 @@ export function ClientInfoStep({
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label htmlFor="ci-contact">Contact Number</Label>
-          <Input
+          <ContactField
             id="ci-contact"
-            inputMode="tel"
-            placeholder="09XX XXX XXXX"
             value={value.contactNumber}
-            onChange={(e) => set({ contactNumber: e.target.value })}
+            onChange={(v) => set({ contactNumber: v })}
+            aria-invalid={
+              value.contactNumber.length > 0 &&
+              !isValidPhContact(value.contactNumber)
+            }
           />
+          {value.contactNumber.length > 0 &&
+            !isValidPhContact(value.contactNumber) && (
+              <p className="text-xs text-destructive">
+                Enter an 11-digit number starting with 09.
+              </p>
+            )}
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="ci-email">

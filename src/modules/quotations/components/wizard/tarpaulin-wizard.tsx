@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -236,35 +236,35 @@ export function TarpaulinWizard({
               <Label htmlFor="tw-w">
                 Width ({unit}) <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <NumberField
                 id="tw-w"
-                inputMode="decimal"
+                decimal
                 placeholder="0"
                 value={width}
-                onChange={(e) => setWidth(e.target.value)}
+                onChange={setWidth}
               />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="tw-h">
                 Height ({unit}) <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <NumberField
                 id="tw-h"
-                inputMode="decimal"
+                decimal
                 placeholder="0"
                 value={height}
-                onChange={(e) => setHeight(e.target.value)}
+                onChange={setHeight}
               />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="tw-q">
                 Quantity <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <NumberField
                 id="tw-q"
-                inputMode="numeric"
                 value={qty}
-                onChange={(e) => setQty(e.target.value)}
+                onChange={setQty}
+                maxDigits={6}
               />
             </div>
           </div>

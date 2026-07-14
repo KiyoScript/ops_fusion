@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -382,24 +383,24 @@ export function SignageWizard({
               <Label htmlFor="sg-w">
                 Width ({unit}) <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <NumberField
                 id="sg-w"
-                inputMode="decimal"
+                decimal
                 placeholder="0"
                 value={width}
-                onChange={(e) => setWidth(e.target.value)}
+                onChange={setWidth}
               />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="sg-h">
                 Height ({unit}) <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <NumberField
                 id="sg-h"
-                inputMode="decimal"
+                decimal
                 placeholder="0"
                 value={height}
-                onChange={(e) => setHeight(e.target.value)}
+                onChange={setHeight}
               />
             </div>
           </div>

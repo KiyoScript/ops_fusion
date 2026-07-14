@@ -12,13 +12,22 @@ export const INQUIRY_MEDIUMS = [
   "PORTAL",
 ] as const;
 
+// PH mobile number: 11 digits starting 09 (blank allowed). The UI strips
+// non-digits, but validate here too for the portal/API path.
+const phContact = z
+  .string()
+  .trim()
+  .regex(/^09\d{9}$/, "Enter an 11-digit number starting with 09.")
+  .or(z.literal(""))
+  .optional();
+
 const inquiryFields = z.object({
   customerName: z
     .string()
     .trim()
     .min(1, "Customer Name is required.")
     .max(200),
-  contactNumber: z.string().trim().max(40).optional(),
+  contactNumber: phContact,
   email: z.string().trim().max(200).optional(),
   medium: z.enum(INQUIRY_MEDIUMS),
   servicesRequested: z
@@ -33,7 +42,7 @@ const inquiryFields = z.object({
 // fill it, humans never see it.
 export const portalRequestInput = z.object({
   customerName: z.string().trim().min(2, "Please tell us your name.").max(200),
-  contactNumber: z.string().trim().max(40).optional(),
+  contactNumber: phContact,
   email: z
     .string()
     .trim()
