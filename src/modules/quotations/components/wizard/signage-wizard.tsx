@@ -18,6 +18,7 @@ import {
   type ClientInfo,
 } from "./client-info-step";
 import { QuoteTypePicker, type QuoteType } from "./quote-type-picker";
+import { TaxPicker, applyTax, type TaxType } from "./tax-picker";
 
 // Signage per-product wizard — 1:1 with legacy Index.html (7 steps):
 // Client Info → Signage Type → Dimensions → Mounting → Add-ons → Design →
@@ -121,6 +122,7 @@ export function SignageWizard({
   const [notes, setNotes] = useState("");
   const [quoteType, setQuoteType] = useState<QuoteType>("SALES");
   const [poNumber, setPoNumber] = useState("");
+  const [taxType, setTaxType] = useState<TaxType>("NON_VAT");
 
   const variant = variantIdx !== null ? variants[variantIdx] : undefined;
 
@@ -164,6 +166,8 @@ export function SignageWizard({
     complexity, design, designFee, rush, rushFee, useElec, elec,
     useTransport, transport,
   ]);
+
+  const taxed = applyTax(calc.total, taxType);
 
   const stepValid = (i: number): boolean => {
     if (i === 0) return isClientValid(client);
@@ -235,7 +239,7 @@ export function SignageWizard({
         poNumber: quoteType === "PO" ? poNumber.trim() : undefined,
         customerName: client.customerName,
         validUntil: "",
-        taxType: "NON_VAT",
+        taxType,
         paymentTermLabel: "50% Downpayment",
         downpaymentRate: "0.5",
         notes: noteLines.join("\n"),
@@ -576,11 +580,32 @@ export function SignageWizard({
               <BreakdownRow label="Add-ons" value={php(calc.addons)} />
             )}
           </div>
-          <div className="mt-1 flex items-center justify-between border-t pt-3">
-            <span className="text-base font-semibold">Total</span>
-            <span className="text-2xl font-bold text-primary tabular-nums">
-              {php(calc.total)}
-            </span>
+          <div className="border-t pt-3">
+            <TaxPicker taxType={taxType} onChange={setTaxType} />
+          </div>
+          <div className="grid gap-1 border-t pt-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span className="tabular-nums">{php(calc.total)}</span>
+            </div>
+            {taxType === "VAT_EXCLUSIVE" && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">VAT (12%)</span>
+                <span className="tabular-nums">{php(taxed.taxAmount)}</span>
+              </div>
+            )}
+            {taxType === "VAT_INCLUSIVE" && (
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>VAT (12% incl.)</span>
+                <span className="tabular-nums">{php(taxed.taxAmount)}</span>
+              </div>
+            )}
+            <div className="mt-1 flex items-center justify-between border-t pt-2">
+              <span className="text-base font-semibold">Total</span>
+              <span className="text-2xl font-bold text-primary tabular-nums">
+                {php(taxed.total)}
+              </span>
+            </div>
           </div>
 
           <div className="border-t pt-4">

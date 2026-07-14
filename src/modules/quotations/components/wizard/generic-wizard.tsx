@@ -20,6 +20,7 @@ import {
   type ClientInfo,
 } from "./client-info-step";
 import { QuoteTypePicker, type QuoteType } from "./quote-type-picker";
+import { TaxPicker, applyTax, type TaxType } from "./tax-picker";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -134,6 +135,7 @@ export function GenericWizard({
   const [notes, setNotes] = useState("");
   const [quoteType, setQuoteType] = useState<QuoteType>("SALES");
   const [poNumber, setPoNumber] = useState("");
+  const [taxType, setTaxType] = useState<TaxType>("NON_VAT");
   const [cart, setCart] = useState<CartItem[]>([]);
 
   const q = Math.max(parseInt(qty, 10) || 0, 0);
@@ -266,6 +268,7 @@ export function GenericWizard({
 
   const cartTotal = cart.reduce((s, it) => s + it.lineTotal, 0);
   const grandTotal = round2(cartTotal + calc.total);
+  const taxed = applyTax(grandTotal, taxType);
 
   const submit = () => {
     if (quoteType === "PO" && !poNumber.trim()) {
@@ -290,7 +293,7 @@ export function GenericWizard({
         poNumber: quoteType === "PO" ? poNumber.trim() : undefined,
         customerName: client.customerName,
         validUntil: "",
-        taxType: "NON_VAT",
+        taxType,
         paymentTermLabel: "50% Downpayment",
         downpaymentRate: "0.5",
         notes: noteLines.join("\n"),
@@ -543,13 +546,35 @@ export function GenericWizard({
             />
           </div>
 
-          <div className="flex items-center justify-between border-t pt-4">
-            <span className="text-base font-semibold">
-              {cart.length > 0 ? "Grand total" : "Total"}
-            </span>
-            <span className="text-2xl font-bold text-primary tabular-nums">
-              {php(grandTotal)}
-            </span>
+          <div className="border-t pt-4">
+            <TaxPicker taxType={taxType} onChange={setTaxType} />
+          </div>
+
+          <div className="grid gap-1 border-t pt-4 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">
+                {cart.length > 0 ? "Items subtotal" : "Subtotal"}
+              </span>
+              <span className="tabular-nums">{php(grandTotal)}</span>
+            </div>
+            {taxType === "VAT_EXCLUSIVE" && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">VAT (12%)</span>
+                <span className="tabular-nums">{php(taxed.taxAmount)}</span>
+              </div>
+            )}
+            {taxType === "VAT_INCLUSIVE" && (
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>VAT (12% incl.)</span>
+                <span className="tabular-nums">{php(taxed.taxAmount)}</span>
+              </div>
+            )}
+            <div className="mt-1 flex items-center justify-between border-t pt-2">
+              <span className="text-base font-semibold">Total</span>
+              <span className="text-2xl font-bold text-primary tabular-nums">
+                {php(taxed.total)}
+              </span>
+            </div>
           </div>
 
           <div className="border-t pt-4">
