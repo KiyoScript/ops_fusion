@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api-client";
-import type { CustomerOption } from "../repositories/customer-repository";
+import type { CustomerSuggestion } from "../repositories/customer-repository";
 import { useDebounce } from "./use-debounce";
 
 export function useCustomerSearch(query: string) {
@@ -10,7 +10,7 @@ export function useCustomerSearch(query: string) {
   return useQuery({
     queryKey: ["customers", "search", debounced],
     queryFn: () =>
-      fetchJson<CustomerOption[]>(
+      fetchJson<CustomerSuggestion[]>(
         `/api/customers?q=${encodeURIComponent(debounced)}`
       ),
     enabled: debounced.length >= 2,

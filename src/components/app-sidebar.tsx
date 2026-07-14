@@ -9,6 +9,7 @@ import {
   ChevronsUpDown,
   ClipboardList,
   FileText,
+  Inbox,
   LayoutDashboard,
   LogOut,
   Package,
@@ -64,6 +65,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Sales",
     items: [
+      { title: "Inquiries", href: "/inquiries", icon: Inbox },
       { title: "Quotations", href: "/quotations", icon: FileText },
       { title: "Sales Audit", href: "/sales-audit", icon: ShieldCheck },
     ],

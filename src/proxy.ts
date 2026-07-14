@@ -4,7 +4,9 @@
 export { auth as proxy } from "@/lib/auth";
 
 export const config = {
-  // Protect everything except auth endpoints, the sign-in page,
-  // Next internals, and static assets.
-  matcher: ["/((?!api/auth|sign-in|_next/static|_next/image|favicon\\.ico).*)"],
+  // Protect everything except auth endpoints, the sign-in page, the public
+  // customer quote-request portal, Next internals, and static assets.
+  matcher: [
+    "/((?!api/auth|api/public|sign-in|quote-request|_next/static|_next/image|favicon\\.ico).*)",
+  ],
 };

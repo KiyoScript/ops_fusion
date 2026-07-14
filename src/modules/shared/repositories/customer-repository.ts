@@ -3,8 +3,15 @@ import type { DbTx } from "./types";
 
 export type CustomerOption = { id: string; name: string };
 
+/** Search result for pickers — carries contact/company so similar-sounding
+ *  names are distinguishable in the dropdown. */
+export type CustomerSuggestion = CustomerOption & {
+  contactNumber: string | null;
+  company: string | null;
+};
+
 export interface ICustomerRepository {
-  search(query: string, take?: number): Promise<CustomerOption[]>;
+  search(query: string, take?: number): Promise<CustomerSuggestion[]>;
   findOrCreateByName(
     name: string,
     createdById: string,
@@ -18,13 +25,13 @@ export interface ICustomerRepository {
 }
 
 export class PrismaCustomerRepository implements ICustomerRepository {
-  async search(query: string, take = 10): Promise<CustomerOption[]> {
+  async search(query: string, take = 10): Promise<CustomerSuggestion[]> {
     return prisma.customer.findMany({
       where: {
         deletedAt: null,
         name: { contains: query, mode: "insensitive" },
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, contactNumber: true, company: true },
       orderBy: { name: "asc" },
       take,
     });

@@ -125,6 +125,8 @@ export type JobOrderCreateData = {
   joNumber: string;
   isPO?: boolean;
   isNonJo?: boolean;
+  /** Set when the JO was converted from a quotation (1—0..1 link). */
+  quotationId?: string | null;
   customerId: string;
   status: JobOrderStatus;
   deadline?: Date | null;

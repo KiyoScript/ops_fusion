@@ -29,6 +29,22 @@ export async function fileToRows(
   );
 }
 
+/** Every worksheet of an .xlsx as name → positional rows. For the full
+ *  price-workbook import (one upload, many differently-shaped tabs). */
+export async function fileToSheets(
+  file: File
+): Promise<{ name: string; rows: string[][] }[]> {
+  if (!file.name.toLowerCase().endsWith(".xlsx")) {
+    throw new ValidationError("Upload the .xlsx workbook.");
+  }
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await file.arrayBuffer());
+  return workbook.worksheets.map((sheet) => ({
+    name: sheet.name.trim(),
+    rows: sheetToRows(sheet),
+  }));
+}
+
 function pickSheet(
   workbook: ExcelJS.Workbook,
   preferredSheets: string[]

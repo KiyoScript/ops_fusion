@@ -45,6 +45,24 @@ import {
 
 const DAY_MS = 86_400_000;
 
+/** Allocates the next "R-AD{yyyy}-{MM}-{dd}-{seq}" for today. Skips over
+ *  numbers that already exist (imported legacy JOs share this format).
+ *  Exported so quotation conversion allocates JO numbers the same way. */
+export async function allocateJoNumber(
+  jobOrders: IJobOrderRepository,
+  tx: DbTx
+): Promise<string> {
+  const prefix = `R-AD${format(new Date(), "yyyy-MM-dd")}`;
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const seq = await jobOrders.nextCounter(`jo:${prefix}`, tx);
+    const candidate = `${prefix}-${String(seq).padStart(2, "0")}`;
+    if (!(await jobOrders.existsJoNumber(candidate, undefined, tx))) {
+      return candidate;
+    }
+  }
+  throw new ValidationError("Could not allocate a JO number for today.");
+}
+
 const parseDate = (value?: string): Date | null =>
   value ? new Date(`${value}T00:00:00`) : null;
 const toIso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -58,8 +76,8 @@ const money = (n: number): string => n.toFixed(2);
 // TODO(QUOTATION + SALES-AUDIT + DR integration) — fusion-only workflow (NOT
 // in legacy JOWebApp), blocked until those modules exist in ops_fusion:
 //
-//   • Quotation → JO: an approved quotation converts into a JO. The schema
-//     link already exists (Quotation 1—0..1 JobOrder via quotationId).
+//   • Quotation → JO: DONE — QuotationService.convertToJobOrder creates a
+//     DRAFT JO from an approved/sent quote (link via JobOrder.quotationId).
 //   • Customer-approval gate for NON-PO JOs: before a JO can be APPROVED it
 //     needs a customer confirmation ATTACHMENT (signed quote or any file that
 //     proves agreement) plus confirmed specs, amount, and promise date. The
@@ -90,18 +108,8 @@ export class JobOrderService {
     return { rows: rows.map(mapListRow), nextCursor };
   }
 
-  /** Allocates the next "R-AD{yyyy}-{MM}-{dd}-{seq}" for today. Skips over
-   *  numbers that already exist (imported legacy JOs share this format). */
-  private async generateJoNumber(tx: DbTx): Promise<string> {
-    const prefix = `R-AD${format(new Date(), "yyyy-MM-dd")}`;
-    for (let attempt = 0; attempt < 500; attempt++) {
-      const seq = await this.jobOrders.nextCounter(`jo:${prefix}`, tx);
-      const candidate = `${prefix}-${String(seq).padStart(2, "0")}`;
-      if (!(await this.jobOrders.existsJoNumber(candidate, undefined, tx))) {
-        return candidate;
-      }
-    }
-    throw new ValidationError("Could not allocate a JO number for today.");
+  private generateJoNumber(tx: DbTx): Promise<string> {
+    return allocateJoNumber(this.jobOrders, tx);
   }
 
   /** Readable by every authenticated role (the route enforces the session). */
