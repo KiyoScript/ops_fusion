@@ -32,6 +32,7 @@ model User {
   jobOrdersCreated   JobOrder[]                  @relation("JobOrderCreatedBy")
   jobOrdersApproved  JobOrder[]                  @relation("JobOrderApprovedBy")
   joStatusChanges    JobOrderStatusHistory[]     @relation("JoStatusChangedBy")
+  stepsCompleted     JobOrderItemStep[]          @relation("StepCompletedBy")
   bookletsOpened     Booklet[]                   @relation("BookletOpenedBy")
   bookletsApproved   Booklet[]                   @relation("BookletApprovedBy")
   salesCreated       Sale[]                      @relation("SaleCreatedBy")

@@ -57,5 +57,6 @@ export async function resolveWizardProduct(
       pct: r.pct?.toString() ?? null,
       notes: r.notes,
     })),
+    productionSteps: [], // wizards don't need the workflow template
   };
 }

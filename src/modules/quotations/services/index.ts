@@ -6,17 +6,20 @@ import { PrismaJobOrderRepository } from "@/modules/job-orders/repositories/job-
 import { PrismaQuotationRepository } from "../repositories/quotation-repository";
 import { PrismaInquiryRepository } from "../repositories/inquiry-repository";
 import { PrismaPriceListRepository } from "../repositories/price-list-repository";
+import { PrismaProductionStepRepository } from "../repositories/production-step-repository";
 import { QuotationService } from "./quotation-service";
 import { InquiryService } from "./inquiry-service";
 import { PriceImportService } from "./price-import-service";
 import { WorkbookImportService } from "./workbook-import-service";
 import { PriceListService } from "./price-list-service";
+import { ProductionStepService } from "./production-step-service";
 
 let quotationService: QuotationService | undefined;
 let inquiryService: InquiryService | undefined;
 let priceImportService: PriceImportService | undefined;
 let workbookImportService: WorkbookImportService | undefined;
 let priceListService: PriceListService | undefined;
+let productionStepService: ProductionStepService | undefined;
 
 export function getQuotationService(): QuotationService {
   quotationService ??= new QuotationService(
@@ -24,9 +27,11 @@ export function getQuotationService(): QuotationService {
     new PrismaCustomerRepository(),
     new PrismaActivityLogRepository(),
     // JO repo powers quote → JO conversion (numbering + creation);
-    // inquiry repo links Inquiry → Quotation on create.
+    // inquiry repo links Inquiry → Quotation on create; production-step repo
+    // seeds each JO item's workflow from its product template on convert.
     new PrismaJobOrderRepository(),
-    new PrismaInquiryRepository()
+    new PrismaInquiryRepository(),
+    new PrismaProductionStepRepository()
   );
   return quotationService;
 }
@@ -61,4 +66,12 @@ export function getPriceListService(): PriceListService {
     new PrismaActivityLogRepository()
   );
   return priceListService;
+}
+
+export function getProductionStepService(): ProductionStepService {
+  productionStepService ??= new ProductionStepService(
+    new PrismaProductionStepRepository(),
+    new PrismaActivityLogRepository()
+  );
+  return productionStepService;
 }

@@ -86,6 +86,7 @@ export type JobOrderItemBoardRecord = Prisma.JobOrderItemGetPayload<{
 // ——— write payloads (plain data in, no Prisma types leak to services) ———
 
 export type ItemCreateData = {
+  productId?: string | null; // links to the catalog product (drives step template)
   description: string;
   qty: number;
   unitPrice: string;

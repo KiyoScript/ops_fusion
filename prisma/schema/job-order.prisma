@@ -113,6 +113,7 @@ model JobOrderItem {
   sortOrder    Int @default(0)
 
   drLines DeliveryReceiptLine[]
+  steps   JobOrderItemStep[]
 
   @@index([jobOrderId])
   @@index([productId])
@@ -120,6 +121,22 @@ model JobOrderItem {
   @@index([deadline])
   @@index([archivedAt])
   @@index([lineItemId])
+}
+
+// Per-item production checklist — a snapshot of the product's ProductionStep
+// template taken at item creation, tracked independently as the item moves
+// through production. Editing a product's template never touches these rows.
+model JobOrderItemStep {
+  id            String       @id @default(cuid())
+  jobOrderItemId String
+  jobOrderItem  JobOrderItem @relation(fields: [jobOrderItemId], references: [id], onDelete: Cascade)
+  name          String
+  sortOrder     Int          @default(0)
+  doneAt        DateTime? // set when the step is completed
+  doneById      String?
+  doneBy        User?        @relation("StepCompletedBy", fields: [doneById], references: [id])
+
+  @@index([jobOrderItemId])
 }
 
 // Customer-approval proof files (signed quote, photo of PO, screenshots…).

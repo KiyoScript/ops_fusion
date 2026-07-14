@@ -18,13 +18,32 @@ model Product {
   createdById String
   createdBy   User      @relation("ProductCreatedBy", fields: [createdById], references: [id])
 
-  quotationItems QuotationItem[]
-  jobOrderItems  JobOrderItem[]
-  priceRules     PriceRule[]
+  quotationItems  QuotationItem[]
+  jobOrderItems   JobOrderItem[]
+  priceRules      PriceRule[]
+  productionSteps ProductionStep[]
 
   @@index([name])
   @@index([category])
   @@index([isActive])
   @@index([deletedAt])
   @@index([createdById])
+}
+
+// Per-product production workflow — the ordered steps a JO item of this
+// product moves through (Layout → Printing → Finishing → …). Fully
+// customizable in Quotation Maintenance; every product defines its own.
+// The template is COPIED onto JobOrderItemStep at JO-item creation, so
+// later edits to the template never rewrite in-flight jobs.
+model ProductionStep {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String // "Printing", "Finishing (eyelets)", …
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId, isActive])
 }

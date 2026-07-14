@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SuggestInput } from "@/components/suggest-input";
+import { ItemStepsChecklist } from "./item-steps-checklist";
 import { numericField } from "@/lib/form-numeric";
 import { useLookupOptions } from "@/modules/shared/hooks/use-lookups";
 import { useEmployeeOptions } from "@/modules/shared/hooks/use-employees";
@@ -41,11 +42,15 @@ export function ItemEditDialog({
   row,
   onClose,
   onEditJo,
+  canEdit = true,
 }: {
   row: JobOrderItemRowDto | null;
   onClose: () => void;
   /** Opens the whole-JO editor (add/remove items, notes) instead. */
   onEditJo?: (jobOrderId: string) => void;
+  /** Whether the viewer may tick production steps (default true — the dialog
+   *  is only opened for users who can already edit the item). */
+  canEdit?: boolean;
 }) {
   const invalidate = useInvalidateJobOrders();
   const statusLookups = useLookupOptions("JO_STATUS");
@@ -201,6 +206,12 @@ export function ItemEditDialog({
             />
             🔥 Rush item
           </label>
+
+          {row && (
+            <div className="rounded-lg border p-3">
+              <ItemStepsChecklist jobOrderItemId={row.id} canEdit={canEdit} />
+            </div>
+          )}
 
           <div className="grid gap-1 text-xs">
             <span className="font-medium">Deadline moves</span>

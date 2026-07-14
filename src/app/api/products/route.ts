@@ -23,6 +23,7 @@ export type ProductOptionDto = {
   basePrice: string;
   description: string | null;
   rules: ProductRuleDto[];
+  productionSteps: string[]; // ordered step names (per-product workflow)
 };
 
 // GET /api/products — active catalog + price rules for the quotation
@@ -53,6 +54,11 @@ export async function GET() {
             notes: true,
           },
         },
+        productionSteps: {
+          where: { isActive: true },
+          orderBy: { sortOrder: "asc" },
+          select: { name: true },
+        },
       },
       orderBy: [{ category: "asc" }, { name: "asc" }],
     });
@@ -73,6 +79,7 @@ export async function GET() {
         pct: rule.pct?.toString() ?? null,
         notes: rule.notes,
       })),
+      productionSteps: row.productionSteps.map((s) => s.name),
     }));
     return NextResponse.json(ok(options));
   } catch (err) {

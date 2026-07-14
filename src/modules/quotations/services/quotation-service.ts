@@ -16,6 +16,7 @@ import type { IJobOrderRepository } from "@/modules/job-orders/repositories/job-
 import { allocateJoNumber } from "@/modules/job-orders/services/job-order-service";
 import { sendMail, staffNotifyAddress } from "@/lib/mailer";
 import type { IInquiryRepository } from "../repositories/inquiry-repository";
+import type { IProductionStepRepository } from "../repositories/production-step-repository";
 import type {
   IQuotationRepository,
   ItemCreateData,
@@ -87,7 +88,8 @@ export class QuotationService {
     private readonly customers: ICustomerRepository,
     private readonly activity: IActivityLogRepository,
     private readonly jobOrders: IJobOrderRepository,
-    private readonly inquiries: IInquiryRepository
+    private readonly inquiries: IInquiryRepository,
+    private readonly productionSteps: IProductionStepRepository
   ) {}
 
   /** One yearly series PER TYPE — replaces the 27 per-product prefixes of
@@ -413,6 +415,9 @@ export class QuotationService {
           notes: conversionNotes(detail),
           createdById: actor.id,
           items: detail.items.map((item, index) => ({
+            // Carry the catalog link so the JO item inherits the product's
+            // production-step template.
+            productId: item.productId ?? null,
             description: item.description,
             qty: item.qty,
             unitPrice: item.unitPrice.toString(),
@@ -438,6 +443,9 @@ export class QuotationService {
         },
         tx
       );
+      // Copy each item's product production-step template onto the JO item,
+      // so the job starts with its per-product workflow checklist.
+      await this.productionSteps.seedStepsForJobOrder(created.id, tx);
       await this.quotations.setStatus(
         id,
         { status: QuotationStatus.CONVERTED },

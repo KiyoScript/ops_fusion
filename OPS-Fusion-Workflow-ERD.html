@@ -276,7 +276,15 @@
           </div>
           <div class="ent hub">
             <div class="name">JobOrderItem</div>
-            <ul><li>jobOrderId<span class="k fk">FK</span></li><li>qty · qtyDelivered (Int)</li><li><b>fromQuote</b> (locks description)</li><li>productionStatus · archivedAt</li><li>isLFP → PRISM (later)</li></ul>
+            <ul><li>jobOrderId<span class="k fk">FK</span></li><li>qty · qtyDelivered (Int)</li><li><b>fromQuote</b> (locks description)</li><li>productionStatus · archivedAt</li><li>steps → JobOrderItemStep</li><li>isLFP → PRISM (later)</li></ul>
+          </div>
+          <div class="ent">
+            <div class="name">ProductionStep</div>
+            <ul><li>productId<span class="k fk">FK</span></li><li>name · sortOrder</li><li>per-product workflow template (editable in Maintenance)</li></ul>
+          </div>
+          <div class="ent">
+            <div class="name">JobOrderItemStep</div>
+            <ul><li>jobOrderItemId<span class="k fk">FK</span></li><li>name · sortOrder · doneAt</li><li>snapshot of the product template — tracked per item</li></ul>
           </div>
           <div class="ent">
             <div class="name">DeliveryReceipt + Line</div>
@@ -398,6 +406,21 @@ Table JobOrderItem {
   archivedAt timestamp // done items auto-archive
   lineItemId varchar // "<joNumber>-01"
   isLFP boolean // feeds PRISM later
+}
+Table ProductionStep { // per-product workflow template (editable in Maintenance)
+  id varchar [pk]
+  productId varchar [ref: > Product.id]
+  name varchar // "Layout", "Printing", "Finishing", …
+  sortOrder int
+  isActive boolean
+}
+Table JobOrderItemStep { // snapshot of the template, tracked per item
+  id varchar [pk]
+  jobOrderItemId varchar [ref: > JobOrderItem.id]
+  name varchar
+  sortOrder int
+  doneAt timestamp // set when completed
+  doneById varchar [ref: > User.id]
 }
 Table DeliveryReceipt {
   id varchar [pk]

@@ -3,8 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/authz";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
-import { getPriceListService } from "@/modules/quotations/services";
-import { productSaveInput } from "@/modules/quotations/schemas/price-list";
+import {
+  getPriceListService,
+  getProductionStepService,
+} from "@/modules/quotations/services";
+import {
+  productionStepsSaveInput,
+  productSaveInput,
+} from "@/modules/quotations/schemas/price-list";
 import { z } from "zod";
 
 function firstIssue(error: z.ZodError): ValidationError {
@@ -35,6 +41,22 @@ export async function archivePriceListProductAction(
     if (!id) return fail(new ValidationError("Missing product id."));
 
     await getPriceListService().archiveProduct(actor, id);
+    revalidatePath("/maintenance/quotations");
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function saveProductionStepsAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const parsed = productionStepsSaveInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+
+    await getProductionStepService().save(actor, parsed.data);
     revalidatePath("/maintenance/quotations");
     return ok(null);
   } catch (err) {

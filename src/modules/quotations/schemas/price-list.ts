@@ -58,6 +58,17 @@ export const productSaveInput = z.object({
 export type PriceListRuleInput = z.infer<typeof priceListRuleInput>;
 export type ProductSaveInput = z.infer<typeof productSaveInput>;
 
+// Per-product production workflow (Maintenance). The whole ordered list is
+// saved at once, replace-style.
+export const productionStepsSaveInput = z.object({
+  productId: z.string().min(1),
+  steps: z
+    .array(z.string().trim().min(1, "Step name is required").max(120))
+    .max(30),
+});
+
+export type ProductionStepsSaveInput = z.infer<typeof productionStepsSaveInput>;
+
 export type PriceImportRowError = { line: number; message: string };
 
 export type PriceImportSummaryDto = {
