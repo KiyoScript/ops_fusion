@@ -1,10 +1,26 @@
 "use client";
 
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api-client";
-import type { InquiryPageDto } from "../schemas/inquiry";
+import type {
+  InquiryMetricsDto,
+  InquiryPageDto,
+} from "../schemas/inquiry";
 
 export type InquiryListParams = { q: string; view: string };
+
+export function useInquiryMetrics() {
+  return useQuery({
+    // Prefixed by ["inquiries"] so any inquiry mutation invalidates it too.
+    queryKey: ["inquiries", "metrics"],
+    queryFn: () => fetchJson<InquiryMetricsDto>("/api/inquiries/metrics"),
+    staleTime: 30_000,
+  });
+}
 
 export function useInquiriesInfinite(params: InquiryListParams) {
   return useInfiniteQuery({

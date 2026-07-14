@@ -5,6 +5,7 @@ import { requireActor } from "@/lib/authz";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getInquiryService } from "@/modules/quotations/services";
 import {
+  inquiryCloseInput,
   inquiryCreateInput,
   inquiryUpdateInput,
 } from "@/modules/quotations/schemas/inquiry";
@@ -39,6 +40,37 @@ export async function updateInquiryAction(
     if (!parsed.success) return fail(firstIssue(parsed.error));
 
     await getInquiryService().update(actor, parsed.data);
+    revalidatePath("/inquiries");
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function closeInquiryAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const parsed = inquiryCloseInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+
+    await getInquiryService().close(actor, parsed.data);
+    revalidatePath("/inquiries");
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function reopenInquiryAction(
+  id: string
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    if (!id) return fail(new ValidationError("Missing inquiry id."));
+
+    await getInquiryService().reopen(actor, id);
     revalidatePath("/inquiries");
     return ok(null);
   } catch (err) {

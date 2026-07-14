@@ -7,7 +7,17 @@ enum InquiryMedium {
   EMAIL
   WALK_IN
   CALL
+  VIBER
   PORTAL // anonymous submissions from the public /quote-request page
+}
+
+// Inquiry lifecycle: OPEN (logged, no quote yet) → QUOTED (a quotation was
+// made from it — set automatically on link) → CLOSED (dropped without a
+// quote: no interest, unreachable, spam).
+enum InquiryStatus {
+  OPEN
+  QUOTED
+  CLOSED
 }
 
 // Spec 1.2 Step 1 — inquiry log (Type A JOs start here)
@@ -19,6 +29,8 @@ model Inquiry {
   contactNumber     String?
   email             String?
   medium            InquiryMedium
+  status            InquiryStatus @default(OPEN)
+  closedReason      String? // why it was closed without a quote
   servicesRequested String
   notes             String?
   quotationId       String?       @unique
@@ -30,6 +42,7 @@ model Inquiry {
 
   @@index([customerId])
   @@index([medium])
+  @@index([status])
   @@index([createdAt])
   @@index([createdById])
 }

@@ -1,4 +1,4 @@
-import { NotFoundError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
@@ -7,8 +7,10 @@ import type {
   InquiryRecord,
 } from "../repositories/inquiry-repository";
 import type {
+  InquiryCloseInput,
   InquiryCreateInput,
   InquiryListFilters,
+  InquiryMetricsDto,
   InquiryPageDto,
   InquiryRowDto,
   InquiryUpdateInput,
@@ -102,6 +104,43 @@ export class InquiryService {
       payload: { customerName: input.customerName },
     });
   }
+
+  /** Close an inquiry that never became a quote. A QUOTED inquiry can't be
+   *  closed (it already has a quote). */
+  async close(actor: Actor, input: InquiryCloseInput): Promise<void> {
+    assertCan(actor, "update", "Inquiry");
+    const record = await this.inquiries.findById(input.id);
+    if (!record) throw new NotFoundError("Inquiry not found.");
+    if (record.quotationId) {
+      throw new ValidationError("This inquiry already has a quotation.");
+    }
+    await this.inquiries.close(input.id, input.reason || null);
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "Inquiry",
+      entityId: input.id,
+      action: "close",
+      payload: { reason: input.reason ?? null },
+    });
+  }
+
+  /** Reopen a closed inquiry. */
+  async reopen(actor: Actor, id: string): Promise<void> {
+    assertCan(actor, "update", "Inquiry");
+    const record = await this.inquiries.findById(id);
+    if (!record) throw new NotFoundError("Inquiry not found.");
+    await this.inquiries.reopen(id);
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "Inquiry",
+      entityId: id,
+      action: "reopen",
+    });
+  }
+
+  async metrics(): Promise<InquiryMetricsDto> {
+    return this.inquiries.metrics();
+  }
 }
 
 function mapRow(record: InquiryRecord): InquiryRowDto {
@@ -111,6 +150,8 @@ function mapRow(record: InquiryRecord): InquiryRowDto {
     contactNumber: record.contactNumber,
     email: record.email,
     medium: record.medium,
+    status: record.status,
+    closedReason: record.closedReason,
     servicesRequested: record.servicesRequested,
     notes: record.notes,
     quotationId: record.quotationId,
