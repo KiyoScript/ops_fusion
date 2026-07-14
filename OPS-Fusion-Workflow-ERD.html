@@ -185,7 +185,7 @@
     <div class="fig">
       <div class="figbar"><span class="figtitle">FIG. 1 — Main flow (default path)</span><span class="figcap">screenshot this panel</span></div>
       <div class="flow">
-        <div class="fstep q"><p class="t">1 · Inquiry</p><p class="d">walk-in / call / portal — logs who asked for what</p></div>
+        <div class="fstep q"><p class="t">1 · Inquiry</p><p class="d">walk-in / messenger / email / call / viber / portal — logs who asked for what · status OPEN → QUOTED (auto on quote) / CLOSED</p></div>
         <div class="farrow">→</div>
         <div class="fstep q"><p class="t">2 · Quotation</p><p class="d"><b>type picked up-front: SALES · PO (+ PO #) · NON_JO</b> — number follows (Q- / PO- / NJ-) · Customer · PriceRules · VAT · downpayment term</p></div>
         <div class="farrow">→</div>
@@ -245,7 +245,7 @@
           <div class="lane-title">Quotation system</div>
           <div class="ent">
             <div class="name">Inquiry</div>
-            <ul><li>customerId<span class="k fk">FK</span></li><li>medium (+PORTAL) · email</li><li>quotationId<span class="k uq">0..1</span></li></ul>
+            <ul><li>customerId<span class="k fk">FK</span></li><li>medium (+VIBER +PORTAL) · email</li><li><b>status</b> OPEN · QUOTED · CLOSED</li><li>closedReason</li><li>quotationId<span class="k uq">0..1</span></li></ul>
           </div>
           <div class="ent">
             <div class="name">Quotation</div>
@@ -276,7 +276,7 @@
           </div>
           <div class="ent hub">
             <div class="name">JobOrderItem</div>
-            <ul><li>jobOrderId<span class="k fk">FK</span></li><li>qty · qtyDelivered (Int)</li><li>productionStatus · archivedAt</li><li>isLFP → PRISM (later)</li></ul>
+            <ul><li>jobOrderId<span class="k fk">FK</span></li><li>qty · qtyDelivered (Int)</li><li><b>fromQuote</b> (locks description)</li><li>productionStatus · archivedAt</li><li>isLFP → PRISM (later)</li></ul>
           </div>
           <div class="ent">
             <div class="name">DeliveryReceipt + Line</div>
@@ -328,7 +328,9 @@ Table Inquiry {
   customerName varchar // free text until firmed at the quotation
   contactNumber varchar
   email varchar // collected by the public portal (reply-to)
-  medium varchar // MESSENGER | EMAIL | WALK_IN | CALL | PORTAL
+  medium varchar // MESSENGER | EMAIL | WALK_IN | CALL | VIBER | PORTAL
+  status varchar // OPEN | QUOTED (auto on quote) | CLOSED
+  closedReason varchar // why closed without a quote
   servicesRequested varchar
   quotationId varchar [unique, ref: - Quotation.id]
 }
@@ -385,6 +387,7 @@ Table JobOrderItem {
   jobOrderId varchar [ref: > JobOrder.id]
   productId varchar [ref: > Product.id] // nullable — legacy free text
   description varchar
+  fromQuote boolean // true = copied from quote → description locked (non-editable)
   qty int
   unitPrice "decimal(12,2)"
   lineTotal "decimal(12,2)"

@@ -104,10 +104,19 @@ export function ItemEditDialog({
             <Textarea
               id="ie-desc"
               rows={2}
+              readOnly={row?.fromQuote}
               aria-invalid={!!errors.description}
+              className={row?.fromQuote ? "bg-muted/50 text-muted-foreground" : undefined}
               {...form.register("description")}
             />
-            <FieldError message={errors.description?.message} />
+            {row?.fromQuote ? (
+              <p className="text-xs text-muted-foreground">
+                Locked — copied from the approved quotation. Use Notes for
+                additional requirements.
+              </p>
+            ) : (
+              <FieldError message={errors.description?.message} />
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import type { InquiryMedium } from "@/generated/prisma/enums";
+import { InquiryStatus, type InquiryMedium } from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
 
 const rowSelect = {
@@ -9,6 +9,8 @@ const rowSelect = {
   contactNumber: true,
   email: true,
   medium: true,
+  status: true,
+  closedReason: true,
   servicesRequested: true,
   notes: true,
   quotationId: true,
@@ -30,9 +32,17 @@ export type InquiryWriteData = {
 
 export type InquiryListFilter = {
   q?: string;
-  view: "open" | "quoted" | "all";
+  view: "open" | "quoted" | "closed" | "all";
   cursor?: string;
   take: number;
+};
+
+export type InquiryMetrics = {
+  open: number;
+  quoted: number;
+  closed: number;
+  total: number;
+  byMedium: { medium: string; count: number }[];
 };
 
 export interface IInquiryRepository {
@@ -43,13 +53,16 @@ export interface IInquiryRepository {
   create(data: InquiryWriteData & { createdById: string }): Promise<{ id: string }>;
   update(id: string, data: InquiryWriteData): Promise<void>;
   /** Ties the inquiry to the quotation created from it (and the customer
-   *  the quote resolved, so the inquiry gains its master-record link). */
+   *  the quote resolved), and flips its status to QUOTED. */
   linkQuotation(
     inquiryId: string,
     quotationId: string,
     customerId: string,
     tx?: DbTx
   ): Promise<void>;
+  close(id: string, reason: string | null, tx?: DbTx): Promise<void>;
+  reopen(id: string, tx?: DbTx): Promise<void>;
+  metrics(): Promise<InquiryMetrics>;
 }
 
 export class PrismaInquiryRepository implements IInquiryRepository {
@@ -58,8 +71,9 @@ export class PrismaInquiryRepository implements IInquiryRepository {
   ): Promise<{ rows: InquiryRecord[]; nextCursor: string | null }> {
     const where: Prisma.InquiryWhereInput = {};
 
-    if (filter.view === "open") where.quotationId = null;
-    else if (filter.view === "quoted") where.quotationId = { not: null };
+    if (filter.view === "open") where.status = InquiryStatus.OPEN;
+    else if (filter.view === "quoted") where.status = InquiryStatus.QUOTED;
+    else if (filter.view === "closed") where.status = InquiryStatus.CLOSED;
 
     if (filter.q) {
       where.OR = [
@@ -109,7 +123,39 @@ export class PrismaInquiryRepository implements IInquiryRepository {
   ): Promise<void> {
     await (tx ?? prisma).inquiry.update({
       where: { id: inquiryId },
-      data: { quotationId, customerId },
+      data: { quotationId, customerId, status: InquiryStatus.QUOTED },
     });
+  }
+
+  async close(id: string, reason: string | null, tx?: DbTx): Promise<void> {
+    await (tx ?? prisma).inquiry.update({
+      where: { id },
+      data: { status: InquiryStatus.CLOSED, closedReason: reason },
+    });
+  }
+
+  async reopen(id: string, tx?: DbTx): Promise<void> {
+    await (tx ?? prisma).inquiry.update({
+      where: { id },
+      data: { status: InquiryStatus.OPEN, closedReason: null },
+    });
+  }
+
+  async metrics(): Promise<InquiryMetrics> {
+    const [byStatus, byMedium] = await Promise.all([
+      prisma.inquiry.groupBy({ by: ["status"], _count: true }),
+      prisma.inquiry.groupBy({ by: ["medium"], _count: true }),
+    ]);
+    const stat = (s: InquiryStatus) =>
+      byStatus.find((r) => r.status === s)?._count ?? 0;
+    return {
+      open: stat(InquiryStatus.OPEN),
+      quoted: stat(InquiryStatus.QUOTED),
+      closed: stat(InquiryStatus.CLOSED),
+      total: byStatus.reduce((sum, r) => sum + r._count, 0),
+      byMedium: byMedium
+        .map((r) => ({ medium: r.medium, count: r._count }))
+        .sort((a, b) => b.count - a.count),
+    };
   }
 }

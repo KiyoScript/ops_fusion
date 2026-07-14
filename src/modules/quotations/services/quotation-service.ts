@@ -378,12 +378,32 @@ export class QuotationService {
         "Only an approved or sent quotation can be converted to a JO."
       );
     }
+    // A NON_JO quote is priced/billed but never becomes a production JO —
+    // it settles directly on the Sales side (spec / ERD W1b).
+    if (detail.type === QuotationType.NON_JO) {
+      throw new ValidationError(
+        "A Non-JO quotation does not convert to a Job Order — it is billed directly on the Sales side."
+      );
+    }
+
+    // Mirror the quote type onto the JO (single-table discriminator). A PO
+    // quote → PO JO carrying the customer's PO number (typed JO number);
+    // a Sales quote → a regular auto-numbered JO.
+    const isPO = detail.type === QuotationType.PO;
 
     return this.quotations.withTransaction(async (tx) => {
-      const joNumber = await allocateJoNumber(this.jobOrders, tx);
+      const joNumber = isPO
+        ? detail.poNumber!.trim()
+        : await allocateJoNumber(this.jobOrders, tx);
+      // A typed PO number can collide — guard it (auto numbers can't).
+      if (isPO && (await this.jobOrders.existsJoNumber(joNumber, undefined, tx))) {
+        throw new ConflictError(`JO number "${joNumber}" already exists.`);
+      }
       const created = await this.jobOrders.createWithItems(
         {
           joNumber,
+          isPO,
+          isNonJo: false,
           quotationId: detail.id,
           customerId: detail.customer.id,
           status: JobOrderStatus.DRAFT,
@@ -397,6 +417,8 @@ export class QuotationService {
             qty: item.qty,
             unitPrice: item.unitPrice.toString(),
             lineTotal: item.lineTotal.toString(),
+            // Locked: the JO item copies the approved quote line verbatim.
+            fromQuote: true,
             specs: (item.specs ?? undefined) as
               | Prisma.InputJsonValue
               | undefined,

@@ -228,10 +228,13 @@ export default async function QuotationDetailPage({
         <QuotationStatusActions
           id={detail.id}
           quoteNumber={detail.quoteNumber}
+          type={detail.type}
+          poNumber={detail.poNumber}
           status={detail.status}
           canUpdate={canUpdate}
           canApprove={ability.can("approve", "Quotation")}
           canSend={ability.can("send", "Quotation")}
+          canConvert={ability.can("convert", "Quotation")}
           canArchive={ability.can("archive", "Quotation")}
         />
       </div>

@@ -86,6 +86,11 @@ model JobOrderItem {
   qty         Int
   unitPrice   Decimal  @db.Decimal(12, 2)
   lineTotal   Decimal  @db.Decimal(12, 2)
+  // Items created by quote→JO conversion carry the SalesQuotation's line
+  // verbatim: the description is locked (non-editable) so it stays faithful
+  // to the approved quote. Directly-encoded items stay editable. Extra
+  // requirements go in the JO/item notes instead.
+  fromQuote   Boolean  @default(false)
 
   // — production tracking (legacy "Line-up JOs" cols A/B/F/G/H/K/N–T) —
   productionStatus   String? // "Status - Department" string, e.g. "Ongoing - Printing"

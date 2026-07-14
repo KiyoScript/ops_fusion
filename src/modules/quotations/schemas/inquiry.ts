@@ -9,8 +9,11 @@ export const INQUIRY_MEDIUMS = [
   "EMAIL",
   "WALK_IN",
   "CALL",
+  "VIBER",
   "PORTAL",
 ] as const;
+
+export const INQUIRY_STATUSES = ["OPEN", "QUOTED", "CLOSED"] as const;
 
 // PH mobile number: 11 digits starting 09 (blank allowed). The UI strips
 // non-digits, but validate here too for the portal/API path.
@@ -71,14 +74,22 @@ export const inquiryUpdateInput = inquiryFields.extend({
 
 export const inquiryListFilters = z.object({
   q: z.string().trim().max(200).optional(),
-  view: z.enum(["open", "quoted", "all"]).default("open"),
+  // "open" = status OPEN; "quoted" = QUOTED; "closed" = CLOSED; "all".
+  view: z.enum(["open", "quoted", "closed", "all"]).default("open"),
   cursor: z.string().optional(),
   take: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+// Close an inquiry that never became a quote (no interest, unreachable…).
+export const inquiryCloseInput = z.object({
+  id: z.string().min(1),
+  reason: z.string().trim().max(300).optional(),
 });
 
 export type InquiryCreateInput = z.infer<typeof inquiryCreateInput>;
 export type InquiryUpdateInput = z.infer<typeof inquiryUpdateInput>;
 export type InquiryListFilters = z.infer<typeof inquiryListFilters>;
+export type InquiryCloseInput = z.infer<typeof inquiryCloseInput>;
 
 // ——— DTOs ———
 
@@ -88,6 +99,8 @@ export type InquiryRowDto = {
   contactNumber: string | null;
   email: string | null;
   medium: string;
+  status: string;
+  closedReason: string | null;
   servicesRequested: string;
   notes: string | null;
   quotationId: string | null;
@@ -100,4 +113,13 @@ export type InquiryRowDto = {
 export type InquiryPageDto = {
   rows: InquiryRowDto[];
   nextCursor: string | null;
+};
+
+/** Inquiry dashboard metrics (counts by status + medium). */
+export type InquiryMetricsDto = {
+  open: number;
+  quoted: number;
+  closed: number;
+  total: number;
+  byMedium: { medium: string; count: number }[];
 };

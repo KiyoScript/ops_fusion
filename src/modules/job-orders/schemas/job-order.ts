@@ -190,6 +190,7 @@ export type ImportSource = z.infer<typeof importRequestInput>["source"];
 export type JobOrderItemDto = {
   id: string;
   description: string;
+  fromQuote: boolean; // description is locked (copied from an approved quote)
   qty: number;
   lineTotal: string;
   productionStatus: string | null;

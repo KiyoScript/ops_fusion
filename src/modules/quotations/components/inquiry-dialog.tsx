@@ -43,6 +43,7 @@ const MEDIUM_OPTIONS = [
   { value: "MESSENGER", label: "Messenger" },
   { value: "CALL", label: "Call" },
   { value: "EMAIL", label: "Email" },
+  { value: "VIBER", label: "Viber" },
   { value: "PORTAL", label: "Portal" },
 ] as const;
 

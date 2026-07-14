@@ -952,6 +952,7 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
   return {
     id: item.id,
     description: item.description,
+    fromQuote: item.fromQuote,
     qty: item.qty,
     lineTotal: item.lineTotal.toString(),
     productionStatus: item.productionStatus,

@@ -32,10 +32,13 @@ import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { useInquiriesInfinite } from "../hooks/use-inquiries";
 import { QuotationStatusBadge } from "./quotation-status-badge";
 import { InquiryDialog } from "./inquiry-dialog";
+import { InquiryRowActions } from "./inquiry-row-actions";
+import { InquiryMetrics } from "./inquiry-metrics";
 
 const VIEWS = [
   { value: "open", label: "Open (no quote yet)" },
   { value: "quoted", label: "Quoted" },
+  { value: "closed", label: "Closed" },
   { value: "all", label: "All" },
 ] as const;
 
@@ -44,10 +47,17 @@ const MEDIUM_BADGES: Record<string, { tone: BadgeTone; label: string }> = {
   MESSENGER: { tone: "blue", label: "Messenger" },
   CALL: { tone: "amber", label: "Call" },
   EMAIL: { tone: "purple", label: "Email" },
+  VIBER: { tone: "purple", label: "Viber" },
   PORTAL: { tone: "auto", label: "Portal" },
 };
 
-const COLS = 7;
+const STATUS_BADGES: Record<string, { tone: BadgeTone; label: string }> = {
+  OPEN: { tone: "amber", label: "Open" },
+  QUOTED: { tone: "green", label: "Quoted" },
+  CLOSED: { tone: "gray", label: "Closed" },
+};
+
+const COLS = 8;
 
 export function InquiriesView({
   canWrite,
@@ -65,6 +75,8 @@ export function InquiriesView({
 
   return (
     <div className="grid gap-4">
+      <InquiryMetrics activeView={view} onSelect={(next) => setView(next)} />
+
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={q}
@@ -100,6 +112,7 @@ export function InquiriesView({
                 <TableHead>Date</TableHead>
                 <TableHead className="min-w-48">Customer</TableHead>
                 <TableHead>Medium</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="min-w-64">Services requested</TableHead>
                 <TableHead>Logged by</TableHead>
                 <TableHead className="min-w-44">Quotation</TableHead>
@@ -157,6 +170,17 @@ export function InquiriesView({
                       <TableCell>
                         <ColorBadge tone={medium.tone} label={medium.label} />
                       </TableCell>
+                      <TableCell>
+                        <ColorBadge
+                          tone={STATUS_BADGES[row.status]?.tone ?? "gray"}
+                          label={STATUS_BADGES[row.status]?.label ?? row.status}
+                        />
+                        {row.closedReason && (
+                          <p className="mt-0.5 max-w-40 truncate text-xs text-muted-foreground">
+                            {row.closedReason}
+                          </p>
+                        )}
+                      </TableCell>
                       <TableCell className="max-w-80">
                         <p className="truncate">{row.servicesRequested}</p>
                         {row.notes && (
@@ -179,7 +203,7 @@ export function InquiriesView({
                               <QuotationStatusBadge status={row.quoteStatus} />
                             )}
                           </Link>
-                        ) : canQuote ? (
+                        ) : canQuote && row.status !== "CLOSED" ? (
                           <Button
                             variant="outline"
                             size="sm"
@@ -196,7 +220,7 @@ export function InquiriesView({
                       </TableCell>
                       <TableCell>
                         {canWrite && !row.quotationId && (
-                          <InquiryDialog inquiry={row} />
+                          <InquiryRowActions inquiry={row} />
                         )}
                       </TableCell>
                     </TableRow>

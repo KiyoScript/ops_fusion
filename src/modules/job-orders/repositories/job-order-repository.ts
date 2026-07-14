@@ -90,6 +90,7 @@ export type ItemCreateData = {
   qty: number;
   unitPrice: string;
   lineTotal: string;
+  fromQuote?: boolean; // description is locked when copied from a quotation
   specs?: Prisma.InputJsonValue;
   productionStatus?: string | null;
   department?: string | null;
