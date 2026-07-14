@@ -7,7 +7,7 @@ import { NumberField } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { createQuotationAction } from "@/app/(app)/quotations/actions";
+import { submitWizardQuotation } from "./submit-helpers";
 import type {
   ProductOptionDto,
   ProductRuleDto,
@@ -201,7 +201,7 @@ export function GenericWizard({
       return;
     }
     if (step < reviewStep) setStep(step + 1);
-    else submit();
+    else submit(false);
   };
 
   const toggleAddon = (i: number) =>
@@ -270,7 +270,7 @@ export function GenericWizard({
   const grandTotal = round2(cartTotal + calc.total);
   const taxed = applyTax(grandTotal, taxType);
 
-  const submit = () => {
+  const submit = (logInquiry = false) => {
     if (quoteType === "PO" && !poNumber.trim()) {
       toast.error("PO number is required for a PO quotation.");
       return;
@@ -288,31 +288,43 @@ export function GenericWizard({
     startCreate();
 
     async function startCreate() {
-      const result = await createQuotationAction({
-        type: quoteType,
-        poNumber: quoteType === "PO" ? poNumber.trim() : undefined,
-        customerName: client.customerName,
-        validUntil: "",
-        taxType,
-        paymentTermLabel: "50% Downpayment",
-        downpaymentRate: "0.5",
-        notes: noteLines.join("\n"),
-        inquiryId,
-        items: items.map((it) => ({
-          productId: it.productId,
-          description: it.description,
-          qty: String(it.qty),
-          unitPrice: it.unitPrice.toFixed(2),
-          specs: it.specs,
-        })),
-      });
+      const data = await submitWizardQuotation(
+        {
+          type: quoteType,
+          poNumber: quoteType === "PO" ? poNumber.trim() : undefined,
+          customerName: client.customerName,
+          validUntil: "",
+          taxType,
+          paymentTermLabel: "50% Downpayment",
+          downpaymentRate: "0.5",
+          notes: noteLines.join("\n"),
+          items: items.map((it) => ({
+            productId: it.productId,
+            description: it.description,
+            qty: String(it.qty),
+            unitPrice: it.unitPrice.toFixed(2),
+            specs: it.specs,
+          })),
+        },
+        logInquiry && !inquiryId
+          ? {
+              inquiry: {
+                customerName: client.customerName,
+                contactNumber: client.contactNumber,
+                email: client.email,
+                servicesRequested: items[0]?.description ?? product.name,
+              },
+            }
+          : { existingInquiryId: inquiryId }
+      );
       setSubmitting(false);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(`Quotation ${result.data.quoteNumber} created.`);
-      router.push(`/quotations/${result.data.id}`);
+      if (!data) return;
+      toast.success(
+        logInquiry
+          ? `Inquiry logged and quotation ${data.quoteNumber} created.`
+          : `Quotation ${data.quoteNumber} created.`
+      );
+      router.push(`/quotations/${data.id}`);
       router.refresh();
     }
   };
@@ -333,6 +345,8 @@ export function GenericWizard({
       onBack={() => setStep(Math.max(step - 1, 0))}
       onNext={next}
       nextDisabled={submitting}
+      secondaryLabel={inquiryId ? undefined : "Log inquiry + quote"}
+      onSecondary={() => submit(true)}
       nextLabel={
         submitting
           ? "Creating…"

@@ -19,6 +19,8 @@ export function WizardShell({
   onNext,
   nextLabel,
   nextDisabled,
+  secondaryLabel,
+  onSecondary,
   children,
 }: {
   title: React.ReactNode;
@@ -31,6 +33,9 @@ export function WizardShell({
   onNext: () => void;
   nextLabel?: string;
   nextDisabled?: boolean;
+  /** Extra action on the LAST step (e.g. "Log inquiry + quote"). */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   children: React.ReactNode;
 }) {
   const step = steps[current]!;
@@ -76,10 +81,20 @@ export function WizardShell({
           >
             <ArrowLeftIcon /> Back
           </Button>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <span className="hidden text-xs text-muted-foreground sm:inline">
               Step {current + 1} of {steps.length}
             </span>
+            {isLast && secondaryLabel && onSecondary && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onSecondary}
+                disabled={nextDisabled}
+              >
+                {secondaryLabel}
+              </Button>
+            )}
             <Button type="button" onClick={onNext} disabled={nextDisabled}>
               {nextLabel ?? (isLast ? "Create quotation" : "Continue")}
               {!isLast && <ArrowRightIcon />}
