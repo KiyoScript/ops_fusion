@@ -325,8 +325,11 @@ Table Customer { id varchar [pk] name varchar tin varchar company varchar }
 Table Inquiry {
   id varchar [pk]
   customerId varchar [ref: > Customer.id]
-  medium varchar
-  email varchar
+  customerName varchar // free text until firmed at the quotation
+  contactNumber varchar
+  email varchar // collected by the public portal (reply-to)
+  medium varchar // MESSENGER | EMAIL | WALK_IN | CALL | PORTAL
+  servicesRequested varchar
   quotationId varchar [unique, ref: - Quotation.id]
 }
 Table Quotation {
@@ -345,17 +348,27 @@ Table Quotation {
 Table QuotationItem {
   id varchar [pk]
   quotationId varchar [ref: > Quotation.id]
-  productId varchar [ref: > Product.id]
+  productId varchar [ref: > Product.id] // nullable — empty = custom item
+  description varchar
+  specs json // size, material, color — per product type
   qty int
   unitPrice "decimal(12,2)"
+  discount "decimal(12,2)" // per-line discount amount
+  lineTotal "decimal(12,2)"
+  sortOrder int
 }
 Table Product { id varchar [pk] name varchar category varchar }
 Table PriceRule {
   id varchar [pk]
   productId varchar [ref: > Product.id]
   type varchar // VARIANT | ADDON
-  unitPrice "decimal(12,2)"
-  minQty int
+  label varchar
+  unitPrice "decimal(12,2)" // VARIANT: price per product.unit
+  minQty int // VARIANT: qty-tier threshold
+  minCharge "decimal(12,2)" // VARIANT: floor for area pricing
+  amount "decimal(12,2)" // ADDON: flat fee
+  pct "decimal(5,2)" // ADDON: percent of base line
+  isActive boolean
 }
 Table JobOrder {
   id varchar [pk]
@@ -370,11 +383,18 @@ Table JobOrder {
 Table JobOrderItem {
   id varchar [pk]
   jobOrderId varchar [ref: > JobOrder.id]
+  productId varchar [ref: > Product.id] // nullable — legacy free text
+  description varchar
   qty int
-  qtyDelivered int
-  productionStatus varchar
-  archivedAt timestamp
-  isLFP boolean
+  unitPrice "decimal(12,2)"
+  lineTotal "decimal(12,2)"
+  qtyDelivered int // maintained by DR issuance
+  productionStatus varchar // "Status - Department"
+  deadline timestamp
+  waitingPickupSince timestamp
+  archivedAt timestamp // done items auto-archive
+  lineItemId varchar // "<joNumber>-01"
+  isLFP boolean // feeds PRISM later
 }
 Table DeliveryReceipt {
   id varchar [pk]
@@ -396,9 +416,11 @@ Table Sale {
   documentNo varchar
   bookletId varchar [ref: > Booklet.id]
   customerId varchar [ref: > Customer.id]
-  jobOrderId varchar [unique, ref: - JobOrder.id] // null = non-JO sale
-  type varchar
+  jobOrderId varchar [unique, ref: - JobOrder.id] // null = non-JO sale (NJ quotes land here)
+  type varchar // SI_VAT | SI_NON_VAT
+  saleDate timestamp
   amount "decimal(12,2)"
+  vatAmount "decimal(12,2)"
 }
 Table CollectionReceipt {
   id varchar [pk]
@@ -406,6 +428,8 @@ Table CollectionReceipt {
   bookletId varchar [ref: > Booklet.id]
   customerId varchar [ref: > Customer.id]
   amount "decimal(12,2)"
+  method varchar // CASH | CHECK | GCASH | BANK_TRANSFER | QR
+  receivedAt timestamp
 }
 Table CrAllocation {
   id varchar [pk]
@@ -417,7 +441,10 @@ Table AdvancePayment {
   id varchar [pk]
   customerId varchar [ref: > Customer.id]
   amount "decimal(12,2)"
-  status varchar
+  method varchar // CASH | CHECK | GCASH | BANK_TRANSFER | QR
+  status varchar // UNAPPLIED | PARTIALLY_APPLIED | FULLY_APPLIED
+  reference varchar // OR / deposit slip / GCash ref
+  receivedAt timestamp
 }
 Table AdvancePaymentApplication {
   id varchar [pk]
@@ -467,7 +494,7 @@ Table ReconciliationDay { id varchar [pk] date date [unique] status varchar }</p
     </div>
   </section>
 
-  <footer class="foot">OPS Fusion · Quotation × JO × Sales-Audit workflow &amp; ERD · from the live schema + convertToJobOrder · updated 2026-07-13</footer>
+  <footer class="foot">OPS Fusion · Quotation × JO × Sales-Audit workflow &amp; ERD · verified field-by-field against prisma/schema @ commit 9e78b04 · updated 2026-07-14</footer>
 </div>
 
 <div class="toast" id="toast">Copied</div>
