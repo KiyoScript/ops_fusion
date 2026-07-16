@@ -63,3 +63,19 @@ side. Design Purchasing and Sales-Audit with this seam in mind.
   "<System> Maintenance" at `/maintenance/<system>` (JO Maintenance exists;
   Quotation and Sales Audit Maintenance are on the collaborator branch;
   PRISM / Inventory / Task Assignment Maintenance come with their modules).
+
+## After every `git pull` that brings schema changes
+
+Symptoms of skipping this: build errors like "Export X doesn't exist in
+@/generated/prisma/enums", PrismaClientValidationError "Unknown field", or
+404s on routes that worked before. The fix is always the same ritual:
+
+```
+npx prisma migrate dev     # apply the new migrations to your local DB
+npx prisma generate        # regenerate the client (not reliably automatic)
+# stop the dev server, then:
+rm -rf .next && npm run dev   # stale Turbopack cache causes phantom 404s
+```
+
+The running dev server holds the OLD Prisma client in memory — regenerating
+alone is not enough; always restart it.
