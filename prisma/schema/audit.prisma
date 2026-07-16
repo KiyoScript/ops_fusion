@@ -20,20 +20,27 @@ enum ReconDayStatus {
   CLOSED
 }
 
+// The auditor's sign-off — the legacy verified_by / verified_at, which the
+// sheet stamps on EVERY transaction row. So an entry verifies either a Sale or
+// a Collection Receipt: exactly one of the two FKs is set, enforced by a CHECK
+// constraint in the migration (Prisma can't express it).
 model AuditEntry {
-  id        String           @id @default(cuid())
-  saleId    String
-  sale      Sale             @relation(fields: [saleId], references: [id])
-  status    AuditEntryStatus
-  flagType  AuditFlagType?
-  remarks   String?
-  auditorId String
-  auditor   User             @relation("AuditEntryAuditor", fields: [auditorId], references: [id])
-  auditedAt DateTime         @default(now())
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id                  String             @id @default(cuid())
+  saleId              String?
+  sale                Sale?              @relation(fields: [saleId], references: [id])
+  collectionReceiptId String?
+  collectionReceipt   CollectionReceipt? @relation(fields: [collectionReceiptId], references: [id])
+  status              AuditEntryStatus
+  flagType            AuditFlagType?
+  remarks             String?
+  auditorId           String
+  auditor             User               @relation("AuditEntryAuditor", fields: [auditorId], references: [id])
+  auditedAt           DateTime           @default(now())
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   @@index([saleId])
+  @@index([collectionReceiptId])
   @@index([status])
   @@index([auditorId])
 }

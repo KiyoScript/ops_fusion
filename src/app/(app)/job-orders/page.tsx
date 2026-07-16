@@ -10,6 +10,8 @@ export default async function JobOrdersPage() {
   const ability = defineAbilityFor(await requireActor());
   const canWrite = ability.can("create", "JobOrder");
   const canImport = ability.can("import", "JobOrder");
+  // Cashiers issue receipts against a JO (Sales & Audit).
+  const canReceivePayment = ability.can("create", "Sale");
 
   return (
     <>
@@ -17,7 +19,11 @@ export default async function JobOrdersPage() {
         title="Job Orders"
         description="Track every JO and its line items through production — migrated from JOWebApp."
       />
-      <JobOrdersView canWrite={canWrite} canImport={canImport} />
+      <JobOrdersView
+        canWrite={canWrite}
+        canImport={canImport}
+        canReceivePayment={canReceivePayment}
+      />
     </>
   );
 }

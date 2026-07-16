@@ -11,34 +11,53 @@ enum PaymentMethod {
   QR
 }
 
+// Acknowledges CASH COLLECTED against a sale that already booked the revenue —
+// so a CR is never counted as revenue itself (see the note in sale.prisma).
 model CollectionReceipt {
-  id          String        @id @default(cuid())
-  crNumber    String        @unique
-  bookletId   String?
-  booklet     Booklet?      @relation(fields: [bookletId], references: [id])
-  customerId  String
-  customer    Customer      @relation(fields: [customerId], references: [id])
-  amount      Decimal       @db.Decimal(12, 2)
-  method      PaymentMethod
+  id         String        @id @default(cuid())
+  crNumber   String        @unique
+  bookletId  String?
+  booklet    Booklet?      @relation(fields: [bookletId], references: [id])
+  customerId String
+  customer   Customer      @relation(fields: [customerId], references: [id])
+  // Which JO the collection is against (null → collected against invoices only).
+  jobOrderId String?
+  jobOrder   JobOrder?     @relation(fields: [jobOrderId], references: [id])
+  amount     Decimal       @db.Decimal(12, 2)
+  method     PaymentMethod
+
+  // — the counter, same maths as a Sale —
+  cashTendered Decimal? @db.Decimal(12, 2)
+  changeGiven  Decimal  @default(0) @db.Decimal(12, 2)
+  methodDetail String? // cheque no. / GCash reference
+
+  // Snapshot at issue — see sale.prisma.
+  billedToName    String?
+  billedToAddress String?
+  billedToTin     String?
+
   receivedAt  DateTime
   notes       String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
   createdById String
-  createdBy   User          @relation("CrCreatedBy", fields: [createdById], references: [id])
+  createdBy   User      @relation("CrCreatedBy", fields: [createdById], references: [id])
 
-  allocations CrAllocation[]
+  allocations  CrAllocation[]
+  auditEntries AuditEntry[]
 
   @@index([customerId])
   @@index([receivedAt])
   @@index([deletedAt])
   @@index([bookletId])
   @@index([createdById])
+  @@index([jobOrderId])
 }
 
-// "No floating CRs" (spec 2.4): every CR must allocate fully to
-// specific sales invoices — enforced in the service layer.
+// "No floating CRs" (spec 2.4): every CR must allocate fully to specific sales
+// invoices — enforced in the service layer. That rule lands with the A/R module;
+// until then a CR may be issued without allocations.
 model CrAllocation {
   id     String            @id @default(cuid())
   crId   String

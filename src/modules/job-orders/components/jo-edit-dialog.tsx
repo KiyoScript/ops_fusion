@@ -1,6 +1,7 @@
 "use client";
 
-import { FileTextIcon } from "lucide-react";
+import { useState } from "react";
+import { FileTextIcon, ReceiptTextIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -13,24 +14,29 @@ import {
 import { ErrorState } from "@/components/data-states";
 import type { JobOrderCreateInput, JobOrderDetailDto } from "../schemas/job-order";
 import { useInvalidateJobOrders, useJoDetail } from "../hooks/use-job-orders";
+import { ReceivePaymentDialog } from "@/modules/sales-audit/components/receive-payment-dialog";
 import { JobOrderForm } from "./job-order-form";
 import { ArchiveJobOrderButton } from "./archive-job-order-button";
 import { CustomerApprovalSection } from "./customer-approval-section";
 
 /** The one-stop JO edit modal: whole JO (customer, dates, notes), every item
- *  with status + remark, add/remove items, delete — no page navigation. */
+ *  with status + remark, add/remove items, delete — no page navigation.
+ *  Receive Payment issues a receipt against this JO (Sales & Audit). */
 export function JoEditDialog({
   jobOrderId,
   canDelete,
+  canReceivePayment = false,
   onClose,
 }: {
   jobOrderId: string | null;
   canDelete: boolean;
+  canReceivePayment?: boolean;
   onClose: () => void;
 }) {
   const invalidate = useInvalidateJobOrders();
   const detail = useJoDetail(jobOrderId);
   const jo = detail.data;
+  const [payingJoId, setPayingJoId] = useState<string | null>(null);
 
   const done = () => {
     invalidate();
@@ -46,6 +52,14 @@ export function JoEditDialog({
               {jo ? `Edit ${jo.joNumber}` : "Edit Job Order"}
             </DialogTitle>
             <span className="flex items-center gap-2">
+              {jo && canReceivePayment && (
+                <Button
+                  size="sm"
+                  onClick={() => setPayingJoId(jo.id)}
+                >
+                  <ReceiptTextIcon /> Receive Payment
+                </Button>
+              )}
               {jo && (
                 <Button
                   variant="outline"
@@ -101,6 +115,14 @@ export function JoEditDialog({
           </div>
         ) : null}
       </DialogContent>
+
+      <ReceivePaymentDialog
+        jobOrderId={payingJoId}
+        onClose={() => {
+          setPayingJoId(null);
+          invalidate();
+        }}
+      />
     </Dialog>
   );
 }

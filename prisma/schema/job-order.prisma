@@ -59,7 +59,9 @@ model JobOrder {
   items            JobOrderItem[]
   statusHistory    JobOrderStatusHistory[]
   attachments      JobOrderAttachment[]
-  sale             Sale?
+  // Many: a JO takes a JO_SLIP downpayment receipt first, an SI later.
+  sales              Sale[]
+  collectionReceipts CollectionReceipt[]
   deliveryReceipts DeliveryReceipt[]
   apApplications   AdvancePaymentApplication[]
 
