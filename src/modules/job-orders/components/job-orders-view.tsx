@@ -117,7 +117,7 @@ export function JobOrdersView({
           {canImport && <ImportDialog />}
           {canWrite && (
             <Button nativeButton={false} render={<Link href="/job-orders/new" />}>
-              <PlusIcon /> New JO/PO
+              <PlusIcon /> New Non-JO
             </Button>
           )}
         </div>

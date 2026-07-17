@@ -78,8 +78,11 @@ export function JobOrderForm({
     ),
     defaultValues: initialValues ?? {
       joNumber: "",
+      // Quotation-first (ruling 2026-07-15): production JOs and POs are born
+      // by CONVERTING a quotation — direct entry here is for walk-in Non-JO
+      // counter jobs only (xerox, photocopies, supplies).
       isPO: false,
-      isNonJo: false,
+      isNonJo: true,
       customerName: "",
       notes: "",
       planDateStart: "",
@@ -176,34 +179,43 @@ export function JobOrderForm({
                     ? "Reference #"
                     : "JO Number"}
               </Label>
-              <span className="flex items-center gap-4">
-                <label className="flex items-center gap-1.5 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    disabled={mode === "edit"}
-                    {...form.register("isPO", {
-                      onChange: (e) => {
-                        if (e.target.checked) form.setValue("isNonJo", false);
-                      },
-                    })}
-                  />
-                  PO
-                </label>
-                <label className="flex items-center gap-1.5 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    disabled={mode === "edit"}
-                    {...form.register("isNonJo", {
-                      onChange: (e) => {
-                        if (e.target.checked) form.setValue("isPO", false);
-                      },
-                    })}
-                  />
-                  Non-JO
-                </label>
-              </span>
+              {mode === "create" ? (
+                // Quotation-first: only walk-in Non-JO counter jobs are
+                // encoded directly — JOs/POs arrive by converting a quotation.
+                <span
+                  className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
+                  title="Walk-in counter job — xerox, photocopies, supplies. Production JOs and POs are created by converting a quotation."
+                >
+                  Non-JO · walk-in
+                </span>
+              ) : (
+                <span className="flex items-center gap-4">
+                  <label
+                    className="flex items-center gap-1.5 text-sm"
+                    title="Work against a customer's Purchase Order"
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      disabled
+                      {...form.register("isPO")}
+                    />
+                    PO
+                  </label>
+                  <label
+                    className="flex items-center gap-1.5 text-sm"
+                    title="Walk-in counter job — xerox, photocopies, supplies"
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      disabled
+                      {...form.register("isNonJo")}
+                    />
+                    Non-JO
+                  </label>
+                </span>
+              )}
             </div>
             <Input
               id="joNumber"
