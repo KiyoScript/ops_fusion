@@ -297,9 +297,34 @@ function singlePrice(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Banner: the tarpaulin price block — top rows are "Banner | label | price"
+// (Price Per Sq. Foot / Rush / Design Fee); everything below is the legacy
+// order log, ignored. Sold as "Tarpaulin" in the quote form, so that's the
+// product name it imports under.
+// ═══════════════════════════════════════════════════════════════════════════
+function parseBanner(rows: Rows): ParsedProduct[] {
+  const rules: RuleCreateData[] = [];
+  let sort = 0;
+  for (let r = 0; r < rows.length; r++) {
+    if (!/^banner$/i.test(cell(rows, r, 0))) continue;
+    const label = cell(rows, r, 1);
+    const price = money(cell(rows, r, 2));
+    if (!label || price === null) continue;
+    const isFee = /rush|design/i.test(label);
+    rules.push(
+      isFee ? addon(label, price, null, sort++) : variant(label, price, sort++)
+    );
+  }
+  return rules.length
+    ? [{ name: "Tarpaulin", category: "Large Format", unit: "sqft", rules }]
+    : [];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Registry: sheet name (lowercased) → parser. Sheets not listed are skipped.
 // ═══════════════════════════════════════════════════════════════════════════
 export const SHEET_PARSERS: Record<string, (rows: Rows) => ParsedProduct[]> = {
+  banner: parseBanner,
   "foldable fan": twoColumn("Foldable Fan", "Souvenirs", "pc"),
   canvas: singlePrice("Canvas Print", "Large Format", "sqft", "Standard rate"),
   "mesh caps": singlePrice("Mesh Cap", "Apparel", "pc", "Standard rate"),
