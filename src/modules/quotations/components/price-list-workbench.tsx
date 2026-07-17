@@ -5,6 +5,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberField } from "@/components/validated-fields";
@@ -28,7 +38,10 @@ import {
   type ProductOptionDto,
   type ProductRuleDto,
 } from "@/modules/shared/hooks/use-products";
-import { savePriceListProductAction } from "@/app/(app)/maintenance/quotations/actions";
+import {
+  removeAllProductsAction,
+  savePriceListProductAction,
+} from "@/app/(app)/maintenance/quotations/actions";
 import { PriceListImportDialog } from "./price-list-import-dialog";
 import { WorkbookImportDialog } from "./workbook-import-dialog";
 import { ProductEditDialog } from "./product-edit-dialog";
@@ -70,7 +83,13 @@ const EMPTY_ROW: Row = {
   notes: "",
 };
 
-export function PriceListWorkbench({ canMaintain }: { canMaintain: boolean }) {
+export function PriceListWorkbench({
+  canMaintain,
+  canRemoveAll = false,
+}: {
+  canMaintain: boolean;
+  canRemoveAll?: boolean;
+}) {
   const products = useProductOptions();
   const [q, setQ] = useState("");
   const debouncedQ = useDebounce(q);
@@ -149,6 +168,9 @@ export function PriceListWorkbench({ canMaintain }: { canMaintain: boolean }) {
             <ProductEditDialog />
             <PriceListImportDialog />
             <WorkbookImportDialog />
+            {canRemoveAll && (
+              <RemoveAllProductsButton count={products.data?.length ?? 0} />
+            )}
           </div>
         )}
       </div>
@@ -176,6 +198,61 @@ export function PriceListWorkbench({ canMaintain }: { canMaintain: boolean }) {
         )}
       </div>
     </div>
+  );
+}
+
+// Admin-only reset: soft-deletes the whole catalog so it can be re-imported
+// clean. Existing quotes/JOs keep their references, so it's recoverable.
+function RemoveAllProductsButton({ count }: { count: number }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  async function handleRemove() {
+    setWorking(true);
+    const res = await removeAllProductsAction();
+    setWorking(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(
+      `Removed ${res.data.removed} product${res.data.removed === 1 ? "" : "s"}.`
+    );
+    setOpen(false);
+    await queryClient.invalidateQueries({ queryKey: ["products"] });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={<Button variant="outline" size="sm" disabled={count === 0} />}
+      >
+        <Trash2Icon className="size-4" />
+        Remove all
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove all products?</DialogTitle>
+          <DialogDescription>
+            This clears the whole price catalog ({count} product
+            {count === 1 ? "" : "s"}) from the quote form. Existing quotations
+            and job orders keep their prices, and you can re-import the workbook
+            afterwards. This is admin-only.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" />}>Cancel</DialogClose>
+          <Button
+            variant="destructive"
+            onClick={handleRemove}
+            disabled={working}
+          >
+            {working ? "Removing…" : "Remove all products"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

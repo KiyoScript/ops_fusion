@@ -51,6 +51,8 @@ export interface IPriceListRepository {
   ): Promise<{ id: string }>;
   updateProduct(id: string, data: ProductFields, tx?: DbTx): Promise<void>;
   softDeleteProduct(id: string, tx?: DbTx): Promise<void>;
+  /** Soft-delete every active product — returns how many were removed. */
+  softDeleteAllProducts(tx?: DbTx): Promise<number>;
 }
 
 export class PrismaPriceListRepository implements IPriceListRepository {
@@ -142,5 +144,13 @@ export class PrismaPriceListRepository implements IPriceListRepository {
       where: { id },
       data: { deletedAt: new Date(), isActive: false },
     });
+  }
+
+  async softDeleteAllProducts(tx?: DbTx): Promise<number> {
+    const result = await (tx ?? prisma).product.updateMany({
+      where: { deletedAt: null },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+    return result.count;
   }
 }

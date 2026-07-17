@@ -63,3 +63,16 @@ export async function saveProductionStepsAction(
     return fail(err);
   }
 }
+
+export async function removeAllProductsAction(): Promise<
+  ActionResult<{ removed: number }>
+> {
+  try {
+    const actor = await requireActor();
+    const result = await getPriceListService().removeAllProducts(actor);
+    revalidatePath("/maintenance/quotations");
+    return ok(result);
+  } catch (err) {
+    return fail(err);
+  }
+}

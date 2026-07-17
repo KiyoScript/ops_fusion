@@ -1,7 +1,7 @@
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
-import { PriceRuleType } from "@/generated/prisma/enums";
+import { PriceRuleType, Role } from "@/generated/prisma/enums";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type {
   IPriceListRepository,
@@ -86,6 +86,29 @@ export class PriceListService {
         },
         tx
       );
+    });
+  }
+
+  /** Clears the whole catalog (soft delete). ADMIN-only, since it wipes the
+   *  price DB behind every quote form; existing quotes/JOs keep their
+   *  references and the products can be re-imported. */
+  async removeAllProducts(actor: Actor): Promise<{ removed: number }> {
+    if (actor.role !== Role.ADMIN) {
+      throw new ForbiddenError("Only an admin can clear the whole catalog.");
+    }
+    return this.priceList.withTransaction(async (tx) => {
+      const removed = await this.priceList.softDeleteAllProducts(tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "Product",
+          entityId: "catalog",
+          action: "remove-all",
+          payload: { removed },
+        },
+        tx
+      );
+      return { removed };
     });
   }
 }
