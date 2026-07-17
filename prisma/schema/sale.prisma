@@ -1,27 +1,62 @@
 // ============================================================
-// SALES / AUDIT — SALE
+// SALES / AUDIT — SALE (the receipt ledger)
 // ============================================================
 
+// The booklet-issued documents that RECORD REVENUE. A Collection Receipt is
+// deliberately NOT here: it collects cash against a sale that already booked
+// the revenue, so keeping it in its own table (collection-receipt.prisma) is
+// what stops the VAT / Non-VAT reports double-counting every peso.
 enum SaleType {
   SI_VAT
   SI_NON_VAT
+  JO_SLIP // Job Order receipt — the downpayment / acknowledgement slip
 }
 
-// Sales invoice (VAT / Non-VAT). Created when a JO is completed,
-// or directly for non-JO transactions (photocopy, laminate, supplies).
+// Kept for the A/R module (deferred): today Receive Payment always settles the
+// document in full, so rows land as PAID.
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+// A receipt issued at the counter: Job Order receipt, or Sales Invoice
+// (VAT / Non-VAT). Raised from a Job Order via Receive Payment, or standalone
+// for non-JO transactions (photocopy, laminate, supplies).
 model Sale {
-  id          String    @id @default(cuid())
-  documentNo  String
-  bookletId   String?
-  booklet     Booklet?  @relation(fields: [bookletId], references: [id])
-  type        SaleType
-  customerId  String
-  customer    Customer  @relation(fields: [customerId], references: [id])
-  jobOrderId  String?   @unique // null → non-JO transaction
-  jobOrder    JobOrder? @relation(fields: [jobOrderId], references: [id])
-  saleDate    DateTime
-  amount      Decimal   @db.Decimal(12, 2)
-  vatAmount   Decimal   @default(0) @db.Decimal(12, 2)
+  id         String    @id @default(cuid())
+  documentNo String    @unique // "IN-0578" — unique across the whole ledger
+  bookletId  String?
+  booklet    Booklet?  @relation(fields: [bookletId], references: [id])
+  type       SaleType
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  // NOT unique: one JO takes a JO_SLIP downpayment first and an SI later.
+  jobOrderId String? // null → non-JO transaction
+  jobOrder   JobOrder? @relation(fields: [jobOrderId], references: [id])
+  saleDate   DateTime
+
+  // — money (VAT backed OUT of a VAT-inclusive amount, as the legacy
+  //   SalesLogService does: vatable = amount / 1.12, vat = vatable * 0.12) —
+  amount       Decimal @db.Decimal(12, 2) // gross, VAT-inclusive
+  vatableSales Decimal @default(0) @db.Decimal(12, 2) // net of VAT
+  vatAmount    Decimal @default(0) @db.Decimal(12, 2) // 0 for NON_VAT / JO_SLIP
+
+  // — the counter —
+  amountPaid    Decimal        @default(0) @db.Decimal(12, 2) // applied to this document
+  cashTendered  Decimal?       @db.Decimal(12, 2) // what the customer handed over
+  changeGiven   Decimal        @default(0) @db.Decimal(12, 2) // tendered − paid
+  paymentMethod PaymentMethod?
+  methodDetail  String? // cheque no. / GCash reference
+  paymentStatus PaymentStatus  @default(PAID)
+
+  // Snapshot of who it was billed to, taken AT ISSUE. A receipt is a legal
+  // record: editing the Customer's TIN next year must not silently rewrite
+  // last year's invoice.
+  billedToName    String?
+  billedToAddress String?
+  billedToTin     String?
+
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -32,11 +67,11 @@ model Sale {
   auditEntries  AuditEntry[]
   crAllocations CrAllocation[]
 
-  @@index([documentNo])
   @@index([customerId])
   @@index([saleDate])
   @@index([type])
   @@index([deletedAt])
   @@index([bookletId])
   @@index([createdById])
+  @@index([jobOrderId])
 }

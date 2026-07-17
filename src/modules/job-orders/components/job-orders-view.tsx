@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useQueryState } from "nuqs";
 import { format } from "date-fns";
-import { PencilIcon, PlusIcon } from "lucide-react";
+import { PencilIcon, PlusIcon, ReceiptTextIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ColorBadge } from "@/components/color-badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
 } from "@/components/data-states";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
+import { ReceivePaymentDialog } from "@/modules/sales-audit/components/receive-payment-dialog";
 import { useJoItemsInfinite } from "../hooks/use-job-orders";
 import type { JobOrderItemRowDto } from "../schemas/job-order";
 import { BoardMetrics } from "./board-metrics";
@@ -57,9 +58,11 @@ const COLS = 6;
 export function JobOrdersView({
   canWrite,
   canImport,
+  canReceivePayment = false,
 }: {
   canWrite: boolean;
   canImport: boolean;
+  canReceivePayment?: boolean;
 }) {
   // Filters live in the URL so views are shareable and back-button friendly.
   const [q, setQ] = useQueryState("q", { defaultValue: "" });
@@ -69,6 +72,7 @@ export function JobOrdersView({
   // editor is reachable from inside it.
   const [editingItem, setEditingItem] = useState<JobOrderItemRowDto | null>(null);
   const [editingJoId, setEditingJoId] = useState<string | null>(null);
+  const [payingJoId, setPayingJoId] = useState<string | null>(null);
 
   const query = useJoItemsInfinite({ q: debouncedQ, view });
   const rows = query.data?.pages.flatMap((page) => page.rows) ?? [];
@@ -252,15 +256,26 @@ export function JobOrdersView({
                       )}
                     </TableCell>
                     <TableCell className="align-top">
-                      {canWrite && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditingItem(row)}
-                        >
-                          <PencilIcon /> Edit
-                        </Button>
-                      )}
+                      <div className="flex flex-col items-start gap-1">
+                        {canWrite && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditingItem(row)}
+                          >
+                            <PencilIcon /> Edit
+                          </Button>
+                        )}
+                        {canReceivePayment && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setPayingJoId(row.jobOrderId)}
+                          >
+                            <ReceiptTextIcon /> Pay
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -292,7 +307,12 @@ export function JobOrdersView({
       <JoEditDialog
         jobOrderId={editingJoId}
         canDelete={canImport}
+        canReceivePayment={canReceivePayment}
         onClose={() => setEditingJoId(null)}
+      />
+      <ReceivePaymentDialog
+        jobOrderId={payingJoId}
+        onClose={() => setPayingJoId(null)}
       />
     </div>
   );

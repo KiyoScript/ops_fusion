@@ -10,28 +10,47 @@ enum BookletType {
   DR
 }
 
+// The legacy Doc_Series lifecycle (DocSeriesService.js):
+//   Unopened → Requested → Active → Fully Consumed
+//                       ↘ Rejected → (re-request) → Requested
+// PENDING_APPROVAL is the legacy "Requested"; CONSUMED is "Fully Consumed".
 enum BookletStatus {
+  UNOPENED
   PENDING_APPROVAL
   ACTIVE
+  REJECTED
+  CONSUMED
   CLOSED
 }
 
-// One numbering pattern shared by SI / JO Slip / CR / DR booklets,
-// with approval-on-opening (spec 3.1, 4).
+// One numbering pattern shared by SI / JO Slip / CR / DR booklets, with
+// approval-on-opening (spec 3.1, 4). The range is sized per booklet — the
+// service suggests the next block after the last range of that type, but the
+// admin sets it freely (a 25-, 50- or 100-leaf booklet all work).
+//
+// INVARIANT: at most one ACTIVE booklet per type, enforced by a partial unique
+// index in the migration (Prisma can't express one). "The next number" has to
+// be unambiguous when a cashier hits Receive Payment.
 model Booklet {
-  id           String        @id @default(cuid())
-  type         BookletType
-  seriesStart  Int
-  seriesEnd    Int
-  nextNumber   Int
-  status       BookletStatus @default(PENDING_APPROVAL)
-  openedById   String
-  openedBy     User          @relation("BookletOpenedBy", fields: [openedById], references: [id])
-  approvedById String?
-  approvedBy   User?         @relation("BookletApprovedBy", fields: [approvedById], references: [id])
-  approvedAt   DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id            String        @id @default(cuid())
+  type          BookletType
+  prefix        String // IN / JO / CR / DR — builds the number: IN-0578
+  label         String?
+  seriesStart   Int
+  seriesEnd     Int
+  nextNumber    Int
+  status        BookletStatus @default(PENDING_APPROVAL)
+  // Legacy gap_exempt: suppress the missing-number flag for this booklet
+  // (e.g. leaves voided before the system existed).
+  gapExempt     Boolean       @default(false)
+  rejectionNote String?
+  openedById    String
+  openedBy      User          @relation("BookletOpenedBy", fields: [openedById], references: [id])
+  approvedById  String?
+  approvedBy    User?         @relation("BookletApprovedBy", fields: [approvedById], references: [id])
+  approvedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   sales              Sale[]
   collectionReceipts CollectionReceipt[]

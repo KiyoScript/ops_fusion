@@ -12,10 +12,11 @@ export type AppAction =
   | "archive"
   | "import"
   | "move-deadline"
-  | "approve" // JO: record the customer's approval; Quotation: supervisor sign-off
+  | "approve" // JO: record the customer's approval; Quotation: supervisor sign-off; Booklet: activate into service
   | "send" // mark a quotation as sent to the customer
   | "convert" // turn an approved quotation into a Job Order
   | "issue" // issue a delivery receipt
+  | "audit" // auditor's sign-off on a receipt (legacy verified_by)
   | "maintain";
 
 export type AppSubject =
@@ -31,7 +32,10 @@ export type AppSubject =
   | "Quotation"
   | "Inquiry" // spec 1.2 step 1 — the pre-quote inquiry log
   // ——— TODO(QUOTATION-PHASE-NEXT): "PriceList" (maintenance UI for PriceRule)
-  // ——— TODO(SALES-AUDIT): "Sale", "Booklet", "Reconciliation", …
+  // ——— Sales & Audit module (Sales-Audit) ———
+  | "Sale" // receipts: JO receipt, Sales Invoice, Collection Receipt
+  | "Booklet" // the BIR booklets those receipts draw their numbers from
+  // ——— TODO(SALES-AUDIT-PHASE-NEXT): "Reconciliation" (day locking, deposits)
   | never;
 
 export type AppAbility = MongoAbility<[AppAction, AppSubject]>;

@@ -1,14 +1,22 @@
 import type { Metadata } from "next";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { requireActor } from "@/lib/authz";
+import { defineAbilityFor } from "@/lib/ability";
+import { PageHeader } from "@/components/page-header";
+import { DailySalesView } from "@/modules/sales-audit/components/daily-sales-view";
 
 export const metadata: Metadata = { title: "Sales Audit" };
 
-export default function SalesAuditPage() {
+export default async function SalesAuditPage() {
+  const ability = defineAbilityFor(await requireActor());
+  const canAudit = ability.can("audit", "Sale");
+
   return (
-    <ModulePlaceholder
-      title="Sales Audit"
-      description="Sales records, collection receipts, reconciliation, and day locking."
-      phase="Phase 4"
-    />
+    <>
+      <PageHeader
+        title="Sales Audit"
+        description="The day's receipts — Job Order receipts, Sales Invoices (VAT and Non-VAT), and Collection Receipts — with the auditor's sign-off."
+      />
+      <DailySalesView canAudit={canAudit} />
+    </>
   );
 }
