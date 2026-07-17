@@ -570,14 +570,14 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       ];
     }
 
-    // Active work sorts by soonest deadline (blank deadlines last); finished
-    // views sort newest first.
+    // Newest JO first (ruling 2026-07-15): a freshly converted quotation must
+    // appear at the top of the board immediately. Deadline urgency stays
+    // visible through the Overdue metric card and the calendar view.
+    // Finished views sort by newest-archived first.
     const orderBy: Prisma.JobOrderItemOrderByWithRelationInput[] =
       filter.view === "done"
         ? [{ archivedAt: "desc" }, { id: "desc" }]
-        : filter.view === "all"
-          ? [{ jobOrder: { createdAt: "desc" } }, { id: "desc" }]
-          : [{ deadline: { sort: "asc", nulls: "last" } }, { id: "asc" }];
+        : [{ jobOrder: { createdAt: "desc" } }, { id: "desc" }];
 
     const rows = await prisma.jobOrderItem.findMany({
       where,
