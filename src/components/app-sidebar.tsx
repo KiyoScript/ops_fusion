@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -139,6 +140,30 @@ type SidebarUser = {
   role?: string;
 };
 
+/** Controlled collapsible for a nav section: auto-opens when navigation
+ *  enters the section (render-time sync, not an effect), but the user's
+ *  manual toggle is respected otherwise. Controlled because Base UI forbids
+ *  changing `defaultOpen` on an uncontrolled Collapsible after init. */
+function NavCollapsible({
+  sectionActive,
+  children,
+}: {
+  sectionActive: boolean;
+  children: React.ReactNode;
+}) {
+  const [prevActive, setPrevActive] = useState(sectionActive);
+  const [open, setOpen] = useState(sectionActive);
+  if (sectionActive !== prevActive) {
+    setPrevActive(sectionActive);
+    if (sectionActive) setOpen(true); // entering the section reveals it
+  }
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      {children}
+    </Collapsible>
+  );
+}
+
 export function AppSidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
   const ability = defineAbilityFor({ role: (user.role ?? "VIEWER") as Role });
@@ -216,7 +241,7 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
                           <span>{item.title}</span>
                         </SidebarMenuButton>
                         {visibleChildren.length > 0 && (
-                          <Collapsible defaultOpen={sectionActive}>
+                          <NavCollapsible sectionActive={sectionActive}>
                             <CollapsibleTrigger
                               render={
                                 <SidebarMenuAction
@@ -241,7 +266,7 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
                                 ))}
                               </SidebarMenuSub>
                             </CollapsibleContent>
-                          </Collapsible>
+                          </NavCollapsible>
                         )}
                       </SidebarMenuItem>
                     );
