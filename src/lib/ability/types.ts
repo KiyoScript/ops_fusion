@@ -36,6 +36,8 @@ export type AppSubject =
   | "Sale" // receipts: JO receipt, Sales Invoice, Collection Receipt
   | "Booklet" // the BIR booklets those receipts draw their numbers from
   // ——— TODO(SALES-AUDIT-PHASE-NEXT): "Reconciliation" (day locking, deposits)
+  // ——— System administration ———
+  | "ModuleFlag" // enable/disable feature modules — admin only (manage-all)
   | never;
 
 export type AppAbility = MongoAbility<[AppAction, AppSubject]>;

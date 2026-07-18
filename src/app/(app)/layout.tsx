@@ -1,5 +1,8 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { moduleForPath } from "@/lib/modules";
+import { getEnabledModuleKeys } from "@/modules/shared/services/module-flag-service";
 import {
   SidebarInset,
   SidebarProvider,
@@ -16,6 +19,14 @@ export default async function AppLayout({
   const session = await auth();
   if (!session?.user) redirect("/sign-in");
 
+  const enabled = await getEnabledModuleKeys();
+
+  // Route guard: a disabled module's pages bounce to the dashboard. The
+  // pathname comes from a header the proxy sets, so no page has to opt in.
+  const pathname = (await headers()).get("x-ops-pathname") ?? "";
+  const routeModule = moduleForPath(pathname);
+  if (routeModule && !enabled.has(routeModule)) redirect("/");
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -24,6 +35,7 @@ export default async function AppLayout({
           email: session.user.email,
           role: session.user.role,
         }}
+        enabledModules={[...enabled]}
       />
       <SidebarInset>
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">

@@ -56,6 +56,7 @@ import {
   type AppAction,
   type AppSubject,
 } from "@/lib/ability";
+import type { ModuleKey } from "@/lib/modules";
 import type { Role } from "@/generated/prisma/enums";
 
 type NavChild = {
@@ -70,6 +71,8 @@ type NavItem = {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   requires?: [AppAction, AppSubject];
+  /** Hidden when this feature module is disabled (Settings → Modules). */
+  module?: ModuleKey;
   /** Indented sub-pages of this destination (no icons — quieter scan). */
   children?: NavChild[];
 };
@@ -85,9 +88,9 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Sales",
     items: [
-      { title: "Inquiries", href: "/inquiries", icon: Inbox },
-      { title: "Quotations", href: "/quotations", icon: FileText },
-      { title: "Sales Audit", href: "/sales-audit", icon: ShieldCheck },
+      { title: "Inquiries", href: "/inquiries", icon: Inbox, module: "inquiries" },
+      { title: "Quotations", href: "/quotations", icon: FileText, module: "quotations" },
+      { title: "Sales Audit", href: "/sales-audit", icon: ShieldCheck, module: "sales-audit" },
     ],
   },
   {
@@ -97,6 +100,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
         title: "Job Orders",
         href: "/job-orders",
         icon: ClipboardList,
+        module: "job-orders",
         // Sub-views of the JO board — the parent gives the context, so the
         // labels stay short (no "JO" prefix noise).
         children: [
@@ -106,14 +110,14 @@ const navGroups: { label: string; items: NavItem[] }[] = [
           { title: "Archive", href: "/job-orders/archive", requires: ["read", "Archive"] },
         ],
       },
-      { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck },
+      { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck, module: "delivery-receipts" },
     ],
   },
   {
     label: "Masters",
     items: [
-      { title: "Customers", href: "/customers", icon: Users },
-      { title: "Products", href: "/products", icon: Package },
+      { title: "Customers", href: "/customers", icon: Users, module: "customers" },
+      { title: "Products", href: "/products", icon: Package, module: "products" },
     ],
   },
   {
@@ -121,11 +125,11 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       // One maintenance section per system — every legacy system has its own
       // reference lists (later: PRISM, Inventory, Task Assignment, …).
-      // Gated: only roles that can actually maintain see these entries —
-      // never show a door the user can't open.
-      { title: "JO Maintenance", href: "/maintenance/job-orders", icon: Wrench, requires: ["maintain", "Maintenance"] },
-      { title: "Quotation Maintenance", href: "/maintenance/quotations", icon: Wrench, requires: ["maintain", "Maintenance"] },
-      { title: "Sales Audit Maintenance", href: "/maintenance/sales-audit", icon: Wrench, requires: ["maintain", "Maintenance"] },
+      // Gated twice: the role must be able to maintain AND the owning module
+      // must be enabled — never show a door the user can't open.
+      { title: "JO Maintenance", href: "/maintenance/job-orders", icon: Wrench, requires: ["maintain", "Maintenance"], module: "job-orders" },
+      { title: "Quotation Maintenance", href: "/maintenance/quotations", icon: Wrench, requires: ["maintain", "Maintenance"], module: "quotations" },
+      { title: "Sales Audit Maintenance", href: "/maintenance/sales-audit", icon: Wrench, requires: ["maintain", "Maintenance"], module: "sales-audit" },
     ],
   },
   {
@@ -164,9 +168,17 @@ function NavCollapsible({
   );
 }
 
-export function AppSidebar({ user }: { user: SidebarUser }) {
+export function AppSidebar({
+  user,
+  enabledModules,
+}: {
+  user: SidebarUser;
+  /** Feature modules that are switched on (Settings → Modules). */
+  enabledModules: ModuleKey[];
+}) {
   const pathname = usePathname();
   const ability = defineAbilityFor({ role: (user.role ?? "VIEWER") as Role });
+  const enabled = new Set(enabledModules);
 
   // Highlight only the most specific match (e.g. /job-orders/calendar must
   // not also light up /job-orders).
@@ -210,7 +222,9 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
       <SidebarContent>
         {navGroups.map((group) => {
           const visibleItems = group.items.filter(
-            (item) => !item.requires || ability.can(...item.requires)
+            (item) =>
+              (!item.requires || ability.can(...item.requires)) &&
+              (!item.module || enabled.has(item.module))
           );
           // A group with nothing the user can open never renders — no empty
           // headings, no doors that bounce.

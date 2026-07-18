@@ -1,0 +1,14 @@
+// ============================================================
+// MODULE FEATURE FLAGS (Flipper-style)
+// ============================================================
+
+// A per-module on/off switch, toggled at runtime by an admin so a demo can
+// show only the modules that are ready. The set of modules that EXIST lives
+// in code (src/lib/modules.ts); this table stores only the overrides — a
+// missing row means "use the module's coded default". So enabling a brand-new
+// module never needs a migration, just a code entry + a toggle.
+model ModuleFlag {
+  key       String   @id // matches src/lib/modules.ts ModuleKey
+  enabled   Boolean
+  updatedAt DateTime @updatedAt @default(now())
+}
