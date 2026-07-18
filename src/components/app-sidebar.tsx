@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  ChevronRight,
   ChevronsUpDown,
   ClipboardList,
   FileText,
@@ -18,6 +19,11 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -26,6 +32,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -193,6 +200,11 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
                       (child) =>
                         !child.requires || ability.can(...child.requires)
                     );
+                    // Collapsed by default; auto-opens when the user is
+                    // inside one of its pages so the location stays visible.
+                    const sectionActive =
+                      matches(item.href) ||
+                      visibleChildren.some((child) => matches(child.href));
                     return (
                       <SidebarMenuItem key={item.href}>
                         <SidebarMenuButton
@@ -204,18 +216,32 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
                           <span>{item.title}</span>
                         </SidebarMenuButton>
                         {visibleChildren.length > 0 && (
-                          <SidebarMenuSub>
-                            {visibleChildren.map((child) => (
-                              <SidebarMenuSubItem key={child.href}>
-                                <SidebarMenuSubButton
-                                  isActive={isActiveHref(child.href)}
-                                  render={<Link href={child.href} />}
-                                >
-                                  <span>{child.title}</span>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            ))}
-                          </SidebarMenuSub>
+                          <Collapsible defaultOpen={sectionActive}>
+                            <CollapsibleTrigger
+                              render={
+                                <SidebarMenuAction
+                                  aria-label={`Toggle ${item.title} pages`}
+                                  className="data-panel-open:rotate-90"
+                                />
+                              }
+                            >
+                              <ChevronRight />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <SidebarMenuSub>
+                                {visibleChildren.map((child) => (
+                                  <SidebarMenuSubItem key={child.href}>
+                                    <SidebarMenuSubButton
+                                      isActive={isActiveHref(child.href)}
+                                      render={<Link href={child.href} />}
+                                    >
+                                      <span>{child.title}</span>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                ))}
+                              </SidebarMenuSub>
+                            </CollapsibleContent>
+                          </Collapsible>
                         )}
                       </SidebarMenuItem>
                     );
