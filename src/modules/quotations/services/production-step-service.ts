@@ -1,5 +1,10 @@
 import { type Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from "@/lib/errors";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type {
   IProductionStepRepository,
@@ -40,6 +45,41 @@ export class ProductionStepService {
     jobOrderItemId: string
   ): Promise<ItemStepRecord[]> {
     return this.steps.listItemSteps(jobOrderItemId);
+  }
+
+  /** Backfill: copy the product's CURRENT workflow onto one JO item that has
+   *  none yet (items created/converted before the template was defined).
+   *  Explicit user action — never applied silently to jobs in production. */
+  async applyTemplateToItem(
+    actor: Actor,
+    jobOrderItemId: string
+  ): Promise<number> {
+    assertCan(actor, "update", "JobOrderItem");
+    const item = await this.steps.getItemForSeeding(jobOrderItemId);
+    if (!item) throw new NotFoundError("JO item not found.");
+    if (item.existingSteps > 0) {
+      throw new ConflictError("This item already has production steps.");
+    }
+    if (!item.productId) {
+      throw new ValidationError(
+        "This item isn't linked to a catalog product, so it has no workflow template to apply."
+      );
+    }
+    const steps = await this.steps.listForProduct(item.productId);
+    if (steps.length === 0) {
+      throw new ValidationError(
+        "This product has no workflow yet — define it in JO Maintenance → Production workflows first."
+      );
+    }
+    await this.steps.seedItemSteps(jobOrderItemId, steps);
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "JobOrderItem",
+      entityId: jobOrderItemId,
+      action: "steps-applied",
+      payload: { count: steps.length },
+    });
+    return steps.length;
   }
 
   /** Mark a JO item's production step done/undone. Uses the JO-item update

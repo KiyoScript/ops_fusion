@@ -32,7 +32,10 @@ function parseLine(line: string): Entry {
   };
 }
 
-function elapsed(from: Date, to: Date): string | null {
+/** "+15m" / "+2h 30m" / "+3d 4h" between two timestamps — shared by the
+ *  status timeline and the production-steps checklist so gaps read the same
+ *  everywhere. */
+export function elapsed(from: Date, to: Date): string | null {
   const minutes = Math.round((to.getTime() - from.getTime()) / 60_000);
   if (minutes <= 0) return null; // same minute or year rollover — skip
   if (minutes < 60) return `+${minutes}m`;

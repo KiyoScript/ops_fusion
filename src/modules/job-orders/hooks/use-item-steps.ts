@@ -33,3 +33,19 @@ export function useToggleItemStep(jobOrderItemId: string | null) {
     },
   });
 }
+
+/** Backfill: copy the product's current workflow onto this item (for items
+ *  created before the template was defined). */
+export function useApplyItemWorkflow(jobOrderItemId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchJson<{ count: number }>(
+        `/api/job-orders/items/${jobOrderItemId}/steps`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["item-steps", jobOrderItemId] });
+    },
+  });
+}

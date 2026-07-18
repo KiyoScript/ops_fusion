@@ -16,6 +16,11 @@ export interface IProductionStepRepository {
     names: string[],
     tx?: DbTx
   ): Promise<void>;
+  /** What the backfill needs to know about an item before seeding. */
+  getItemForSeeding(jobOrderItemId: string): Promise<{
+    productId: string | null;
+    existingSteps: number;
+  } | null>;
   /** Copy a product's template onto a JO item at creation. */
   seedItemSteps(
     jobOrderItemId: string,
@@ -69,6 +74,20 @@ export class PrismaProductionStepRepository
         data: names.map((name, i) => ({ productId, name, sortOrder: i })),
       });
     }
+  }
+
+  /** What the backfill needs to know about an item before seeding. */
+  async getItemForSeeding(jobOrderItemId: string): Promise<{
+    productId: string | null;
+    existingSteps: number;
+  } | null> {
+    const item = await prisma.jobOrderItem.findUnique({
+      where: { id: jobOrderItemId },
+      select: { productId: true, _count: { select: { steps: true } } },
+    });
+    return item
+      ? { productId: item.productId, existingSteps: item._count.steps }
+      : null;
   }
 
   async seedItemSteps(

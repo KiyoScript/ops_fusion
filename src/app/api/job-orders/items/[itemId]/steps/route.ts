@@ -20,6 +20,28 @@ export async function GET(
   }
 }
 
+// POST /api/job-orders/items/:itemId/steps — apply the product's CURRENT
+// workflow template onto this item (backfill for items created before the
+// template existed).
+export async function POST(
+  _request: Request,
+  { params }: { params: Promise<{ itemId: string }> }
+) {
+  try {
+    const actor = await requireActor();
+    const { itemId } = await params;
+    const count = await getProductionStepService().applyTemplateToItem(
+      actor,
+      itemId
+    );
+    return NextResponse.json(ok({ count }));
+  } catch (err) {
+    return NextResponse.json(fail(err), {
+      status: err instanceof AppError ? err.status : 500,
+    });
+  }
+}
+
 // PATCH /api/job-orders/items/:itemId/steps — toggle one step done/undone.
 export async function PATCH(
   request: Request,
