@@ -299,8 +299,14 @@ function RemoveAllProductsButton({ count }: { count: number }) {
 }
 
 // Common add-ons — fees offered on EVERY product (rush, design, delivery…).
-// A product-level add-on with the same label overrides the global one.
-type AddonRow = { label: string; amount: string; pct: string; notes: string };
+// A product-level add-on with the same label overrides the global one. One
+// value field + a Fixed/Percentage picker (maps to amount vs pct on save).
+type AddonRow = {
+  label: string;
+  mode: "FIXED" | "PCT";
+  value: string;
+  notes: string;
+};
 
 function GlobalAddonsSheet({
   addons,
@@ -313,8 +319,8 @@ function GlobalAddonsSheet({
   const [rows, setRows] = useState<AddonRow[]>(
     addons.map((a) => ({
       label: a.label,
-      amount: a.amount ?? "",
-      pct: a.pct ?? "",
+      mode: a.pct ? "PCT" : "FIXED",
+      value: (a.pct ? a.pct : a.amount) ?? "",
       notes: a.notes ?? "",
     }))
   );
@@ -330,8 +336,8 @@ function GlobalAddonsSheet({
         .filter((r) => r.label.trim())
         .map((r) => ({
           label: r.label,
-          amount: r.amount,
-          pct: r.pct,
+          amount: r.mode === "FIXED" ? r.value : "",
+          pct: r.mode === "PCT" ? r.value : "",
           notes: r.notes,
         })),
     });
@@ -364,10 +370,10 @@ function GlobalAddonsSheet({
 
         <div className="overflow-x-auto">
           <div className="min-w-[36rem]">
-            <div className="grid grid-cols-[1fr_7rem_5rem_1fr_2.5rem] gap-2 border-b pb-1 text-xs font-medium text-muted-foreground">
+            <div className="grid grid-cols-[1fr_9rem_7rem_1fr_2.5rem] gap-2 border-b pb-1 text-xs font-medium text-muted-foreground">
               <span>Label</span>
-              <span>Amount</span>
-              <span>%</span>
+              <span>Type</span>
+              <span>Value</span>
               <span>Notes</span>
               <span className="sr-only">Remove</span>
             </div>
@@ -381,7 +387,7 @@ function GlobalAddonsSheet({
               {rows.map((r, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[1fr_7rem_5rem_1fr_2.5rem] items-center gap-2"
+                  className="grid grid-cols-[1fr_9rem_7rem_1fr_2.5rem] items-center gap-2"
                 >
                   <Input
                     value={r.label}
@@ -389,18 +395,27 @@ function GlobalAddonsSheet({
                     placeholder="e.g. Rush fee"
                     readOnly={!canMaintain}
                   />
-                  <NumberField
-                    decimal
-                    value={r.amount}
-                    onChange={(v) => setRow(i, { amount: v })}
-                    placeholder="Amount"
+                  <Select
+                    value={r.mode}
+                    onValueChange={(v) =>
+                      canMaintain &&
+                      setRow(i, { mode: (v as AddonRow["mode"]) ?? "FIXED" })
+                    }
                     disabled={!canMaintain}
-                  />
+                  >
+                    <SelectTrigger aria-label="Add-on pricing type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="FIXED">Fixed ₱</SelectItem>
+                      <SelectItem value="PCT">Percentage %</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <NumberField
                     decimal
-                    value={r.pct}
-                    onChange={(v) => setRow(i, { pct: v })}
-                    placeholder="%"
+                    value={r.value}
+                    onChange={(v) => setRow(i, { value: v })}
+                    placeholder={r.mode === "PCT" ? "%" : "Amount"}
                     disabled={!canMaintain}
                   />
                   <Input
@@ -437,7 +452,7 @@ function GlobalAddonsSheet({
               onClick={() =>
                 setRows((rs) => [
                   ...rs,
-                  { label: "", amount: "", pct: "", notes: "" },
+                  { label: "", mode: "FIXED" as const, value: "", notes: "" },
                 ])
               }
             >
