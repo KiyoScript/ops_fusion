@@ -360,7 +360,7 @@ Table QuotationItem {
 Table Product { id varchar [pk] name varchar category varchar }
 Table PriceRule {
   id varchar [pk]
-  productId varchar [ref: > Product.id]
+  productId varchar [ref: > Product.id, null] // NULL = GLOBAL add-on (applies to every product; product-level label overrides)
   type varchar // VARIANT | ADDON
   label varchar
   unitPrice "decimal(12,2)" // VARIANT: price per product.unit
@@ -459,7 +459,15 @@ Table AuditEntry {
   status varchar
   flagType varchar
 }
-Table ReconciliationDay { id varchar [pk] date date [unique] status varchar }</pre>
+Table ReconciliationDay { id varchar [pk] date date [unique] status varchar }
+
+// System: per-module on/off override (Flipper-style). Missing row = module's
+// coded default (src/lib/modules.ts); lets an admin hide unfinished modules.
+Table ModuleFlag {
+  key varchar [pk, note: 'matches ModuleKey in src/lib/modules.ts']
+  enabled boolean
+  updatedAt timestamp
+}</pre>
     </div>
   </section>
 

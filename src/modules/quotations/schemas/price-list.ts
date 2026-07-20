@@ -58,6 +58,33 @@ export const productSaveInput = z.object({
 export type PriceListRuleInput = z.infer<typeof priceListRuleInput>;
 export type ProductSaveInput = z.infer<typeof productSaveInput>;
 
+// Global add-ons (Maintenance "Common add-ons" tab): fees offered on EVERY
+// product. Saved replace-style like a product's rule set.
+export const globalAddonInput = z
+  .object({
+    label: z.string().trim().min(1, "Label is required").max(200),
+    amount: moneyString,
+    pct: moneyString,
+    notes: z.string().trim().max(500).optional(),
+  })
+  .check((ctx) => {
+    if (!ctx.value.amount && !ctx.value.pct) {
+      ctx.issues.push({
+        code: "custom",
+        message: "An add-on needs an amount and/or percent.",
+        path: ["amount"],
+        input: ctx.value,
+      });
+    }
+  });
+
+export const globalAddonsSaveInput = z.object({
+  addons: z.array(globalAddonInput),
+});
+
+export type GlobalAddonInput = z.infer<typeof globalAddonInput>;
+export type GlobalAddonsSaveInput = z.infer<typeof globalAddonsSaveInput>;
+
 // Per-product production workflow (Maintenance). The whole ordered list is
 // saved at once, replace-style.
 export const productionStepsSaveInput = z.object({

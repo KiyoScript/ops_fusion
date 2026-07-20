@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
+import { PlusIcon, SaveIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,12 +34,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import {
+  useGlobalAddons,
   useProductOptions,
   type ProductOptionDto,
   type ProductRuleDto,
 } from "@/modules/shared/hooks/use-products";
 import {
   removeAllProductsAction,
+  saveGlobalAddonsAction,
   savePriceListProductAction,
 } from "@/app/(app)/maintenance/quotations/actions";
 import { PriceListImportDialog } from "./price-list-import-dialog";
@@ -91,8 +93,10 @@ export function PriceListWorkbench({
   canRemoveAll?: boolean;
 }) {
   const products = useProductOptions();
+  const globalAddons = useGlobalAddons();
   const [q, setQ] = useState("");
   const debouncedQ = useDebounce(q);
+  // "__global__" selects the pinned Common add-ons tab.
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -108,8 +112,10 @@ export function PriceListWorkbench({
 
   // Active product is derived: the selected one if it's still in the filtered
   // list, otherwise the first — no effect/setState needed.
-  const active =
-    filtered.find((p) => p.id === activeId) ?? filtered[0] ?? null;
+  const globalActive = activeId === "__global__";
+  const active = globalActive
+    ? null
+    : (filtered.find((p) => p.id === activeId) ?? filtered[0] ?? null);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[16rem_1fr]">
@@ -121,6 +127,28 @@ export function PriceListWorkbench({
           placeholder="Search product…"
           aria-label="Search products"
         />
+        <button
+          type="button"
+          onClick={() => setActiveId("__global__")}
+          className={cn(
+            "flex w-full items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm font-medium",
+            globalActive
+              ? "border-primary bg-primary text-primary-foreground"
+              : "hover:bg-accent"
+          )}
+        >
+          <span>Common add-ons</span>
+          <span
+            className={cn(
+              "shrink-0 text-xs tabular-nums",
+              globalActive
+                ? "text-primary-foreground/70"
+                : "text-muted-foreground"
+            )}
+          >
+            {globalAddons.data?.length ?? 0}
+          </span>
+        </button>
         <Card className="py-0">
           <CardContent className="max-h-[70vh] overflow-y-auto p-1">
             {products.isPending ? (
@@ -177,7 +205,21 @@ export function PriceListWorkbench({
 
       {/* selected product's editable grid */}
       <div>
-        {products.isPending ? (
+        {globalActive ? (
+          globalAddons.isPending ? (
+            <Skeleton className="h-64 w-full" />
+          ) : globalAddons.isError ? (
+            <ErrorState
+              message={globalAddons.error.message}
+              onRetry={() => globalAddons.refetch()}
+            />
+          ) : (
+            <GlobalAddonsSheet
+              addons={globalAddons.data}
+              canMaintain={canMaintain}
+            />
+          )
+        ) : products.isPending ? (
           <Skeleton className="h-64 w-full" />
         ) : products.isError ? (
           <ErrorState
@@ -256,6 +298,158 @@ function RemoveAllProductsButton({ count }: { count: number }) {
   );
 }
 
+// Common add-ons — fees offered on EVERY product (rush, design, delivery…).
+// A product-level add-on with the same label overrides the global one.
+type AddonRow = { label: string; amount: string; pct: string; notes: string };
+
+function GlobalAddonsSheet({
+  addons,
+  canMaintain,
+}: {
+  addons: ProductRuleDto[];
+  canMaintain: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [rows, setRows] = useState<AddonRow[]>(
+    addons.map((a) => ({
+      label: a.label,
+      amount: a.amount ?? "",
+      pct: a.pct ?? "",
+      notes: a.notes ?? "",
+    }))
+  );
+  const [saving, setSaving] = useState(false);
+
+  const setRow = (i: number, patch: Partial<AddonRow>) =>
+    setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
+
+  const save = async () => {
+    setSaving(true);
+    const result = await saveGlobalAddonsAction({
+      addons: rows
+        .filter((r) => r.label.trim())
+        .map((r) => ({
+          label: r.label,
+          amount: r.amount,
+          pct: r.pct,
+          notes: r.notes,
+        })),
+    });
+    setSaving(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Common add-ons saved.");
+    queryClient.invalidateQueries({ queryKey: ["global-addons"] });
+  };
+
+  return (
+    <Card>
+      <CardContent className="grid gap-4 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Common add-ons</h2>
+            <p className="text-xs text-muted-foreground">
+              Offered on every product — a product&apos;s own add-on with the
+              same label overrides these.
+            </p>
+          </div>
+          {canMaintain && (
+            <Button onClick={save} disabled={saving} size="sm">
+              <SaveIcon /> {saving ? "Saving…" : "Save"}
+            </Button>
+          )}
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="min-w-[36rem]">
+            <div className="grid grid-cols-[1fr_7rem_5rem_1fr_2.5rem] gap-2 border-b pb-1 text-xs font-medium text-muted-foreground">
+              <span>Label</span>
+              <span>Amount</span>
+              <span>%</span>
+              <span>Notes</span>
+              <span className="sr-only">Remove</span>
+            </div>
+            <div className="grid gap-1.5 pt-2">
+              {rows.length === 0 && (
+                <p className="py-2 text-sm text-muted-foreground">
+                  No common add-ons yet — add fees like Rush or Design fee that
+                  apply to every product.
+                </p>
+              )}
+              {rows.map((r, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-[1fr_7rem_5rem_1fr_2.5rem] items-center gap-2"
+                >
+                  <Input
+                    value={r.label}
+                    onChange={(e) => setRow(i, { label: e.target.value })}
+                    placeholder="e.g. Rush fee"
+                    readOnly={!canMaintain}
+                  />
+                  <NumberField
+                    decimal
+                    value={r.amount}
+                    onChange={(v) => setRow(i, { amount: v })}
+                    placeholder="Amount"
+                    disabled={!canMaintain}
+                  />
+                  <NumberField
+                    decimal
+                    value={r.pct}
+                    onChange={(v) => setRow(i, { pct: v })}
+                    placeholder="%"
+                    disabled={!canMaintain}
+                  />
+                  <Input
+                    value={r.notes}
+                    onChange={(e) => setRow(i, { notes: e.target.value })}
+                    placeholder="Notes"
+                    readOnly={!canMaintain}
+                  />
+                  {canMaintain && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remove add-on ${i + 1}`}
+                      onClick={() =>
+                        setRows((rs) => rs.filter((_, x) => x !== i))
+                      }
+                    >
+                      <Trash2Icon className="size-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {canMaintain && (
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setRows((rs) => [
+                  ...rs,
+                  { label: "", amount: "", pct: "", notes: "" },
+                ])
+              }
+            >
+              <PlusIcon /> Add common add-on
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ProductSheet({
   product,
   canMaintain,
@@ -266,11 +460,29 @@ function ProductSheet({
   const queryClient = useQueryClient();
   const [rows, setRows] = useState<Row[]>(product.rules.map(toRow));
   const [saving, setSaving] = useState(false);
+  const [ruleQ, setRuleQ] = useState("");
+  const ruleNeedle = useDebounce(ruleQ).trim().toLowerCase();
 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
   const removeRow = (i: number) =>
     setRows((rs) => rs.filter((_, x) => x !== i));
+
+  // Filter keeps the ORIGINAL index so inline edits/removals still hit the
+  // right row — long price DBs (e.g. Receipt Booklet) are searched, not paged.
+  const visible = rows
+    .map((r, i) => ({ r, i }))
+    .filter(
+      ({ r }) =>
+        !ruleNeedle ||
+        r.label.toLowerCase().includes(ruleNeedle) ||
+        r.notes.toLowerCase().includes(ruleNeedle)
+    );
+
+  const addRow = (type: Row["type"]) => {
+    setRuleQ(""); // a fresh row must not be hidden by an active filter
+    setRows((rs) => [...rs, { ...EMPTY_ROW, type }]);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -313,15 +525,27 @@ function ProductSheet({
               {product.category} · priced per {product.unit}
             </p>
           </div>
-          {canMaintain && (
-            <div className="flex items-center gap-1">
-              <ProductionStepsDialog product={product} />
-              <ProductEditDialog product={product} />
-              <Button onClick={save} disabled={saving} size="sm">
-                <SaveIcon /> {saving ? "Saving…" : "Save"}
-              </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={ruleQ}
+                onChange={(e) => setRuleQ(e.target.value)}
+                placeholder="Search rules…"
+                aria-label={`Search ${product.name} rules`}
+                className="h-8 w-44 pl-8"
+              />
             </div>
-          )}
+            {canMaintain && (
+              <div className="flex items-center gap-1">
+                <ProductionStepsDialog product={product} />
+                <ProductEditDialog product={product} />
+                <Button onClick={save} disabled={saving} size="sm">
+                  <SaveIcon /> {saving ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* grid header */}
@@ -342,7 +566,17 @@ function ProductSheet({
                   No rules — add a variant or add-on below.
                 </p>
               )}
-              {rows.map((r, i) => (
+              {rows.length > 0 && visible.length === 0 && (
+                <p className="py-2 text-sm text-muted-foreground">
+                  No rules match “{ruleQ}” — {rows.length} hidden.
+                </p>
+              )}
+              {ruleNeedle && visible.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Showing {visible.length} of {rows.length} rules
+                </p>
+              )}
+              {visible.map(({ r, i }) => (
                 <div
                   key={i}
                   className="grid grid-cols-[7rem_1fr_6rem_5rem_6rem_5rem_2.5rem] items-center gap-2"
@@ -435,7 +669,7 @@ function ProductSheet({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setRows([...rows, { ...EMPTY_ROW, type: "VARIANT" }])}
+              onClick={() => addRow("VARIANT")}
             >
               <PlusIcon /> Add variant
             </Button>
@@ -443,7 +677,7 @@ function ProductSheet({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setRows([...rows, { ...EMPTY_ROW, type: "ADDON" }])}
+              onClick={() => addRow("ADDON")}
             >
               <PlusIcon /> Add-on fee
             </Button>

@@ -8,6 +8,7 @@ import {
   getProductionStepService,
 } from "@/modules/quotations/services";
 import {
+  globalAddonsSaveInput,
   productionStepsSaveInput,
   productSaveInput,
 } from "@/modules/quotations/schemas/price-list";
@@ -57,6 +58,22 @@ export async function saveProductionStepsAction(
     if (!parsed.success) return fail(firstIssue(parsed.error));
 
     await getProductionStepService().save(actor, parsed.data);
+    revalidatePath("/maintenance/quotations");
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function saveGlobalAddonsAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const parsed = globalAddonsSaveInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+
+    await getPriceListService().saveGlobalAddons(actor, parsed.data);
     revalidatePath("/maintenance/quotations");
     return ok(null);
   } catch (err) {

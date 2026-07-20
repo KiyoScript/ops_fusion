@@ -4,10 +4,14 @@ import { assertCan } from "@/lib/ability";
 import { PriceRuleType, Role } from "@/generated/prisma/enums";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type {
+  GlobalAddonRow,
   IPriceListRepository,
   RuleCreateData,
 } from "../repositories/price-list-repository";
-import type { ProductSaveInput } from "../schemas/price-list";
+import type {
+  GlobalAddonsSaveInput,
+  ProductSaveInput,
+} from "../schemas/price-list";
 
 // Quotation Maintenance CRUD — products + their price rules are edited as
 // ONE unit (the dialog saves the whole rule set, replace-style, exactly
@@ -83,6 +87,42 @@ export class PriceListService {
           entityId: id,
           action: "archive",
           payload: { name: exists.name },
+        },
+        tx
+      );
+    });
+  }
+
+  /** Common add-ons offered on every product (Maintenance "Common add-ons"). */
+  async listGlobalAddons(): Promise<GlobalAddonRow[]> {
+    return this.priceList.listGlobalAddons();
+  }
+
+  async saveGlobalAddons(
+    actor: Actor,
+    input: GlobalAddonsSaveInput
+  ): Promise<void> {
+    assertCan(actor, "maintain", "Maintenance");
+    const rules: RuleCreateData[] = input.addons.map((addon, index) => ({
+      type: PriceRuleType.ADDON,
+      label: addon.label,
+      unitPrice: null,
+      minQty: 1,
+      minCharge: null,
+      amount: addon.amount ? parseFloat(addon.amount).toFixed(2) : null,
+      pct: addon.pct ? parseFloat(addon.pct).toFixed(2) : null,
+      notes: addon.notes || null,
+      sortOrder: index,
+    }));
+    await this.priceList.withTransaction(async (tx) => {
+      await this.priceList.replaceGlobalAddons(rules, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "PriceRule",
+          entityId: "global-addons",
+          action: "save",
+          payload: { addons: rules.length },
         },
         tx
       );

@@ -321,10 +321,272 @@ function parseBanner(rows: Rows): ParsedProduct[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Receipt: the receipt-booklet price DB — one row per Print Type × Copies ×
+// Size Division × Total Booklets, priced per booklet ("Low Price/Booklet",
+// col 9). Same combo at growing booklet counts = qty tiers of one variant.
+// The "Receipt Old Pricing" tab is superseded and intentionally NOT parsed.
+// ═══════════════════════════════════════════════════════════════════════════
+function parseReceipt(rows: Rows): ParsedProduct[] {
+  const header = rows.findIndex((r) => /print\s*type/i.test(String(r[0] ?? "")));
+  if (header < 0) return [];
+  const rules: RuleCreateData[] = [];
+  let sort = 0;
+  for (let r = header + 1; r < rows.length; r++) {
+    const type = cell(rows, r, 0);
+    const copies = cell(rows, r, 1);
+    const division = cell(rows, r, 2);
+    const minQty = parseInt(cell(rows, r, 3), 10);
+    const price = money(cell(rows, r, 9));
+    if (!type || !copies || !division || price === null) continue;
+    if (!Number.isFinite(minQty) || minQty < 1) continue;
+    rules.push(
+      variant(`${type} · ${copies}-copy · 1/${division} page`, price, sort++, minQty)
+    );
+  }
+  return rules.length
+    ? [
+        {
+          name: "Receipt Booklet",
+          category: "Printing",
+          unit: "booklet",
+          description:
+            "Legacy receipt price DB — print type · copies · page division, tiered by booklet count",
+          rules,
+        },
+      ]
+    : [];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Products: the signage master list (Group | Name | Price | Type) — the same
+// legacy layout the "Import price list" button reads, parsed here too so ONE
+// workbook upload covers it. Group = product, Name = variant, Type = unit.
+// ═══════════════════════════════════════════════════════════════════════════
+function parseProductsTab(rows: Rows): ParsedProduct[] {
+  const header = rows.findIndex(
+    (r) =>
+      /^group$/i.test(String(r[0] ?? "").trim()) &&
+      /^name$/i.test(String(r[1] ?? "").trim())
+  );
+  if (header < 0) return [];
+  const byGroup = new Map<string, ParsedProduct>();
+  for (let r = header + 1; r < rows.length; r++) {
+    const group = cell(rows, r, 0);
+    const label = cell(rows, r, 1);
+    const price = money(cell(rows, r, 2));
+    if (!group || !label || price === null) continue;
+    let product = byGroup.get(group.toLowerCase());
+    if (!product) {
+      product = {
+        name: group,
+        category: "Uncategorized",
+        unit: cell(rows, r, 3) || "pcs",
+        rules: [],
+      };
+      byGroup.set(group.toLowerCase(), product);
+    }
+    product.rules.push(variant(label, price, product.rules.length));
+  }
+  return [...byGroup.values()];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Newspaper Maintenance: side-by-side contract-rate blocks (EVMail / SLT /
+// SLB …). Row 0 = block titles, row 1 = column headers, data below. Each data
+// row is one whole print-run package — the label carries pages/colors/copies
+// and the price is the run total, so minQty stays 1.
+// ═══════════════════════════════════════════════════════════════════════════
+function parseNewspaperMaintenance(rows: Rows): ParsedProduct[] {
+  const titles = rows[0] ?? [];
+  const headers = rows[1] ?? [];
+  const blocks: { name: string; start: number; end: number }[] = [];
+  const seen = new Set<string>();
+  for (let c = 0; c < titles.length; c++) {
+    const title = String(titles[c] ?? "").trim();
+    if (!title || seen.has(title)) continue;
+    seen.add(title);
+    blocks.push({ name: title.split(/\s+/)[0]!, start: c, end: titles.length });
+  }
+  blocks.forEach((b, i) => {
+    const next = blocks[i + 1];
+    if (next) b.end = next.start;
+  });
+
+  const products: ParsedProduct[] = [];
+  for (const b of blocks) {
+    const col = (re: RegExp): number => {
+      for (let c = b.start; c < b.end; c++) {
+        if (re.test(String(headers[c] ?? ""))) return c;
+      }
+      return -1;
+    };
+    const cPages = col(/total pages|# of pages$/i);
+    const cCopies = col(/copies/i);
+    const cColor = col(/colored|full color/i);
+    const cRate = col(/new rate/i) >= 0 ? col(/new rate/i) : col(/rate/i);
+    if (cPages < 0 || cCopies < 0 || cRate < 0) continue;
+
+    const rules: RuleCreateData[] = [];
+    for (let r = 2; r < rows.length; r++) {
+      const pages = parseInt(cell(rows, r, cPages), 10);
+      const copies = parseInt(cell(rows, r, cCopies), 10);
+      const price = money(cell(rows, r, cRate));
+      if (!Number.isFinite(pages) || !Number.isFinite(copies) || price === null)
+        continue;
+      const color = parseInt(cell(rows, r, cColor), 10);
+      const colorTxt =
+        Number.isFinite(color) && color > 0 ? ` (${color} color)` : "";
+      rules.push(
+        variant(
+          `${pages} pages${colorTxt} × ${copies} copies`,
+          price,
+          rules.length
+        )
+      );
+    }
+    if (rules.length) {
+      products.push({
+        name: `Newspaper — ${b.name}`,
+        category: "Printing",
+        unit: "run",
+        description: `${b.name} contract rates — price is for the whole print run`,
+        rules,
+      });
+    }
+  }
+  return products;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NewsLetterNewPaper: two paired label|price columns — Newsletter (page-count
+// variants, per copy) and Newspaper (color+BW page combos where the BW line
+// sits on the next row without a price). Spec lines (size/method/material/
+// minimum order) become the description; "minimum order: N" becomes minQty.
+// ═══════════════════════════════════════════════════════════════════════════
+function parseNewsletterNewspaper(rows: Rows): ParsedProduct[] {
+  const out: ParsedProduct[] = [];
+  const build = (name: string, cLabel: number, cPrice: number) => {
+    const rules: RuleCreateData[] = [];
+    const specs: string[] = [];
+    for (let r = 1; r < rows.length; r++) {
+      const label = cell(rows, r, cLabel);
+      if (!label) continue;
+      const price = money(cell(rows, r, cPrice));
+      if (price !== null && /page/i.test(label)) {
+        const next = cell(rows, r + 1, cLabel);
+        const nextPrice = money(cell(rows, r + 1, cPrice));
+        const full =
+          nextPrice === null && /bw/i.test(next) ? `${label} + ${next}` : label;
+        rules.push(variant(full, price, rules.length));
+      } else if (price === null && !/bw/i.test(label)) {
+        specs.push(label);
+      }
+    }
+    const minMatch = specs.join(" ").match(/minimum order\s*:?\s*(\d+)/i);
+    if (minMatch) {
+      const minQty = parseInt(minMatch[1]!, 10);
+      for (const rule of rules) rule.minQty = minQty;
+    }
+    if (rules.length) {
+      out.push({
+        name,
+        category: "Printing",
+        unit: "copy",
+        description: specs.join(" · "),
+        rules,
+      });
+    }
+  };
+  build("Newsletter", 0, 1);
+  build("Newspaper", 2, 3);
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UV Print: two tier tables on one sheet — flat surface (per location, up to
+// 4 sq in) in cols 0-1 and cylindrical (pocket / vertical logo) in cols 3-5.
+// Qty ranges ("3-10 pcs.") become minQty tiers; the flat 30+ row switches to
+// per-sq-in pricing, so it is kept as its own variant.
+// ═══════════════════════════════════════════════════════════════════════════
+function parseUvPrint(rows: Rows): ParsedProduct[] {
+  const rules: RuleCreateData[] = [];
+  const qtyMin = (raw: string): number | null => {
+    const m = raw.match(/^(\d+)/);
+    return m ? parseInt(m[1]!, 10) : null;
+  };
+  for (let r = 0; r < rows.length; r++) {
+    const flatQty = qtyMin(cell(rows, r, 0));
+    if (flatQty !== null) {
+      const raw = cell(rows, r, 1);
+      const price = money(raw);
+      if (price !== null) {
+        const perSqIn = /per sq/i.test(raw);
+        rules.push(
+          variant(
+            perSqIn
+              ? "Flat surface — per sq. in. (30+ pcs)"
+              : "Flat surface — per location (up to 4 sq in)",
+            price,
+            rules.length,
+            flatQty,
+            perSqIn ? "or tiered scale" : undefined
+          )
+        );
+      }
+    }
+    const cylQty = qtyMin(cell(rows, r, 3));
+    if (cylQty !== null) {
+      const pocket = money(cell(rows, r, 4));
+      const vertical = money(cell(rows, r, 5));
+      const base = (raw: string) =>
+        /base rate/i.test(raw) ? "base rate" : undefined;
+      if (pocket !== null) {
+        rules.push(
+          variant(
+            'Cylindrical — pocket logo (up to 2×2")',
+            pocket,
+            rules.length,
+            cylQty,
+            base(cell(rows, r, 4))
+          )
+        );
+      }
+      if (vertical !== null) {
+        rules.push(
+          variant(
+            'Cylindrical — vertical logo (up to 2×7")',
+            vertical,
+            rules.length,
+            cylQty,
+            base(cell(rows, r, 5))
+          )
+        );
+      }
+    }
+  }
+  return rules.length
+    ? [
+        {
+          name: "UV Print",
+          category: "Printing",
+          unit: "pc",
+          description: "Priced per print location/surface (up to 4 sq in per location)",
+          rules,
+        },
+      ]
+    : [];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Registry: sheet name (lowercased) → parser. Sheets not listed are skipped.
 // ═══════════════════════════════════════════════════════════════════════════
 export const SHEET_PARSERS: Record<string, (rows: Rows) => ParsedProduct[]> = {
   banner: parseBanner,
+  receipt: parseReceipt,
+  products: parseProductsTab,
+  "newspaper maintenance": parseNewspaperMaintenance,
+  newsletternewpaper: parseNewsletterNewspaper,
+  "uv print": parseUvPrint,
   "foldable fan": twoColumn("Foldable Fan", "Souvenirs", "pc"),
   canvas: singlePrice("Canvas Print", "Large Format", "sqft", "Standard rate"),
   "mesh caps": singlePrice("Mesh Cap", "Apparel", "pc", "Standard rate"),
@@ -357,8 +619,11 @@ function parseCalendar(rows: Rows): ParsedProduct[] {
   let sort = 0;
   const header = rows[0] ?? [];
   for (let c = 0; c < header.length; c++) {
+    // Type headers legitimately contain digits ("1 month per page (12 pages
+    // only)"), so don't money()-reject them — the "size = ₱price" data rows
+    // below are what identify a real type column.
     const type = cell(rows, 0, c);
-    if (!type || money(type) !== null) continue;
+    if (!type) continue;
     for (let r = 1; r < Math.min(rows.length, 4); r++) {
       const raw = cell(rows, r, c); // "11\"x17\" = ₱ 28.50"
       const price = money(raw.split("=")[1] ?? "");

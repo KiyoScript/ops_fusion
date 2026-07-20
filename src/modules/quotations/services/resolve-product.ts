@@ -40,6 +40,19 @@ export async function resolveWizardProduct(
   });
   if (!row) return null;
 
+  // Global add-ons (productId NULL) apply to every product; a product-level
+  // add-on with the same label overrides its global counterpart.
+  const globals = await prisma.priceRule.findMany({
+    where: { productId: null, isActive: true },
+    orderBy: { sortOrder: "asc" },
+    select: { label: true, amount: true, pct: true, notes: true },
+  });
+  const ownedAddons = new Set(
+    row.priceRules
+      .filter((r) => r.type === "ADDON")
+      .map((r) => r.label.trim().toLowerCase())
+  );
+
   return {
     id: row.id,
     name: row.name,
@@ -47,16 +60,30 @@ export async function resolveWizardProduct(
     unit: row.unit,
     basePrice: row.basePrice.toString(),
     description: row.description,
-    rules: row.priceRules.map((r) => ({
-      type: r.type,
-      label: r.label,
-      unitPrice: r.unitPrice?.toString() ?? null,
-      minQty: r.minQty,
-      minCharge: r.minCharge?.toString() ?? null,
-      amount: r.amount?.toString() ?? null,
-      pct: r.pct?.toString() ?? null,
-      notes: r.notes,
-    })),
+    rules: [
+      ...row.priceRules.map((r) => ({
+        type: r.type,
+        label: r.label,
+        unitPrice: r.unitPrice?.toString() ?? null,
+        minQty: r.minQty,
+        minCharge: r.minCharge?.toString() ?? null,
+        amount: r.amount?.toString() ?? null,
+        pct: r.pct?.toString() ?? null,
+        notes: r.notes,
+      })),
+      ...globals
+        .filter((g) => !ownedAddons.has(g.label.trim().toLowerCase()))
+        .map((g) => ({
+          type: "ADDON" as const,
+          label: g.label,
+          unitPrice: null,
+          minQty: 1,
+          minCharge: null,
+          amount: g.amount?.toString() ?? null,
+          pct: g.pct?.toString() ?? null,
+          notes: g.notes,
+        })),
+    ],
     productionSteps: [], // wizards don't need the workflow template
   };
 }

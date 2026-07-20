@@ -53,7 +53,17 @@ export interface IPriceListRepository {
   softDeleteProduct(id: string, tx?: DbTx): Promise<void>;
   /** Soft-delete every active product — returns how many were removed. */
   softDeleteAllProducts(tx?: DbTx): Promise<number>;
+  /** Global add-ons: rules with NO product — offered on every product. */
+  listGlobalAddons(): Promise<GlobalAddonRow[]>;
+  replaceGlobalAddons(rules: RuleCreateData[], tx?: DbTx): Promise<void>;
 }
+
+export type GlobalAddonRow = {
+  label: string;
+  amount: string | null;
+  pct: string | null;
+  notes: string | null;
+};
 
 export class PrismaPriceListRepository implements IPriceListRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T> {
@@ -152,5 +162,29 @@ export class PrismaPriceListRepository implements IPriceListRepository {
       data: { deletedAt: new Date(), isActive: false },
     });
     return result.count;
+  }
+
+  async listGlobalAddons(): Promise<GlobalAddonRow[]> {
+    const rows = await prisma.priceRule.findMany({
+      where: { productId: null, isActive: true },
+      orderBy: { sortOrder: "asc" },
+      select: { label: true, amount: true, pct: true, notes: true },
+    });
+    return rows.map((r) => ({
+      label: r.label,
+      amount: r.amount?.toString() ?? null,
+      pct: r.pct?.toString() ?? null,
+      notes: r.notes,
+    }));
+  }
+
+  async replaceGlobalAddons(rules: RuleCreateData[], tx?: DbTx): Promise<void> {
+    const db = tx ?? prisma;
+    await db.priceRule.deleteMany({ where: { productId: null } });
+    if (rules.length > 0) {
+      await db.priceRule.createMany({
+        data: rules.map((rule) => ({ ...rule, productId: null })),
+      });
+    }
   }
 }
