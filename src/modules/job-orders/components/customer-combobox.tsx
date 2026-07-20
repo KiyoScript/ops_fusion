@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useCustomerSearch } from "@/modules/shared/hooks/use-customer-search";
+import type { CustomerSuggestion } from "@/modules/shared/repositories/customer-repository";
 
 /**
  * Free-text customer field with debounced suggestions from the customer
@@ -17,11 +18,15 @@ import { useCustomerSearch } from "@/modules/shared/hooks/use-customer-search";
 export function CustomerCombobox({
   value,
   onChange,
+  onPick,
   invalid,
   id,
 }: {
   value: string;
   onChange: (value: string) => void;
+  /** Fired when an EXISTING customer is picked — carries the full record so
+   *  the caller can auto-fill contact/email/company. */
+  onPick?: (customer: CustomerSuggestion) => void;
   invalid?: boolean;
   id?: string;
 }) {
@@ -36,8 +41,9 @@ export function CustomerCombobox({
   const open =
     focused && !dismissed && value.trim().length >= 2 && options.length > 0;
 
-  const pick = (name: string) => {
-    onChange(name);
+  const pick = (option: CustomerSuggestion) => {
+    onChange(option.name);
+    onPick?.(option);
     setFocused(false);
     setActiveIndex(-1);
   };
@@ -58,7 +64,7 @@ export function CustomerCombobox({
       setActiveIndex((i) => (i <= 0 ? options.length - 1 : i - 1));
     } else if (e.key === "Enter" && activeIndex >= 0) {
       e.preventDefault(); // don't submit the form when picking
-      pick(options[activeIndex]!.name);
+      pick(options[activeIndex]!);
     } else if (e.key === "Escape") {
       e.preventDefault();
       setDismissed(true);
@@ -115,7 +121,7 @@ export function CustomerCombobox({
                   // onMouseDown so it fires before the input's blur
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    pick(option.name);
+                    pick(option);
                   }}
                 >
                   <span className="block wrap-break-word">{option.name}</span>

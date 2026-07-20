@@ -153,6 +153,18 @@ export class QuotationService {
         actor.id,
         tx
       );
+      // Remember the wizard's contact/email on the customer master
+      // (fill-if-blank) so a returning customer auto-fills next time.
+      if (input.contactNumber || input.email) {
+        await this.customers.fillContactDetails(
+          customer.id,
+          {
+            contactNumber: input.contactNumber || undefined,
+            email: input.email || undefined,
+          },
+          tx
+        );
+      }
       const type = input.type as QuotationType;
       const created = await this.quotations.createWithItems(
         {
@@ -237,6 +249,16 @@ export class QuotationService {
         actor.id,
         tx
       );
+      if (input.contactNumber || input.email) {
+        await this.customers.fillContactDetails(
+          customer.id,
+          {
+            contactNumber: input.contactNumber || undefined,
+            email: input.email || undefined,
+          },
+          tx
+        );
+      }
       const updType = input.type as QuotationType;
       await this.quotations.updateHeader(
         input.id,

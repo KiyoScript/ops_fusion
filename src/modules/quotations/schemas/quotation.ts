@@ -73,6 +73,15 @@ const quotationBaseInput = z
       .trim()
       .min(1, "Customer Name is required.")
       .max(200),
+    // Optional client details from the wizards — enrich the Customer master
+    // (fill-if-blank) so a returning customer auto-fills next time.
+    contactNumber: z
+      .string()
+      .trim()
+      .regex(/^(09\d{9}|\+639\d{9})$/, "Invalid PH mobile number.")
+      .or(z.literal(""))
+      .optional(),
+    email: z.email("Invalid email.").or(z.literal("")).optional(),
     validUntil: futureDateString,
     taxType: z.enum(TAX_TYPES),
     paymentTermLabel: z.string().trim().max(120).optional(),

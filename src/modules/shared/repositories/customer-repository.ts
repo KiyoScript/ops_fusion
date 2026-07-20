@@ -3,11 +3,12 @@ import type { DbTx } from "./types";
 
 export type CustomerOption = { id: string; name: string };
 
-/** Search result for pickers — carries contact/company so similar-sounding
- *  names are distinguishable in the dropdown. */
+/** Search result for pickers — carries contact/company/email so a returning
+ *  customer's details can auto-fill the quote forms on pick. */
 export type CustomerSuggestion = CustomerOption & {
   contactNumber: string | null;
   company: string | null;
+  email: string | null;
 };
 
 export interface ICustomerRepository {
@@ -17,6 +18,13 @@ export interface ICustomerRepository {
     createdById: string,
     tx?: DbTx
   ): Promise<CustomerOption>;
+  /** Fill-if-blank enrichment: writes contact/email onto the customer only
+   *  where the master record is still empty — never overwrites. */
+  fillContactDetails(
+    id: string,
+    details: { contactNumber?: string; email?: string },
+    tx?: DbTx
+  ): Promise<void>;
   /** Batch variant for imports: returns a map of lowercased name → id. */
   findOrCreateManyByName(
     names: string[],
@@ -31,10 +39,37 @@ export class PrismaCustomerRepository implements ICustomerRepository {
         deletedAt: null,
         name: { contains: query, mode: "insensitive" },
       },
-      select: { id: true, name: true, contactNumber: true, company: true },
+      select: {
+        id: true,
+        name: true,
+        contactNumber: true,
+        company: true,
+        email: true,
+      },
       orderBy: { name: "asc" },
       take,
     });
+  }
+
+  async fillContactDetails(
+    id: string,
+    details: { contactNumber?: string; email?: string },
+    tx?: DbTx
+  ): Promise<void> {
+    const db = tx ?? prisma;
+    const current = await db.customer.findUnique({
+      where: { id },
+      select: { contactNumber: true, email: true },
+    });
+    if (!current) return;
+    const data: { contactNumber?: string; email?: string } = {};
+    if (details.contactNumber && !current.contactNumber) {
+      data.contactNumber = details.contactNumber;
+    }
+    if (details.email && !current.email) data.email = details.email;
+    if (Object.keys(data).length > 0) {
+      await db.customer.update({ where: { id }, data });
+    }
   }
 
   async findOrCreateByName(

@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { createInquiryAction } from "@/app/(app)/inquiries/actions";
 import { createQuotationAction } from "@/app/(app)/quotations/actions";
+import { isValidPhContact } from "@/components/validated-fields";
 import type { QuotationCreateInput } from "../../schemas/quotation";
 
 type QuotationPayload = Omit<QuotationCreateInput, "inquiryId">;
@@ -39,7 +40,20 @@ export async function submitWizardQuotation(
     inquiryId = inqResult.data.id;
   }
 
-  const result = await createQuotationAction({ ...payload, inquiryId });
+  // Customer enrichment is best-effort — a half-typed contact/email must
+  // never block the quote, so invalid values are dropped here.
+  const result = await createQuotationAction({
+    ...payload,
+    contactNumber:
+      payload.contactNumber && isValidPhContact(payload.contactNumber)
+        ? payload.contactNumber
+        : undefined,
+    email:
+      payload.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)
+        ? payload.email
+        : undefined,
+    inquiryId,
+  });
   if (!result.ok) {
     toast.error(result.error);
     return null;

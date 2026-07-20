@@ -240,6 +240,8 @@ export function SignageWizard({
           type: quoteType,
           poNumber: quoteType === "PO" ? poNumber.trim() : undefined,
           customerName: client.customerName,
+          contactNumber: client.contactNumber,
+          email: client.email,
           validUntil: "",
           taxType,
           paymentTermLabel: "50% Downpayment",

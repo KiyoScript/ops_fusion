@@ -49,6 +49,15 @@ export function ClientInfoStep({
           id="ci-name"
           value={value.customerName}
           onChange={(name) => set({ customerName: name })}
+          // Returning customer: picking them auto-fills contact & email from
+          // the customer master (typed values stay if the record is blank).
+          onPick={(c) =>
+            set({
+              customerName: c.name,
+              contactNumber: c.contactNumber ?? value.contactNumber,
+              email: c.email ?? value.email,
+            })
+          }
         />
       </div>
 
@@ -67,7 +76,7 @@ export function ClientInfoStep({
           {value.contactNumber.length > 0 &&
             !isValidPhContact(value.contactNumber) && (
               <p className="text-xs text-destructive">
-                Enter an 11-digit number starting with 09.
+                Use 0917 123 4567 or +63 917 123 4567.
               </p>
             )}
         </div>
