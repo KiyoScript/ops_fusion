@@ -34,6 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import {
+  feeKey,
   useGlobalAddons,
   useProductOptions,
   type ProductOptionDto,
@@ -468,16 +469,6 @@ function GlobalAddonsSheet({
   );
 }
 
-// Same fee-name normalization the wizard merge uses (resolveWizardProduct):
-// "Rush" == "Rush Fee" — a global add-on with a matching key wins at quote
-// time, so the grid marks those product rows as overridden.
-const feeKey = (label: string) =>
-  label
-    .toLowerCase()
-    .replace(/\bfees?\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-
 function ProductSheet({
   product,
   canMaintain,
@@ -619,6 +610,9 @@ function ProductSheet({
                   r.type === "ADDON"
                     ? globalByKey.get(feeKey(r.label))
                     : undefined;
+                // Overridden fee rows are LOCKED — the Common add-ons tab is
+                // the single place to adjust them; the row can only be removed.
+                const editable = canMaintain && !overriddenBy;
                 return (
                 <div
                   key={i}
@@ -627,9 +621,9 @@ function ProductSheet({
                   <Select
                     value={r.type}
                     onValueChange={(v) =>
-                      canMaintain && setRow(i, { type: (v as Row["type"]) ?? "VARIANT" })
+                      editable && setRow(i, { type: (v as Row["type"]) ?? "VARIANT" })
                     }
-                    disabled={!canMaintain}
+                    disabled={!editable}
                   >
                     <SelectTrigger aria-label="Rule type">
                       <SelectValue />
@@ -644,12 +638,12 @@ function ProductSheet({
                       value={r.label}
                       onChange={(e) => setRow(i, { label: e.target.value })}
                       placeholder="Label"
-                      readOnly={!canMaintain}
+                      readOnly={!editable}
                       className={overriddenBy ? "opacity-60" : undefined}
                     />
                     {overriddenBy && (
                       <p className="text-[11px] font-medium text-amber-600">
-                        Overridden by Common add-on — quotes charge {overriddenBy}
+                        Uses Common add-on ({overriddenBy}) — adjust it there
                       </p>
                     )}
                   </div>
@@ -660,20 +654,20 @@ function ProductSheet({
                         value={r.unitPrice}
                         onChange={(v) => setRow(i, { unitPrice: v })}
                         placeholder="Price"
-                        disabled={!canMaintain}
+                        disabled={!editable}
                       />
                       <NumberField
                         value={r.minQty}
                         onChange={(v) => setRow(i, { minQty: v })}
                         placeholder="1"
-                        disabled={!canMaintain}
+                        disabled={!editable}
                       />
                       <NumberField
                         decimal
                         value={r.minCharge}
                         onChange={(v) => setRow(i, { minCharge: v })}
                         placeholder="—"
-                        disabled={!canMaintain}
+                        disabled={!editable}
                       />
                       <span className="text-center text-muted-foreground">—</span>
                     </>
@@ -684,7 +678,7 @@ function ProductSheet({
                         value={r.amount}
                         onChange={(v) => setRow(i, { amount: v })}
                         placeholder="Amount"
-                        disabled={!canMaintain}
+                        disabled={!editable}
                       />
                       <span className="text-center text-muted-foreground">—</span>
                       <span className="text-center text-muted-foreground">—</span>
@@ -693,7 +687,7 @@ function ProductSheet({
                         value={r.pct}
                         onChange={(v) => setRow(i, { pct: v })}
                         placeholder="%"
-                        disabled={!canMaintain}
+                        disabled={!editable}
                       />
                     </>
                   )}

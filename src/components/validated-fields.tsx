@@ -56,8 +56,8 @@ export function NumberField({
   );
 }
 
-/** PH mobile number: 11 digits starting 09 (e.g. 0917 123 4567). Blocks
- *  non-digits and caps at 11 digits; displays with spacing. */
+/** PH mobile number: 0917 123 4567 or +63 917 123 4567. Blocks everything
+ *  except digits (and one leading +); caps the length; spaces for display. */
 export function ContactField({
   value,
   onChange,
@@ -66,32 +66,47 @@ export function ContactField({
   value: string;
   onChange: (value: string) => void;
 }) {
-  // Store the raw 11-digit string; format only for display.
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-  const display =
-    digits.length > 7
-      ? `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`
-      : digits.length > 4
-        ? `${digits.slice(0, 4)} ${digits.slice(4)}`
-        : digits;
+  // Stored form: "09171234567" or "+639171234567"; format only for display.
+  const clean = (raw: string): string => {
+    const digits = raw.replace(/\D/g, "");
+    return raw.trimStart().startsWith("+")
+      ? `+${digits.slice(0, 12)}` // +63 + 10-digit mobile
+      : digits.slice(0, 11); // 09 + 9 digits
+  };
+  const stored = clean(value);
+  const display = stored.startsWith("+")
+    ? [
+        stored.slice(0, 3), // +63
+        stored.slice(3, 6),
+        stored.slice(6, 9),
+        stored.slice(9),
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : stored.length > 7
+      ? `${stored.slice(0, 4)} ${stored.slice(4, 7)} ${stored.slice(7)}`
+      : stored.length > 4
+        ? `${stored.slice(0, 4)} ${stored.slice(4)}`
+        : stored;
 
   return (
     <Input
       {...props}
       type="text"
-      inputMode="numeric"
+      inputMode="tel"
       autoComplete="tel"
-      maxLength={13} // 11 digits + 2 spaces
-      placeholder={props.placeholder ?? "0917 123 4567"}
+      maxLength={16} // "+63 917 123 4567"
+      placeholder={props.placeholder ?? "0917 123 4567 / +63 917 123 4567"}
       value={display}
-      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 11))}
+      onChange={(e) => onChange(clean(e.target.value))}
     />
   );
 }
 
-/** True when the string is a valid PH mobile (11 digits, starts 09). */
+/** True for a valid PH mobile: 09XXXXXXXXX or +639XXXXXXXXX. */
 export function isValidPhContact(value: string): boolean {
-  return /^09\d{9}$/.test(value.replace(/\D/g, ""));
+  const v = value.replace(/[^\d+]/g, "");
+  return /^09\d{9}$/.test(v) || /^\+639\d{9}$/.test(v);
 }
 
 /** Today as "yyyy-MM-dd" (local) — use as the `min` on forward-looking

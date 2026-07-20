@@ -30,7 +30,11 @@ import {
 } from "../schemas/quotation";
 import { computeTotals } from "../services/totals";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
-import { useProductOptions } from "@/modules/shared/hooks/use-products";
+import {
+  mergeGlobalAddons,
+  useGlobalAddons,
+  useProductOptions,
+} from "@/modules/shared/hooks/use-products";
 import { TarpCalculator } from "./tarp-calculator";
 import { VariantPicker } from "./variant-picker";
 import { ProductCombobox } from "./product-combobox";
@@ -93,6 +97,7 @@ export function QuotationForm({
   const { errors, isSubmitting } = form.formState;
 
   const products = useProductOptions();
+  const globalAddons = useGlobalAddons();
   const productById = new Map((products.data ?? []).map((p) => [p.id, p]));
 
   // Picking a catalog product prefills price/description without clobbering
@@ -430,7 +435,10 @@ export function QuotationForm({
                   <TarpCalculator
                     qty={parseInt(watchedItem?.qty || "1", 10) || 1}
                     defaultRate={parseFloat(product?.basePrice ?? "50") || 50}
-                    rules={product?.rules}
+                    rules={mergeGlobalAddons(
+                      product?.rules ?? [],
+                      globalAddons.data
+                    )}
                     initialSpecs={watchedItem?.specs ?? null}
                     onApply={(result) => applyCalculator(index, result)}
                   />

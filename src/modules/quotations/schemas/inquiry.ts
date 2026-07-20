@@ -15,12 +15,15 @@ export const INQUIRY_MEDIUMS = [
 
 export const INQUIRY_STATUSES = ["OPEN", "QUOTED", "CLOSED"] as const;
 
-// PH mobile number: 11 digits starting 09 (blank allowed). The UI strips
-// non-digits, but validate here too for the portal/API path.
+// PH mobile number: 09XXXXXXXXX or +639XXXXXXXXX (blank allowed). The UI
+// strips formatting, but validate here too for the portal/API path.
 const phContact = z
   .string()
   .trim()
-  .regex(/^09\d{9}$/, "Enter an 11-digit number starting with 09.")
+  .regex(
+    /^(09\d{9}|\+639\d{9})$/,
+    "Enter an 11-digit number starting with 09, or +63 format."
+  )
   .or(z.literal(""))
   .optional();
 
