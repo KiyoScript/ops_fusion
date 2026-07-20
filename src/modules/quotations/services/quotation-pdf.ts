@@ -51,6 +51,21 @@ async function loadLogo(): Promise<Uint8Array | null> {
   return logoCache;
 }
 
+// Proprietor's handwritten signature, stamped over the approver line — only
+// when the document is signed off by the proprietor himself.
+let signatureCache: Uint8Array | null | undefined;
+async function loadSignature(): Promise<Uint8Array | null> {
+  if (signatureCache !== undefined) return signatureCache;
+  try {
+    signatureCache = new Uint8Array(
+      await readFile(path.join(process.cwd(), "public", "jon-signature.png"))
+    );
+  } catch {
+    signatureCache = null;
+  }
+  return signatureCache;
+}
+
 export async function renderQuotationPdf(
   quote: QuotationDetailDto
 ): Promise<Uint8Array> {
@@ -362,6 +377,23 @@ export async function renderQuotationPdf(
   // ——— approver (left) + customer acceptance box (right) ———
   const approver = quote.approvedByName ?? PROPRIETOR_NAME;
   text("Reviewed and Approved by:", M, y, 8, italic, GRAY);
+  if (approver === PROPRIETOR_NAME) {
+    const sigBytes = await loadSignature();
+    if (sigBytes) {
+      const isPng = sigBytes[1] === 0x50 && sigBytes[2] === 0x4e;
+      const sig = isPng
+        ? await doc.embedPng(sigBytes)
+        : await doc.embedJpg(sigBytes);
+      const sigH = 44;
+      const sigW = (sig.width / sig.height) * sigH;
+      page.drawImage(sig, {
+        x: M + (170 - sigW) / 2, // centered over the signature line
+        y: y - 32,
+        width: sigW,
+        height: sigH,
+      });
+    }
+  }
   page.drawLine({
     start: { x: M, y: y - 34 },
     end: { x: M + 170, y: y - 34 },
