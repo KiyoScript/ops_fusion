@@ -48,5 +48,8 @@ next-env.d.ts
 # Claude Code personal settings
 .claude/settings.local.json
 
+# local data backups (e.g. legacy-data wipe snapshots)
+/backups/
+
 # local-only docker port override (host 5432 taken by another project)
 docker-compose.override.yml
