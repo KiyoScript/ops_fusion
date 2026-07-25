@@ -10,6 +10,9 @@ export type ProductionStepRecord = {
 export interface IProductionStepRepository {
   /** Active steps of a product, in order — the workflow template. */
   listForProduct(productId: string, tx?: DbTx): Promise<ProductionStepRecord[]>;
+  /** The single GLOBAL production workflow — the fallback used when a product
+   *  has no per-product template of its own (ruling 2026-07-24). */
+  listGlobalSteps(tx?: DbTx): Promise<ProductionStepRecord[]>;
   /** Replace a product's whole step template (Maintenance save). */
   replaceForProduct(
     productId: string,
@@ -62,6 +65,17 @@ export class PrismaProductionStepRepository
     });
   }
 
+  async listGlobalSteps(tx?: DbTx): Promise<ProductionStepRecord[]> {
+    // Workflow order = rankFromEnd DESC (rank 1 = the last step). Re-indexed to
+    // a plain sortOrder so it copies onto JO items like a product template.
+    const rows = await (tx ?? prisma).globalProductionStep.findMany({
+      where: { isActive: true },
+      orderBy: [{ rankFromEnd: "desc" }, { name: "asc" }],
+      select: { name: true },
+    });
+    return rows.map((r, i) => ({ id: "", name: r.name, sortOrder: i }));
+  }
+
   async replaceForProduct(
     productId: string,
     names: string[],
@@ -107,19 +121,24 @@ export class PrismaProductionStepRepository
 
   async seedStepsForJobOrder(jobOrderId: string, tx?: DbTx): Promise<number> {
     const db = tx ?? prisma;
+    // ALL items (not just product-linked) — an item whose product has no
+    // template of its own falls back to the global workflow.
     const items = await db.jobOrderItem.findMany({
-      where: { jobOrderId, productId: { not: null } },
+      where: { jobOrderId },
       select: { id: true, productId: true },
     });
+    const global = await this.listGlobalSteps(tx);
     const templates = new Map<string, ProductionStepRecord[]>();
     let seeded = 0;
     for (const item of items) {
-      const pid = item.productId!;
-      let steps = templates.get(pid);
-      if (!steps) {
-        steps = await this.listForProduct(pid, tx);
-        templates.set(pid, steps);
+      let steps: ProductionStepRecord[] = [];
+      if (item.productId) {
+        steps =
+          templates.get(item.productId) ??
+          (await this.listForProduct(item.productId, tx));
+        templates.set(item.productId, steps);
       }
+      if (steps.length === 0) steps = global; // fall back to the global workflow
       if (steps.length > 0) {
         await this.seedItemSteps(item.id, steps, tx);
         seeded++;

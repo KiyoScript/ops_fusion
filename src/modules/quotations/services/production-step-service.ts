@@ -60,15 +60,15 @@ export class ProductionStepService {
     if (item.existingSteps > 0) {
       throw new ConflictError("This item already has production steps.");
     }
-    if (!item.productId) {
-      throw new ValidationError(
-        "This item isn't linked to a catalog product, so it has no workflow template to apply."
-      );
-    }
-    const steps = await this.steps.listForProduct(item.productId);
+    // The item's product template if it has one; otherwise the GLOBAL workflow
+    // (so items with no product-specific flow still get the shop's default).
+    let steps = item.productId
+      ? await this.steps.listForProduct(item.productId)
+      : [];
+    if (steps.length === 0) steps = await this.steps.listGlobalSteps();
     if (steps.length === 0) {
       throw new ValidationError(
-        "This product has no workflow yet — define it in JO Maintenance → Production workflows first."
+        "No workflow to apply — set the product's steps or the global workflow in JO Maintenance → Production workflow first."
       );
     }
     await this.steps.seedItemSteps(jobOrderItemId, steps);
