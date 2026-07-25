@@ -3,6 +3,7 @@ import path from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { format } from "date-fns";
 import { COMPANY } from "@/lib/company";
+import { getContactLine } from "@/lib/company-profile";
 import type { JobOrderDetailDto, ProductionStepLine } from "../schemas/job-order";
 
 // Internal PRODUCTION copy of a Job Order — NOT the customer-approval printable
@@ -21,8 +22,7 @@ const GRAY = rgb(0.42, 0.42, 0.42);
 const BORDER = rgb(0.62, 0.62, 0.62);
 const LIGHT = rgb(0.82, 0.82, 0.82);
 
-const CONTACT_LINE =
-  "If you have any questions, please contact Michelle Ca-ang, 0963-1220016, ormocprintshoppe@gmail.com";
+// Footer contact line is configurable in Settings › Company Profile (getContactLine).
 const COMPANY_EMAIL = "ormocprintshoppe@gmail.com";
 
 const dateStr = (iso: string | null): string =>
@@ -47,6 +47,7 @@ export async function renderJoProductionPdf(
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const contactLine = await getContactLine();
 
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - M;
@@ -75,8 +76,8 @@ export async function renderJoProductionPdf(
     page.drawLine({ start: { x: x1, y: yy }, end: { x: x2, y: yy }, thickness: 0.8, color });
 
   const footer = (p: PDFPage) =>
-    p.drawText(CONTACT_LINE, {
-      x: (PAGE_W - font.widthOfTextAtSize(CONTACT_LINE, 7)) / 2,
+    p.drawText(contactLine, {
+      x: (PAGE_W - font.widthOfTextAtSize(contactLine, 7)) / 2,
       y: M - 18,
       size: 7,
       font,

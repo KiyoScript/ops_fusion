@@ -6,6 +6,7 @@ import { getModuleFlagService } from "@/modules/shared/services/module-flag-serv
 import { PageHeader } from "@/components/page-header";
 import { ModuleFlagsManager } from "@/modules/shared/components/module-flags-manager";
 import { SignatureUpload } from "@/modules/shared/components/signature-upload";
+import { getCompanyProfile } from "@/lib/company-profile";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -17,6 +18,7 @@ export default async function SettingsPage() {
   }
 
   const modules = await getModuleFlagService().list();
+  const profile = await getCompanyProfile();
 
   return (
     <>
@@ -26,7 +28,7 @@ export default async function SettingsPage() {
       />
       <div className="grid gap-6">
         <ModuleFlagsManager modules={modules} />
-        <SignatureUpload />
+        <SignatureUpload profile={profile} />
       </div>
     </>
   );

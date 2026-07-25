@@ -3,6 +3,7 @@ import path from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 import { format } from "date-fns";
 import { COMPANY } from "@/lib/company";
+import { getContactLine, getOwnerName } from "@/lib/company-profile";
 import type { JobOrderDetailDto } from "../schemas/job-order";
 
 // JO/PO printable — shares the Ormoc Printshoppe form language with the
@@ -23,14 +24,9 @@ const GRAY = rgb(0.42, 0.42, 0.42);
 const BORDER = rgb(0.62, 0.62, 0.62);
 const LIGHT = rgb(0.82, 0.82, 0.82);
 
-const CONTACT_LINE =
-  "If you have any questions, please contact Michelle Ca-ang, 0963-1220016, ormocprintshoppe@gmail.com";
+// Footer contact line is configurable in Settings › Company Profile (getContactLine).
 const COMPANY_EMAIL = "ormocprintshoppe@gmail.com";
 const PREPARED_LABEL = "Prepared by"; // the JOB DETAILS box (who encoded the JO)
-// Owner / proprietor shown in the "Reviewed and Approved by" block.
-// TODO(settings): make the name + signature configurable in Company Profile
-// settings — these are the current defaults.
-const OWNER_NAME = "Joel O. Ngo";
 
 // StandardFonts are WinAnsi — no ₱ glyph; "P" prefix is the PH convention.
 const money = (value: string | number): string => {
@@ -82,6 +78,8 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const ownerName = await getOwnerName();
+  const contactLine = await getContactLine();
 
   const page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - M;
@@ -341,6 +339,7 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   y -= 30;
 
   // ——— reviewed & approved by (left) + customer approval box (right) ———
+  const nameW = bold.widthOfTextAtSize(ownerName, 10); // line matches the name width
   text("Reviewed and Approved by:", M, y, 8, italic, GRAY);
   const sigBytes = await loadSignature();
   if (sigBytes) {
@@ -350,10 +349,10 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
     // sized generously but kept clear of "Reviewed and Approved by:".
     const sigH = 44;
     const sigW = (sig.width / sig.height) * sigH;
-    page.drawImage(sig, { x: M + (200 - sigW) / 2, y: y - 47, width: sigW, height: sigH });
+    page.drawImage(sig, { x: M + (nameW - sigW) / 2, y: y - 47, width: sigW, height: sigH });
   }
-  page.drawLine({ start: { x: M, y: y - 48 }, end: { x: M + 200, y: y - 48 }, thickness: 0.8, color: INK });
-  text(OWNER_NAME, M, y - 60, 10, bold);
+  page.drawLine({ start: { x: M, y: y - 48 }, end: { x: M + nameW, y: y - 48 }, thickness: 0.8, color: INK });
+  text(ownerName, M, y - 60, 10, bold);
   text("Proprietor", M, y - 71, 7.5, font, GRAY);
 
   const accW = 250;
@@ -382,8 +381,8 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
 
   // ——— footer ———
   hline(M + 14, LIGHT);
-  page.drawText(CONTACT_LINE, {
-    x: (PAGE_W - font.widthOfTextAtSize(CONTACT_LINE, 7)) / 2,
+  page.drawText(contactLine, {
+    x: (PAGE_W - font.widthOfTextAtSize(contactLine, 7)) / 2,
     y: M,
     size: 7,
     font,

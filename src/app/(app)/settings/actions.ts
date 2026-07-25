@@ -8,6 +8,7 @@ import { requireActor } from "@/lib/authz";
 import { defineAbilityFor } from "@/lib/ability";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getModuleFlagService } from "@/modules/shared/services/module-flag-service";
+import { setContactInfo, setOwnerName } from "@/lib/company-profile";
 
 // The proprietor's signature is a single shared asset that every printable
 // (JO / DR / Quotation) already reads from public/jon-signature.png — so
@@ -36,6 +37,56 @@ export async function uploadSignatureAction(
       return fail(new ValidationError("Signature image must be under 2 MB."));
     }
     await writeFile(SIGNATURE_PATH, Buffer.from(await file.arrayBuffer()));
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+const ownerNameInput = z.object({
+  ownerName: z.string().trim().min(1, "Owner name is required.").max(120),
+});
+
+/** Sets the proprietor name printed on all documents. */
+export async function saveOwnerNameAction(
+  raw: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    if (defineAbilityFor(actor).cannot("update", "ModuleFlag")) {
+      return fail(new ValidationError("You are not allowed to change settings."));
+    }
+    const parsed = ownerNameInput.safeParse(raw);
+    if (!parsed.success) {
+      return fail(new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input."));
+    }
+    await setOwnerName(parsed.data.ownerName);
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+const contactInfoInput = z.object({
+  contactPerson: z.string().trim().min(1, "Contact person is required.").max(120),
+  contactPhone: z.string().trim().min(1, "Contact phone is required.").max(60),
+  contactEmail: z.string().trim().min(1, "Contact email is required.").max(120),
+});
+
+/** Sets the footer contact line printed on all printables. */
+export async function saveContactInfoAction(
+  raw: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    if (defineAbilityFor(actor).cannot("update", "ModuleFlag")) {
+      return fail(new ValidationError("You are not allowed to change settings."));
+    }
+    const parsed = contactInfoInput.safeParse(raw);
+    if (!parsed.success) {
+      return fail(new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input."));
+    }
+    await setContactInfo(parsed.data);
     return ok(null);
   } catch (err) {
     return fail(err);

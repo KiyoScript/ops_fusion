@@ -3,6 +3,7 @@ import path from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 import { format } from "date-fns";
 import { COMPANY } from "@/lib/company";
+import { getContactLine, getOwnerName } from "@/lib/company-profile";
 import type { QuotationDetailDto } from "../schemas/quotation";
 
 // Quotation printable — faithful port of the legacy Quotation.html A4 form:
@@ -22,11 +23,13 @@ const GRAY = rgb(0.42, 0.42, 0.42);
 const BORDER = rgb(0.62, 0.62, 0.62);
 const LIGHT = rgb(0.82, 0.82, 0.82);
 
-// Legacy footer/contact lines (Quotation.html).
-const CONTACT_LINE =
-  "If you have any questions, please contact Michelle Ca-ang, 0963-1220016, ormocprintshoppe@gmail.com";
+// Footer contact line is configurable in Settings › Company Profile (getContactLine).
 const COMPANY_EMAIL = "ormocprintshoppe@gmail.com";
-const PROPRIETOR_NAME = "Joel O. Ngo";
+
+// The seed/system account — never printed as the human approver. Falls back to
+// the proprietor block (name + signature) instead, matching the JO PDF.
+const isSystemUser = (name: string | null | undefined): boolean =>
+  !name || name.trim().toLowerCase() === "system admin";
 
 // StandardFonts are WinAnsi — no ₱ glyph; "P" prefix is the PH convention.
 const money = (value: string | number): string => {
@@ -73,6 +76,8 @@ export async function renderQuotationPdf(
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const proprietorName = await getOwnerName();
+  const contactLine = await getContactLine();
 
   const page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - M;
@@ -375,33 +380,41 @@ export async function renderQuotationPdf(
   y -= 26;
 
   // ——— approver (left) + customer acceptance box (right) ———
-  const approver = quote.approvedByName ?? PROPRIETOR_NAME;
+  // A real person's name prints as "Approver"; a system/seed account (or none)
+  // falls back to the proprietor block with the signature.
+  const humanApprover = isSystemUser(quote.approvedByName)
+    ? null
+    : quote.approvedByName;
+  const approver = humanApprover ?? proprietorName;
+  const nameW = bold.widthOfTextAtSize(approver, 10); // line matches the name width
   text("Reviewed and Approved by:", M, y, 8, italic, GRAY);
-  if (approver === PROPRIETOR_NAME) {
+  if (approver === proprietorName) {
     const sigBytes = await loadSignature();
     if (sigBytes) {
       const isPng = sigBytes[1] === 0x50 && sigBytes[2] === 0x4e;
       const sig = isPng
         ? await doc.embedPng(sigBytes)
         : await doc.embedJpg(sigBytes);
+      // Sit the signature ON the line (bottom just above y-46), below the label
+      // — sized generously but kept clear of "Reviewed and Approved by:".
       const sigH = 44;
       const sigW = (sig.width / sig.height) * sigH;
       page.drawImage(sig, {
-        x: M + (170 - sigW) / 2, // centered over the signature line
-        y: y - 32,
+        x: M + (nameW - sigW) / 2, // centered over the signature line
+        y: y - 45,
         width: sigW,
         height: sigH,
       });
     }
   }
   page.drawLine({
-    start: { x: M, y: y - 34 },
-    end: { x: M + 170, y: y - 34 },
+    start: { x: M, y: y - 46 },
+    end: { x: M + nameW, y: y - 46 },
     thickness: 0.8,
     color: INK,
   });
-  text(approver, M, y - 45, 10, bold);
-  text(quote.approvedByName ? "Approver" : "Proprietor", M, y - 56, 7.5, font, GRAY);
+  text(approver, M, y - 58, 10, bold);
+  text(humanApprover ? "Approver" : "Proprietor", M, y - 69, 7.5, font, GRAY);
 
   const accW = 250;
   const accX = PAGE_W - M - accW;
@@ -424,8 +437,8 @@ export async function renderQuotationPdf(
 
   // ——— footer ———
   hline(M + 14, LIGHT);
-  page.drawText(CONTACT_LINE, {
-    x: (PAGE_W - font.widthOfTextAtSize(CONTACT_LINE, 7)) / 2,
+  page.drawText(contactLine, {
+    x: (PAGE_W - font.widthOfTextAtSize(contactLine, 7)) / 2,
     y: M,
     size: 7,
     font,
