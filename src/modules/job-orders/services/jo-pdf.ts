@@ -346,15 +346,15 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   if (sigBytes) {
     const isPng = sigBytes[1] === 0x50 && sigBytes[2] === 0x4e;
     const sig = isPng ? await doc.embedPng(sigBytes) : await doc.embedJpg(sigBytes);
-    // Sit the signature ON the line (bottom near y-33), below the label —
-    // not floating up over "Reviewed and Approved by:".
-    const sigH = 26;
+    // Sit the signature ON the line (bottom just above y-48), below the label —
+    // sized generously but kept clear of "Reviewed and Approved by:".
+    const sigH = 44;
     const sigW = (sig.width / sig.height) * sigH;
-    page.drawImage(sig, { x: M + (170 - sigW) / 2, y: y - 33, width: sigW, height: sigH });
+    page.drawImage(sig, { x: M + (200 - sigW) / 2, y: y - 47, width: sigW, height: sigH });
   }
-  page.drawLine({ start: { x: M, y: y - 34 }, end: { x: M + 170, y: y - 34 }, thickness: 0.8, color: INK });
-  text(OWNER_NAME, M, y - 45, 10, bold);
-  text("Proprietor", M, y - 56, 7.5, font, GRAY);
+  page.drawLine({ start: { x: M, y: y - 48 }, end: { x: M + 200, y: y - 48 }, thickness: 0.8, color: INK });
+  text(OWNER_NAME, M, y - 60, 10, bold);
+  text("Proprietor", M, y - 71, 7.5, font, GRAY);
 
   const accW = 250;
   const accX = PAGE_W - M - accW;

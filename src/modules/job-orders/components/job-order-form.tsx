@@ -245,19 +245,37 @@ export function JobOrderForm({
           </div>
           <div className="grid gap-2">
             <Label htmlFor="customerName">Customer</Label>
-            <Controller
-              control={form.control}
-              name="customerName"
-              render={({ field }) => (
-                <CustomerCombobox
+            {mode === "edit" ? (
+              <>
+                {/* Locked on edit — the customer comes from the quotation and
+                    doesn't change once the JO exists. */}
+                <Input
                   id="customerName"
-                  value={field.value}
-                  onChange={field.onChange}
-                  invalid={!!errors.customerName}
+                  readOnly
+                  value={form.getValues("customerName")}
+                  className="bg-muted/50 text-muted-foreground"
                 />
-              )}
-            />
-            <FieldError message={errors.customerName?.message} />
+                <p className="text-xs text-muted-foreground">
+                  Locked — set from the quotation.
+                </p>
+              </>
+            ) : (
+              <>
+                <Controller
+                  control={form.control}
+                  name="customerName"
+                  render={({ field }) => (
+                    <CustomerCombobox
+                      id="customerName"
+                      value={field.value}
+                      onChange={field.onChange}
+                      invalid={!!errors.customerName}
+                    />
+                  )}
+                />
+                <FieldError message={errors.customerName?.message} />
+              </>
+            )}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="planDateStart">Plan start</Label>
