@@ -524,15 +524,18 @@ export function JobOrderForm({
             </div>
           ))}
 
-          {/* Bottom placement + full width, like the legacy "+ Add Item to
-              List" button — always visible after the last item. */}
-          <Button
-            type="button"
-            className="w-full"
-            onClick={() => items.append(EMPTY_ITEM)}
-          >
-            <PlusIcon /> Add Item to List
-          </Button>
+          {/* Adding items only makes sense on direct/walk-in entry (create).
+              An existing JO gets its items from the approved quotation, so the
+              editor doesn't offer "Add Item" (ruling 2026-07-24). */}
+          {mode === "create" && (
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => items.append(EMPTY_ITEM)}
+            >
+              <PlusIcon /> Add Item to List
+            </Button>
+          )}
         </CardContent>
       </Card>
 

@@ -49,6 +49,7 @@ export default async function CustomQuotationPage({
           type: "SALES",
           poNumber: "",
           customerName: inquiry?.customerName ?? "",
+          contactNumber: inquiry?.contactNumber ?? "",
           validUntil: "",
           taxType: "NON_VAT",
           paymentTermLabel: "50% Downpayment",

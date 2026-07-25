@@ -39,6 +39,13 @@ const moneyString = z
   .trim()
   .regex(/^\d+(\.\d{1,2})?$/, "Enter a valid amount");
 
+// "Less" / discount is OPTIONAL — an empty field just means no discount. Accept
+// an empty string and normalise it to "0" so no downstream consumer sees "".
+const optionalMoney = z
+  .union([moneyString, z.literal("")])
+  .transform((v) => (v === "" ? "0" : v))
+  .optional();
+
 // Downpayment fraction 0–1 (legacy Payment Terms tab: 0 / 0.25 / 0.5 / 1).
 const rateString = z
   .string()
@@ -53,7 +60,7 @@ export const quotationItemInput = z.object({
   description: z.string().trim().min(1, "Item description is required").max(500),
   qty: qtyString,
   unitPrice: moneyString,
-  discount: moneyString.optional(), // per-line discount amount
+  discount: optionalMoney, // per-line "Less" amount (empty = 0)
   // Product-type specifics (size, material, eyelets…) — written by the
   // per-product calculators, carried opaquely otherwise.
   specs: z.record(z.string(), z.unknown()).optional(),
@@ -73,20 +80,20 @@ const quotationBaseInput = z
       .trim()
       .min(1, "Customer Name is required.")
       .max(200),
-    // Optional client details from the wizards — enrich the Customer master
-    // (fill-if-blank) so a returning customer auto-fills next time.
+    // Client contact number is REQUIRED (ruling 2026-07-24) — a quotation must
+    // carry a way to reach the customer. Email stays optional. Both enrich the
+    // Customer master (fill-if-blank) so a returning customer auto-fills next time.
     contactNumber: z
       .string()
       .trim()
-      .regex(/^(09\d{9}|\+639\d{9})$/, "Invalid PH mobile number.")
-      .or(z.literal(""))
-      .optional(),
+      .min(1, "Contact number is required.")
+      .regex(/^(09\d{9}|\+639\d{9})$/, "Invalid PH mobile number."),
     email: z.email("Invalid email.").or(z.literal("")).optional(),
     validUntil: futureDateString,
     taxType: z.enum(TAX_TYPES),
     paymentTermLabel: z.string().trim().max(120).optional(),
     downpaymentRate: rateString,
-    discount: moneyString.optional(), // header-level discount amount
+    discount: optionalMoney, // header-level discount amount (empty = 0)
     notes: z.string().trim().max(2000).optional(),
     items: z
       .array(quotationItemInput)

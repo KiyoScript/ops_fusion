@@ -48,6 +48,9 @@ const dayStr = (d: string | null): string =>
   d ? format(new Date(`${d}T00:00:00`), "MMMM d, yyyy") : "—";
 const titleCase = (s: string): string =>
   s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+// The seed/system account — never printed as "Prepared by".
+const isSystemUser = (name: string): boolean =>
+  !name || name.trim().toLowerCase() === "system admin";
 
 let logoCache: Uint8Array | null | undefined;
 async function loadLogo(): Promise<Uint8Array | null> {
@@ -208,10 +211,11 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   }
 
   // JOB DETAILS box (mirrors the quotation's note box position).
-  const detailRows: [string, string][] = [
-    ["Status", titleCase(jo.status)],
-    [PREPARED_LABEL, jo.createdByName],
-  ];
+  const detailRows: [string, string][] = [["Status", titleCase(jo.status)]];
+  // Skip the system/seed account — don't print "Prepared by: System Admin".
+  if (!isSystemUser(jo.createdByName)) {
+    detailRows.push([PREPARED_LABEL, jo.createdByName]);
+  }
   if (jo.planDateStart || jo.planDateEnd) {
     detailRows.push(["Plan window", `${dayStr(jo.planDateStart)} – ${dayStr(jo.planDateEnd)}`]);
   }

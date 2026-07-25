@@ -27,7 +27,12 @@ export const EMPTY_CLIENT: ClientInfo = {
 };
 
 export function isClientValid(client: ClientInfo): boolean {
-  return client.customerName.trim().length > 0;
+  // Name AND a valid contact number are both required (ruling 2026-07-24).
+  return (
+    client.customerName.trim().length > 0 &&
+    client.contactNumber.trim().length > 0 &&
+    isValidPhContact(client.contactNumber)
+  );
 }
 
 export function ClientInfoStep({
@@ -63,7 +68,9 @@ export function ClientInfoStep({
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="grid gap-1.5">
-          <Label htmlFor="ci-contact">Contact Number</Label>
+          <Label htmlFor="ci-contact">
+            Contact Number <span className="text-destructive">*</span>
+          </Label>
           <ContactField
             id="ci-contact"
             value={value.contactNumber}

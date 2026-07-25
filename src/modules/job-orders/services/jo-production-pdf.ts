@@ -29,8 +29,6 @@ const dateStr = (iso: string | null): string =>
   iso ? format(new Date(iso), "MMMM d, yyyy") : "—";
 const dayStr = (d: string | null): string =>
   d ? format(new Date(`${d}T00:00:00`), "MMMM d, yyyy") : "—";
-const titleCase = (s: string): string =>
-  s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 async function loadLogo(): Promise<Uint8Array | null> {
   try {
@@ -171,23 +169,9 @@ export async function renderJoProductionPdf(
     }
   }
 
-  const rows: [string, string][] = [
-    ["Status", titleCase(jo.status)],
-    ["Prepared by", jo.createdByName],
-    ["Items", String(jo.items.length)],
-  ];
-  const detH = rows.length * 13 + 20;
-  box(detX, y - detH, detW, detH);
-  bar(detX, y - 13, detW, 13);
-  page.drawText("JOB DETAILS", { x: detX + 8, y: y - 9.5, size: 7.5, font: bold, color: rgb(1, 1, 1) });
-  let detY = y - 26;
-  for (const [label, value] of rows) {
-    text(label.toUpperCase(), detX + 8, detY, 6.5, font, GRAY);
-    text(value, detX + 92, detY, 8, bold);
-    detY -= 13;
-  }
-
-  y -= Math.max(detH, y - custY) + 18;
+  // JOB DETAILS box (Status / Items / Prepared by) removed from the production
+  // copy per ruling 2026-07-24 — the floor worksheet doesn't need it.
+  y -= y - custY + 18;
 
   // ——— items & production steps ———
   sectionBar("ITEMS & PRODUCTION WORKFLOW");

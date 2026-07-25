@@ -41,6 +41,7 @@ export default async function EditQuotationPage({
     type: detail.type as QuotationCreateInput["type"],
     poNumber: detail.poNumber ?? "",
     customerName: detail.customer.name,
+    contactNumber: detail.customer.contactNumber ?? "",
     validUntil: detail.validUntil ?? "",
     taxType: detail.totals.taxType as QuotationCreateInput["taxType"],
     paymentTermLabel: detail.totals.paymentTermLabel ?? "",

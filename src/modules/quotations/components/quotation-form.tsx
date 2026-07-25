@@ -30,6 +30,7 @@ import {
 } from "../schemas/quotation";
 import { computeTotals } from "../services/totals";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
+import { ContactField } from "@/components/validated-fields";
 import {
   mergeGlobalAddons,
   useGlobalAddons,
@@ -81,6 +82,7 @@ export function QuotationForm({
         type: "SALES",
         poNumber: "",
         customerName: "",
+        contactNumber: "",
         validUntil: "",
         taxType: "NON_VAT",
         paymentTermLabel: "50% Downpayment",
@@ -235,6 +237,15 @@ export function QuotationForm({
                   id="customer-name"
                   value={field.value}
                   onChange={field.onChange}
+                  // Returning customer auto-fills their contact number.
+                  onPick={(c) => {
+                    field.onChange(c.name);
+                    if (c.contactNumber) {
+                      form.setValue("contactNumber", c.contactNumber, {
+                        shouldValidate: true,
+                      });
+                    }
+                  }}
                   invalid={!!errors.customerName}
                 />
               )}
@@ -242,6 +253,29 @@ export function QuotationForm({
             {errors.customerName && (
               <p className="text-sm text-destructive">
                 {errors.customerName.message}
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="contact-number">
+              Contact number <span className="text-destructive">*</span>
+            </Label>
+            <Controller
+              control={form.control}
+              name="contactNumber"
+              render={({ field }) => (
+                <ContactField
+                  id="contact-number"
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  aria-invalid={!!errors.contactNumber}
+                />
+              )}
+            />
+            {errors.contactNumber && (
+              <p className="text-sm text-destructive">
+                {errors.contactNumber.message}
               </p>
             )}
           </div>
