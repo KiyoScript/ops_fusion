@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalculatorIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,31 +103,53 @@ export function TarpCalculator({
   const unitPrice = round2(lineTotal / safeQty);
   const ready = sqftPerPc > 0 && r > 0;
 
+  const specs: TarpSpecs = {
+    calculator: "tarpaulin",
+    width: w,
+    height: h,
+    unit,
+    sqftPerPc,
+    ratePerSqft: r,
+    eyelet,
+    rush,
+    rushFee: rush ? rushFee : 0,
+    design,
+    designFee: design ? designFee : 0,
+  };
+  const parts = [
+    `Tarpaulin ${w} × ${h} ${unit} (${sqftPerPc.toFixed(2)} sqft/pc)`,
+    eyelet === "With Eyelets" ? "With eyelets" : "No eyelets",
+  ];
+  if (rush) parts.push("Rush");
+  if (design) parts.push("With design");
+  const result = {
+    description: parts.join(" · "),
+    unitPrice: unitPrice.toFixed(2),
+    specs,
+  };
+
+  // Auto-apply: keep the line item in sync as the calculator is filled, so the
+  // composed description + price + specs are written WITHOUT a manual click
+  // (this was the trap — an added item stayed a bare "Tarpaulin"). Skip the
+  // first run on mount so opening the editor never clobbers an existing line
+  // (e.g. a wizard-created item with its own description).
+  const onApplyRef = useRef(onApply);
+  useEffect(() => {
+    onApplyRef.current = onApply;
+  });
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (ready) onApplyRef.current(result);
+    // `result` is derived from these values; re-run only when they change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [w, h, r, unit, eyelet, rush, design, safeQty, ready]);
+
   const apply = () => {
-    const specs: TarpSpecs = {
-      calculator: "tarpaulin",
-      width: w,
-      height: h,
-      unit,
-      sqftPerPc,
-      ratePerSqft: r,
-      eyelet,
-      rush,
-      rushFee: rush ? rushFee : 0,
-      design,
-      designFee: design ? designFee : 0,
-    };
-    const parts = [
-      `Tarpaulin ${w} × ${h} ${unit} (${sqftPerPc.toFixed(2)} sqft/pc)`,
-      eyelet === "With Eyelets" ? "With eyelets" : "No eyelets",
-    ];
-    if (rush) parts.push("Rush");
-    if (design) parts.push("With design");
-    onApply({
-      description: parts.join(" · "),
-      unitPrice: unitPrice.toFixed(2),
-      specs,
-    });
+    if (ready) onApply(result);
   };
 
   return (
