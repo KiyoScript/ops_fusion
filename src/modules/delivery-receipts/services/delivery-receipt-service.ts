@@ -22,6 +22,7 @@ import type {
   IssueDrInput,
 } from "../schemas/delivery-receipt";
 
+const BRANCH_CODE = "ORM"; // Ormoc branch — embedded in the DR number
 const money = (n: number): string => n.toFixed(2);
 const toIso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
@@ -322,10 +323,13 @@ export class DeliveryReceiptService {
   private async generateDrNumber(
     tx: Parameters<IDeliveryReceiptRepository["nextCounter"]>[1]
   ): Promise<string> {
-    const prefix = `DR-${format(new Date(), "yyyy")}`;
+    // Shared document-number convention (PREFIX-BRANCH-YYMM-#####), matching
+    // JO (JO-ORM-…) and quotations (QT/PO/NJ-ORM-…). Sequence resets monthly.
+    // (Interim until the BIR booklet series takes over — see the TODO above.)
+    const prefix = `DR-${BRANCH_CODE}-${format(new Date(), "yyMM")}`;
     for (let i = 0; i < 500; i++) {
       const seq = await this.drs.nextCounter(`dr:${prefix}`, tx);
-      const candidate = `${prefix}-${String(seq).padStart(4, "0")}`;
+      const candidate = `${prefix}-${String(seq).padStart(5, "0")}`;
       if (!(await this.drs.drNumberExists(candidate, tx))) return candidate;
     }
     throw new ValidationError("Could not allocate a DR number.");

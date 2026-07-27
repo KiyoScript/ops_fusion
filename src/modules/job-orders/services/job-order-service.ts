@@ -44,6 +44,7 @@ import {
   isWaitingPickupStatus,
 } from "./production-status";
 import { composeJobDescription } from "./job-description";
+import { getProductionWorkflowService } from "./production-workflow-service";
 
 const DAY_MS = 86_400_000;
 
@@ -450,6 +451,9 @@ export class JobOrderService {
         },
         tx
       );
+      // Direct-entry JOs have no per-product template, so seed the GLOBAL
+      // production workflow onto the new items (ruling 2026-07-24).
+      await getProductionWorkflowService().applyGlobalToJobOrder(created.id, tx);
       await this.jobOrders.addJoStatusHistory(
         {
           jobOrderId: created.id,

@@ -1,6 +1,7 @@
 import { NotFoundError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
+import type { DbTx } from "@/modules/shared/repositories/types";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type { IProductionWorkflowRepository } from "../repositories/production-workflow-repository";
@@ -21,6 +22,13 @@ export class ProductionWorkflowService {
 
   async list(_actor: Actor, includeInactive = false): Promise<GlobalStepDto[]> {
     return this.repo.list(includeInactive);
+  }
+
+  /** Backfill the global workflow onto a new JO's items that have no steps yet
+   *  (per-product templates take precedence). Internal — called right after a
+   *  JO is created (quote conversion or direct entry). Returns items seeded. */
+  async applyGlobalToJobOrder(jobOrderId: string, tx?: DbTx): Promise<number> {
+    return this.repo.seedForJobOrder(jobOrderId, tx);
   }
 
   async create(actor: Actor, input: GlobalStepCreateInput): Promise<GlobalStepDto> {

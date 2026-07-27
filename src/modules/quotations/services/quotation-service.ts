@@ -14,6 +14,7 @@ import type { DbTx } from "@/modules/shared/repositories/types";
 import type { Prisma } from "@/generated/prisma/client";
 import type { IJobOrderRepository } from "@/modules/job-orders/repositories/job-order-repository";
 import { allocateJoNumber } from "@/modules/job-orders/services/job-order-service";
+import { getProductionWorkflowService } from "@/modules/job-orders/services/production-workflow-service";
 import { sendMail, staffNotifyAddress } from "@/lib/mailer";
 import type { IInquiryRepository } from "../repositories/inquiry-repository";
 import type { IProductionStepRepository } from "../repositories/production-step-repository";
@@ -471,6 +472,9 @@ export class QuotationService {
       // Copy each item's product production-step template onto the JO item,
       // so the job starts with its per-product workflow checklist.
       await this.productionSteps.seedStepsForJobOrder(created.id, tx);
+      // Fallback: items whose product has NO template get the GLOBAL workflow
+      // (ruling 2026-07-24 — so no service needs its steps retyped).
+      await getProductionWorkflowService().applyGlobalToJobOrder(created.id, tx);
       await this.quotations.setStatus(
         id,
         { status: QuotationStatus.CONVERTED },
