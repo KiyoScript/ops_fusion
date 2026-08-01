@@ -20,51 +20,51 @@ enum ConfirmationType {
 }
 
 model JobOrder {
-  id               String            @id @default(cuid())
-  joNumber         String            @unique
-  customerId       String
-  customer         Customer          @relation(fields: [customerId], references: [id])
-  quotationId      String?           @unique
-  quotation        Quotation?        @relation(fields: [quotationId], references: [id])
-  status           JobOrderStatus    @default(DRAFT)
-  deadline         DateTime? // earliest item deadline (denormalized for board sorting)
-  planDateStart    DateTime? // legacy JOWebApp plan window (cols C/D)
-  planDateEnd      DateTime?
-  isLFP            Boolean           @default(false) // LFP JOs print 3 copies (spec 1.2 step 3)
+  id                   String            @id @default(cuid())
+  joNumber             String            @unique
+  customerId           String
+  customer             Customer          @relation(fields: [customerId], references: [id])
+  quotationId          String?           @unique
+  quotation            Quotation?        @relation(fields: [quotationId], references: [id])
+  status               JobOrderStatus    @default(DRAFT)
+  deadline             DateTime? // earliest item deadline (denormalized for board sorting)
+  planDateStart        DateTime? // legacy JOWebApp plan window (cols C/D)
+  planDateEnd          DateTime?
+  isLFP                Boolean           @default(false) // LFP JOs print 3 copies (spec 1.2 step 3)
   // JO/PO typing (fusion-only): PO and non-JO records carry a manually typed
   // number; when both are false the number is auto-generated
   // (JO-ORM-YYMM-##### format — the shared PREFIX-BRANCH-YYMM-#### convention).
-  isPO             Boolean           @default(false)
-  isNonJo          Boolean           @default(false)
+  isPO                 Boolean           @default(false)
+  isNonJo              Boolean           @default(false)
   // Customer approval gate (fusion-only): checking this REQUIRES at least one
   // attachment as proof (signed quote, photo, any file) — the signal that the
   // JO is final and production may start. The printable says "THIS IS FOR
   // APPROVAL" until this is set.
-  isApprovedByCustomer Boolean       @default(false)
+  isApprovedByCustomer Boolean           @default(false)
   customerApprovedAt   DateTime?
-  confirmationType ConfirmationType? // how customer confirmed (approval precondition)
-  subtotal         Decimal           @default(0) @db.Decimal(12, 2)
-  total            Decimal           @default(0) @db.Decimal(12, 2)
-  notes            String?
-  importedAt       DateTime? // set when the record came from the legacy sheet import
-  approvedById     String?
-  approvedBy       User?             @relation("JobOrderApprovedBy", fields: [approvedById], references: [id])
-  approvedAt       DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  deletedAt        DateTime?
-  createdById      String
-  createdBy        User              @relation("JobOrderCreatedBy", fields: [createdById], references: [id])
+  confirmationType     ConfirmationType? // how customer confirmed (approval precondition)
+  subtotal             Decimal           @default(0) @db.Decimal(12, 2)
+  total                Decimal           @default(0) @db.Decimal(12, 2)
+  notes                String?
+  importedAt           DateTime? // set when the record came from the legacy sheet import
+  approvedById         String?
+  approvedBy           User?             @relation("JobOrderApprovedBy", fields: [approvedById], references: [id])
+  approvedAt           DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  deletedAt            DateTime?
+  createdById          String
+  createdBy            User              @relation("JobOrderCreatedBy", fields: [createdById], references: [id])
 
-  items            JobOrderItem[]
-  statusHistory    JobOrderStatusHistory[]
-  attachments      JobOrderAttachment[]
+  items              JobOrderItem[]
+  statusHistory      JobOrderStatusHistory[]
+  attachments        JobOrderAttachment[]
   // Many: a JO takes a JO_SLIP downpayment receipt first, an SI later.
   sales              Sale[]
   collectionReceipts CollectionReceipt[]
-  deliveryReceipts DeliveryReceipt[]
-  apApplications   AdvancePaymentApplication[]
+  deliveryReceipts   DeliveryReceipt[]
+  apApplications     AdvancePaymentApplication[]
 
   @@index([customerId])
   @@index([status])
@@ -130,18 +130,18 @@ model JobOrderItem {
 // template taken at item creation, tracked independently as the item moves
 // through production. Editing a product's template never touches these rows.
 model JobOrderItemStep {
-  id            String       @id @default(cuid())
+  id             String       @id @default(cuid())
   jobOrderItemId String
-  jobOrderItem  JobOrderItem @relation(fields: [jobOrderItemId], references: [id], onDelete: Cascade)
-  name          String
-  sortOrder     Int          @default(0)
-  doneAt        DateTime? // set when the step is completed
-  doneById      String?
-  doneBy        User?        @relation("StepCompletedBy", fields: [doneById], references: [id])
+  jobOrderItem   JobOrderItem @relation(fields: [jobOrderItemId], references: [id], onDelete: Cascade)
+  name           String
+  sortOrder      Int          @default(0)
+  doneAt         DateTime? // set when the step is completed
+  doneById       String?
+  doneBy         User?        @relation("StepCompletedBy", fields: [doneById], references: [id])
   // Per-step status history (ruling 2026-07-24: status history moved from the
   // item to each step) — timestamped remark lines, same legacy format as
   // JobOrderItem.statusHistory ("4/23 2:30 PM Printing done").
-  statusHistory String?
+  statusHistory  String?
 
   @@index([jobOrderItemId])
 }

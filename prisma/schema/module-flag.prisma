@@ -10,5 +10,5 @@
 model ModuleFlag {
   key       String   @id // matches src/lib/modules.ts ModuleKey
   enabled   Boolean
-  updatedAt DateTime @updatedAt @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }

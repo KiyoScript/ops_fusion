@@ -14,6 +14,9 @@
     "db:seed": "prisma db seed",
     "db:seed-demo": "tsx prisma/seed-demo.ts",
     "db:unseed-demo": "tsx prisma/unseed-demo.ts",
+    "db:seed-inventory": "tsx prisma/seed-inventory-demo.ts",
+    "db:unseed-inventory": "tsx prisma/unseed-inventory-demo.ts",
+    "db:import-inventory": "tsx scripts/import-inventory.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

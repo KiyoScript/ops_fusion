@@ -8,25 +8,25 @@ enum DeliveryReceiptStatus {
 }
 
 model DeliveryReceipt {
-  id          String                @id @default(cuid())
-  drNumber    String                @unique
-  bookletId   String?
-  booklet     Booklet?              @relation(fields: [bookletId], references: [id])
-  jobOrderId  String
-  jobOrder    JobOrder              @relation(fields: [jobOrderId], references: [id])
-  customerId  String
-  customer    Customer              @relation(fields: [customerId], references: [id])
-  status      DeliveryReceiptStatus @default(ISSUED)
+  id             String                @id @default(cuid())
+  drNumber       String                @unique
+  bookletId      String?
+  booklet        Booklet?              @relation(fields: [bookletId], references: [id])
+  jobOrderId     String
+  jobOrder       JobOrder              @relation(fields: [jobOrderId], references: [id])
+  customerId     String
+  customer       Customer              @relation(fields: [customerId], references: [id])
+  status         DeliveryReceiptStatus @default(ISSUED)
   // Snapshot at issuance: true when this DR delivered the JO's entire
   // remaining quantity (spec 3.2 Full vs Partial delivery checkbox).
-  isFullDelivery Boolean            @default(false)
-  issuedAt    DateTime              @default(now())
-  notes       String?
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-  deletedAt   DateTime?
-  createdById String
-  createdBy   User                  @relation("DrCreatedBy", fields: [createdById], references: [id])
+  isFullDelivery Boolean               @default(false)
+  issuedAt       DateTime              @default(now())
+  notes          String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  deletedAt      DateTime?
+  createdById    String
+  createdBy      User                  @relation("DrCreatedBy", fields: [createdById], references: [id])
 
   lines          DeliveryReceiptLine[]
   apApplications AdvancePaymentApplication[]

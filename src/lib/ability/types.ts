@@ -36,6 +36,12 @@ export type AppSubject =
   | "Sale" // receipts: JO receipt, Sales Invoice, Collection Receipt
   | "Booklet" // the BIR booklets those receipts draw their numbers from
   // ——— TODO(SALES-AUDIT-PHASE-NEXT): "Reconciliation" (day locking, deposits)
+  // ——— Inventory & Materials module (MACWebApp) ———
+  | "Material" // item master
+  | "Supplier" // supplier master data
+  | "StockLedger" // the append-only stock movement log (read-only view)
+  | "StockAdjustment" // manual stock corrections (request → approve → post)
+  | "CycleCount" // physical counts → variance → post
   // ——— System administration ———
   | "ModuleFlag" // enable/disable feature modules — admin only (manage-all)
   | never;

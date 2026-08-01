@@ -1,0 +1,224 @@
+// ============================================================
+// INVENTORY & MATERIALS — Core (MACWebApp fusion, Slice 1)
+//
+// Item master (Material) + append-only movement log (StockLedgerEntry).
+// Stock-on-hand is DERIVED: Σ(qtyIn − qtyOut) per material, in PIECES.
+// Nothing caches the balance — the ledger is the single source of truth.
+//
+// Unit rule: stock / releases / adjustments are in PIECES; PR/PO/receiving
+// speak in BUNDLES. Convert ONLY at the stock boundary via Material.packSize
+// (pcs per bundle; 0 ⇒ by-piece, i.e. ×1). Later slices (Purchasing receiving,
+// Material Requests) post RECEIPT / RELEASE rows — reserved seams below.
+// ============================================================
+
+// ---------- Supplier (item-master master data) ----------
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Supplier {
+  id            String         @id @default(cuid())
+  code          String?        @unique // optional short code
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  notes         String?
+  status        SupplierStatus @default(ACTIVE)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+  createdById   String
+  createdBy     User           @relation("SupplierCreatedBy", fields: [createdById], references: [id])
+
+  materials Material[]
+
+  @@index([name])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdById])
+}
+
+// ---------- Material (item master) ----------
+
+enum MaterialStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Material {
+  id           String         @id @default(cuid())
+  // Item code carries a PREFIX (category grouping) + running number, e.g.
+  // "PAP-001", "INK-012". Free-form as entered, unique-validated.
+  code         String         @unique
+  name         String
+  category     String? // what the prefix means (Paper, Ink, …)
+  location     String? // storeroom / shelf
+  area         String? // sub-location / bin
+  unit         String         @default("pc") // stocking UoM label
+  // pcs per bundle; 0 ⇒ by-piece (×1). Bridges bundle-priced buying to
+  // piece-tracked stock — the ONLY place the two units meet.
+  packSize     Int            @default(0)
+  unitCost     Decimal        @db.Decimal(12, 4) // cost per PIECE
+  unitPrice    Decimal?       @db.Decimal(12, 2) // price per BUNDLE (optional)
+  reorderLevel Int            @default(0) // in pcs; 0 ⇒ no alert
+  status       MaterialStatus @default(ACTIVE)
+  // Legacy AllItems flag: material can yield reusable offcuts (LFP roll stock).
+  // Dormant here; the LFP module will consume it.
+  possibleOffcut Boolean      @default(false)
+  notes        String?
+  supplierId   String?
+  supplier     Supplier?      @relation(fields: [supplierId], references: [id])
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+  createdById  String
+  createdBy    User           @relation("MaterialCreatedBy", fields: [createdById], references: [id])
+
+  ledgerEntries   StockLedgerEntry[]
+  adjustmentLines StockAdjustmentLine[]
+  cycleCountLines CycleCountLine[]
+
+  @@index([code])
+  @@index([category])
+  @@index([status])
+  @@index([supplierId])
+  @@index([deletedAt])
+  @@index([createdById])
+}
+
+// ---------- Stock ledger (append-only movement log) ----------
+
+enum LedgerType {
+  OPENING // initial stock load for a material
+  RECEIPT // from receiving / PO (bundles → pcs) — reserved seam
+  RELEASE // from a material request (pcs) — reserved seam
+  ADJUSTMENT // from an APPROVED StockAdjustment
+  COUNT // from an APPROVED CycleCount variance
+}
+
+// Immutable — corrections are new rows, never edits/deletes. No soft delete.
+model StockLedgerEntry {
+  id          String     @id @default(cuid())
+  materialId  String
+  material    Material   @relation(fields: [materialId], references: [id])
+  type        LedgerType
+  qtyIn       Int        @default(0) // pcs added
+  qtyOut      Int        @default(0) // pcs removed
+  unitCost    Decimal    @db.Decimal(12, 4) // per pc at time of movement
+  totalValue  Decimal    @db.Decimal(14, 2) // signed value of this movement
+  refType     String? // source doc kind, e.g. "StockAdjustment"
+  refId       String? // source doc id
+  note        String?
+  occurredAt  DateTime   @default(now())
+  createdAt   DateTime   @default(now())
+  createdById String
+  createdBy   User       @relation("LedgerCreatedBy", fields: [createdById], references: [id])
+
+  @@index([materialId])
+  @@index([type])
+  @@index([refType, refId])
+  @@index([occurredAt])
+  @@index([createdById])
+}
+
+// ---------- Stock adjustment (request → approve → post) ----------
+
+enum AdjStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Manual stock corrections. ALWAYS goes through an explicit approve step —
+// admins do NOT auto-approve their own requests. Only APPROVED adjustments
+// post ADJUSTMENT rows to the ledger.
+model StockAdjustment {
+  id            String    @id @default(cuid())
+  number        String    @unique // ADJ-ORM-YYMM-#####
+  reason        String // why the correction is needed
+  status        AdjStatus @default(PENDING)
+  note          String?
+  requestedById String
+  requestedBy   User      @relation("AdjRequestedBy", fields: [requestedById], references: [id])
+  requestedAt   DateTime  @default(now())
+  decidedById   String? // approver / rejecter
+  decidedBy     User?     @relation("AdjDecidedBy", fields: [decidedById], references: [id])
+  decidedAt     DateTime?
+  decisionNote  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  lines StockAdjustmentLine[]
+
+  @@index([status])
+  @@index([number])
+  @@index([requestedById])
+  @@index([deletedAt])
+}
+
+model StockAdjustmentLine {
+  id           String          @id @default(cuid())
+  adjustmentId String
+  adjustment   StockAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  materialId   String
+  material     Material        @relation(fields: [materialId], references: [id])
+  qtyDelta     Int // signed pcs: +add, −remove
+  unitCost     Decimal         @db.Decimal(12, 4) // per pc, for valuing the movement
+  reason       String? // per-line note (header reason is the default)
+
+  @@index([adjustmentId])
+  @@index([materialId])
+}
+
+// ---------- Cycle count (physical count → variance → post) ----------
+
+enum CountStatus {
+  DRAFT // being counted
+  COMPLETED // counted; variances computed, awaiting approval
+  APPROVED // variances posted to ledger as COUNT rows
+  CANCELLED
+}
+
+model CycleCount {
+  id           String      @id @default(cuid())
+  number       String      @unique // CC-ORM-YYMM-#####
+  status       CountStatus @default(DRAFT)
+  location     String? // optional scope of the count
+  note         String?
+  countedById  String
+  countedBy    User        @relation("CycleCountedBy", fields: [countedById], references: [id])
+  countedAt    DateTime    @default(now())
+  approvedById String?
+  approvedBy   User?       @relation("CycleApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+
+  lines CycleCountLine[]
+
+  @@index([status])
+  @@index([number])
+  @@index([countedById])
+  @@index([deletedAt])
+}
+
+model CycleCountLine {
+  id           String     @id @default(cuid())
+  cycleCountId String
+  cycleCount   CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+  materialId   String
+  material     Material   @relation(fields: [materialId], references: [id])
+  systemQty    Int // derived stock-on-hand snapshot at count time (pcs)
+  countedQty   Int // physical count (pcs)
+  unitCost     Decimal    @db.Decimal(12, 4) // per pc, for valuing the variance
+  note         String?
+
+  @@index([cycleCountId])
+  @@index([materialId])
+}

@@ -14,6 +14,7 @@ export const MODULE_KEYS = [
   "sales-audit",
   "job-orders",
   "delivery-receipts",
+  "inventory",
   "customers",
   "products",
 ] as const;
@@ -76,6 +77,15 @@ export const MODULES: ModuleDef[] = [
     group: "Operations",
     defaultEnabled: true,
     routes: ["/delivery-receipts"],
+  },
+  {
+    key: "inventory",
+    label: "Inventory & Materials",
+    description:
+      "Item master, ledger-derived stock, adjustments, cycle counts, reorder alerts, and its supplier maintenance.",
+    group: "Operations",
+    defaultEnabled: true,
+    routes: ["/inventory", "/maintenance/inventory"],
   },
   {
     key: "customers",

@@ -33,35 +33,35 @@ enum QuotationType {
 }
 
 model Quotation {
-  id             String          @id @default(cuid())
-  quoteNumber    String          @unique
-  type           QuotationType   @default(SALES)
+  id               String          @id @default(cuid())
+  quoteNumber      String          @unique
+  type             QuotationType   @default(SALES)
   // Customer's PO reference (only for type PO).
-  poNumber       String?
-  customerId     String
-  customer       Customer        @relation(fields: [customerId], references: [id])
-  status         QuotationStatus @default(DRAFT)
-  validUntil     DateTime?
-  subtotal       Decimal         @default(0) @db.Decimal(12, 2)
-  discount       Decimal         @default(0) @db.Decimal(12, 2)
-  taxType        TaxType         @default(NON_VAT)
-  taxAmount      Decimal         @default(0) @db.Decimal(12, 2)
-  total          Decimal         @default(0) @db.Decimal(12, 2)
+  poNumber         String?
+  customerId       String
+  customer         Customer        @relation(fields: [customerId], references: [id])
+  status           QuotationStatus @default(DRAFT)
+  validUntil       DateTime?
+  subtotal         Decimal         @default(0) @db.Decimal(12, 2)
+  discount         Decimal         @default(0) @db.Decimal(12, 2)
+  taxType          TaxType         @default(NON_VAT)
+  taxAmount        Decimal         @default(0) @db.Decimal(12, 2)
+  total            Decimal         @default(0) @db.Decimal(12, 2)
   // Legacy payment terms (Payment Terms tab of the price DB): downpayment
   // fraction 0 / 0.25 / 0.5 / 1 — drives downpayment/balance on the printable.
   paymentTermLabel String?
-  downpaymentRate  Decimal       @default(0.5) @db.Decimal(3, 2)
-  notes          String?
-  sentAt         DateTime?
-  approvedById   String?
-  approvedBy     User?           @relation("QuotationApprovedBy", fields: [approvedById], references: [id])
-  approvedAt     DateTime?
-  rejectedReason String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  deletedAt      DateTime?
-  createdById    String
-  createdBy      User            @relation("QuotationCreatedBy", fields: [createdById], references: [id])
+  downpaymentRate  Decimal         @default(0.5) @db.Decimal(3, 2)
+  notes            String?
+  sentAt           DateTime?
+  approvedById     String?
+  approvedBy       User?           @relation("QuotationApprovedBy", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  rejectedReason   String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  deletedAt        DateTime?
+  createdById      String
+  createdBy        User            @relation("QuotationCreatedBy", fields: [createdById], references: [id])
 
   items    QuotationItem[]
   jobOrder JobOrder? // 1—0..1 conversion link

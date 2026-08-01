@@ -4,6 +4,7 @@ import { maintenancePolicy } from "./maintenance";
 import { deliveryReceiptPolicy } from "./delivery-receipt";
 import { quotationPolicy } from "./quotation";
 import { salesAuditPolicy } from "./sales-audit";
+import { inventoryPolicy } from "./inventory";
 
 // Policy registry — the ONLY line to touch when a new module lands:
 // add `policies/<module>.ts` and list it here. Rules are additive, so
@@ -14,4 +15,5 @@ export const policies: Policy[] = [
   deliveryReceiptPolicy,
   quotationPolicy,
   salesAuditPolicy,
+  inventoryPolicy,
 ];

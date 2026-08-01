@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Boxes,
   Building2,
   ChevronRight,
   ChevronsUpDown,
@@ -111,6 +112,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
         ],
       },
       { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck, module: "delivery-receipts" },
+      { title: "Inventory", href: "/inventory", icon: Boxes, module: "inventory" },
     ],
   },
   {
@@ -130,6 +132,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { title: "JO Maintenance", href: "/maintenance/job-orders", icon: Wrench, requires: ["maintain", "Maintenance"], module: "job-orders" },
       { title: "Quotation Maintenance", href: "/maintenance/quotations", icon: Wrench, requires: ["maintain", "Maintenance"], module: "quotations" },
       { title: "Sales Audit Maintenance", href: "/maintenance/sales-audit", icon: Wrench, requires: ["maintain", "Maintenance"], module: "sales-audit" },
+      { title: "Inventory Maintenance", href: "/maintenance/inventory", icon: Wrench, requires: ["maintain", "Supplier"], module: "inventory" },
     ],
   },
   {
