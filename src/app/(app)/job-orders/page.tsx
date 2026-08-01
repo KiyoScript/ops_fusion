@@ -12,6 +12,8 @@ export default async function JobOrdersPage() {
   const canImport = ability.can("import", "JobOrder");
   // Cashiers issue receipts against a JO (Sales & Audit).
   const canReceivePayment = ability.can("create", "Sale");
+  // Cancelling one takes a supervisor — docs/sales.txt §5.1 step 6.
+  const canVoidReceipt = ability.can("void", "Sale");
 
   return (
     <>
@@ -23,6 +25,7 @@ export default async function JobOrdersPage() {
         canWrite={canWrite}
         canImport={canImport}
         canReceivePayment={canReceivePayment}
+        canVoidReceipt={canVoidReceipt}
       />
     </>
   );

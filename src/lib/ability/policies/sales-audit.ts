@@ -24,9 +24,17 @@ export const salesAuditPolicy: Policy = ({ role, can }) => {
     can("audit", "Sale");
   }
 
+  // Cancelling a receipt takes a supervisor. docs/sales.txt §5.1 step 6 wants
+  // the cancellation initialled by the issuer AND by "the supervisor or
+  // authorized approver" — so the cashier who issued it cannot also void it.
+  if (role === Role.MANAGER) {
+    can("void", "Sale");
+  }
+
   // Admin activates a booklet into service (legacy: only admin approves).
   if (role === Role.ADMIN) {
     can("approve", "Booklet");
     can("audit", "Sale");
+    can("void", "Sale");
   }
 };

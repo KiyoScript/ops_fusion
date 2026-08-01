@@ -2,9 +2,19 @@
 // SALES / AUDIT — BOOKLET
 // ============================================================
 
+// The three SI_* values are the Sales Invoice's "three separate labels of use"
+// (docs/sales.txt §3.1) — one document, printed as ONE continuous IN series.
+// A booklet is pre-printed for a single label, but its numbers carry on from
+// whichever labelled booklet came before it, so the labels never restart at 1
+// and no two of them may claim the same numbers. Only the wording on the leaf
+// differs. The shared "prefix" column is what identifies the line — see
+// BOOKLET_PREFIX in schemas/booklet.ts and the Booklet_no_overlapping_ranges
+// constraint, which keys on it.
 enum BookletType {
   SI_VAT
   SI_NON_VAT
+  // Sales Invoice used for a sale on credit (utang) — docs/sales.txt §3.1.3.
+  SI_CHARGE
   JO_SLIP
   CR
   DR
@@ -25,8 +35,8 @@ enum BookletStatus {
 
 // One numbering pattern shared by SI / JO Slip / CR / DR booklets, with
 // approval-on-opening (spec 3.1, 4). The range is sized per booklet — the
-// service suggests the next block after the last range of that type, but the
-// admin sets it freely (a 25-, 50- or 100-leaf booklet all work).
+// service suggests the next block after the last range on that number line,
+// but the admin sets it freely (a 25-, 50- or 100-leaf booklet all work).
 //
 // INVARIANT: at most one ACTIVE booklet per type, enforced by a partial unique
 // index in the migration (Prisma can't express one). "The next number" has to

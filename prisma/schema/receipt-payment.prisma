@@ -1,0 +1,38 @@
+// ============================================================
+// SALES / AUDIT — RECEIPT PAYMENT (split tender)
+// ============================================================
+
+// One tender line on a receipt: a single method, and the amount APPLIED to the
+// document from it. A receipt settled entirely in cash has exactly one row; a
+// split tender (₱1,000 cash + ₱1,200 GCash on one invoice) has one row per
+// method. The lines are the full truth; the header's paymentMethod /
+// methodDetail keep the DOMINANT (largest) tender so the existing day log,
+// BIR reports and printables read unchanged.
+//
+// Sum of amounts across a document's lines always equals the document amount —
+// enforced in the service layer (Postgres has no cross-row check constraint).
+// Cash OVER-tender is not a line: it lives on the header as cashTendered, and
+// change = cashTendered − the cash line's amount.
+//
+// Attaches to either ledger, exactly one of the two — the same nullable-pair
+// shape AuditEntry uses (audit.prisma).
+model ReceiptPayment {
+  id                  String             @id @default(cuid())
+  saleId              String?
+  sale                Sale?              @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  collectionReceiptId String?
+  collectionReceipt   CollectionReceipt? @relation(fields: [collectionReceiptId], references: [id], onDelete: Cascade)
+
+  method PaymentMethod
+  amount Decimal       @db.Decimal(12, 2)
+  /// Cheque no. / GCash reference for THIS line — a split can carry several.
+  reference String?
+  /// Order as entered at the counter, so the receipt reprints identically.
+  seq Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([saleId])
+  @@index([collectionReceiptId])
+  @@index([method])
+}

@@ -59,10 +59,12 @@ export function JobOrdersView({
   canWrite,
   canImport,
   canReceivePayment = false,
+  canVoidReceipt = false,
 }: {
   canWrite: boolean;
   canImport: boolean;
   canReceivePayment?: boolean;
+  canVoidReceipt?: boolean;
 }) {
   // Filters live in the URL so views are shareable and back-button friendly.
   const [q, setQ] = useQueryState("q", { defaultValue: "" });
@@ -312,6 +314,7 @@ export function JobOrdersView({
       />
       <ReceivePaymentDialog
         jobOrderId={payingJoId}
+        canVoid={canVoidReceipt}
         onClose={() => setPayingJoId(null)}
       />
     </div>

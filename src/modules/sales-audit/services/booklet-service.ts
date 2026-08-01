@@ -41,15 +41,17 @@ export class BookletService {
 
   /**
    * What the "register a booklet" form pre-fills: the block straight after the
-   * last range of that type. The admin can overwrite both ends — booklet size
-   * is not fixed (a 25-, 50- or 100-leaf booklet all work).
+   * last range on that NUMBER LINE — not merely the last one wearing the same
+   * label, since the three Sales Invoice labels are printed as one continuous
+   * IN series. The admin can overwrite both ends — booklet size is not fixed
+   * (a 25-, 50- or 100-leaf booklet all work).
    */
   async suggestRange(
     actor: Actor,
     type: BookletType
   ): Promise<BookletSuggestionDto> {
     assertCan(actor, "read", "Booklet");
-    const maxEnd = await this.booklets.maxSeriesEnd(type);
+    const maxEnd = await this.booklets.maxSeriesEnd(BOOKLET_PREFIX[type]);
     return {
       type,
       prefix: BOOKLET_PREFIX[type],
@@ -64,6 +66,23 @@ export class BookletService {
 
     if (input.seriesEnd < input.seriesStart) {
       throw new ValidationError("Series end must not be lower than series start.");
+    }
+
+    // No two booklets on one number line may claim the same numbers, or the
+    // ledger ends up with two IN-0578s. The clash is not always with a booklet
+    // of the same label: VAT, Non-VAT and Charge all draw from the IN series.
+    const [clash] = await this.booklets.findOverlapping(
+      BOOKLET_PREFIX[input.type],
+      input.seriesStart,
+      input.seriesEnd
+    );
+    if (clash) {
+      throw new ConflictError(
+        `${formatDocumentNo(clash.prefix, clash.seriesStart)}–${formatDocumentNo(
+          clash.prefix,
+          clash.seriesEnd
+        )} is already registered to a ${BOOKLET_TYPE_LABEL[clash.type]} booklet.`
+      );
     }
 
     const created = await this.booklets.create({

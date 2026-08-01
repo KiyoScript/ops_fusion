@@ -1,0 +1,129 @@
+# Receipt & Invoice Issuance Guide
+
+## 1. Purpose
+
+This document defines the four (4) receipt types used by the company, when each one is issued, and the rules for series numbering, booklet control, and handling of cancelled, voided, or replaced transactions.
+
+Its goal is to make sure that:
+
+- Every transaction is covered by the correct document.
+- Serial numbers can be accounted for from first to last.
+- Cancelled and voided receipts are traceable during audit or BIR inspection.
+
+---
+
+## 2. Receipt Types at a Glance
+
+| # | Document | Issued when | Issued to | Linked document |
+|---|---|---|---|---|
+| 1.1 | **Sales Invoice – VAT** | Sale is completed | VAT-registered customer | Delivery Receipt |
+| 1.2 | **Sales Invoice – NON-VAT** | Sale is completed | Non-VAT customer | Delivery Receipt |
+| 1.3 | **Sales Invoice – Charge Invoice** | Sale is on credit (*utang*) | Customer with credit terms | Collection Receipt |
+| 2 | **Collection Receipt** | Customer pays their outstanding balance | Customer settling a Charge Invoice | Charge Invoice/Delivery Receipt |
+| 3 | **Job Order Receipt** | Customer does not request a Sales Invoice | Mostly walk-in customers | Delivery Receipt |
+| 4 | **Delivery Receipt** | Goods are delivered to the customer | Customer receiving delivery | Sales Invoice / Charge Invoice |
+
+---
+
+## 3. Detailed Usage
+
+### 3.1 Sales Invoice
+
+The Sales Invoice is the company's primary sales document. It has **three (3) separate labels of use**, depending on the customer and the terms of the sale.
+
+#### 3.1.1 Sales Invoice – VAT
+
+Issued to customers who are **VAT-registered**.
+
+#### 3.1.2 Sales Invoice – NON-VAT
+
+Issued to customers who are **NON-VAT**.
+
+> **How the customer's VAT status is determined**
+> At present, the customer is **asked personally at the time the receipt is issued**.
+> See Section 7.1 for a recommended improvement to this step.
+
+#### 3.1.3 Sales Invoice – Charge Invoice
+
+Issued when the sale is **on credit** (*utang*).
+
+- The amount is recorded as **Accounts Receivable**.
+- The Charge Invoice **serves as the billing document** to the customer.
+- It remains open until the customer pays, at which point a **Collection Receipt** is issued (see Section 3.2).
+
+---
+
+### 3.2 Collection Receipt
+
+Issued when a customer **pays an outstanding balance** in Accounts Receivable — that is, when they settle a previously issued **Sales Invoice – Charge Invoice**.
+
+**The Charge Invoice and the Collection Receipt are directly linked.** Every Collection Receipt should reference the Charge Invoice number(s) it is paying for.
+
+| Step | Action | Document |
+|---|---|---|
+| 1 | Sale on credit | Sales Invoice – Charge Invoice |
+| 2 | Amount recorded as Accounts Receivable | (books) |
+| 3 | Customer pays (full or partial) | Collection Receipt |
+| 4 | Accounts Receivable reduced / closed | (books) |
+
+> **Partial payments:** If the customer pays only part of the balance, issue a Collection Receipt for the amount actually received and note the remaining balance. The Charge Invoice stays open until fully paid.
+
+---
+
+### 3.3 Job Order Receipt
+
+Issued to customers **who do not ask for a Sales Invoice** — mostly **walk-in customers**.
+
+> ⚠️ **Compliance note — please confirm with your accountant.** A Job Order is a *supplementary* document, not a principal sales document. Under BIR rules, a VAT-registered seller must issue an Invoice for **every** sale regardless of amount, and a non-VAT seller must issue one when a single transaction exceeds the ₱500 threshold, when the buyer requests it, or when small sales are aggregated past that threshold. Relying on a Job Order alone for a taxable sale may leave a gap. See Section 6.
+
+Job Order may serve as an Acknowledgment Receipt - to be issued when a customer paid upfront, fully or partially.
+---
+
+### 3.4 Delivery Receipt
+
+Issued when the **item or product will be delivered** to the customer.
+
+- Accompanies the goods in transit.
+- Signed by the customer (or their authorized representative) as proof that the goods were received.
+- Should be cross-referenced to the corresponding Sales Invoice or Charge Invoice number.
+
+---
+
+## 4. Series Numbering & Booklet Control
+
+**All receipts are pre-numbered in series, 50 per booklet.**
+
+Rules:
+
+1. **Use in strict sequence.** Start each booklet at the lowest number and work upward. Do not skip forward to a later number.
+2. **One booklet at a time per receipt type.** Do not open a new booklet until the current one is fully consumed.
+3. **All 50 must be accounted for** — issued, cancelled, voided, or replaced. No number may simply go missing.
+4. **Keep the booklet intact.** All copies of cancelled, voided, and replaced receipts stay bound in the booklet (see Section 5).
+5. **Record the range.** Log the serial number range of each booklet when it is opened and when it is closed.
+
+## 5. Cancelled, Voided, and Replaced Transactions
+
+**Rule:** If a receipt transaction is cancelled, voided, and/or replaced, **the exact receipt used for the cancellation, void, and/or replacement must be attached in the booklet sequentially.**
+
+This means the physical receipt is not thrown away, removed, or filed separately. It stays in the booklet, in its original numeric position, so that the sequence remains unbroken.
+
+### 5.1 Procedure
+
+| Step | Action |
+|---|---|
+| 1 | Mark the face of the receipt clearly: **CANCELLED**, **VOID**, or **REPLACED**. |
+| 2 | Write the **reason** on the receipt. |
+| 3 | If it was replaced, write the **serial number of the replacement receipt** on the cancelled one — and write the cancelled number on the replacement, so the two point to each other. |
+| 4 | Keep **all copies** (original, duplicate, triplicate) together and attached in the booklet, in sequence. |
+| 5 | Record the entry in the Cancellation Log (below). |
+| 6 | Have the cancellation initialled by the issuer and by the supervisor or authorized approver. |
+
+
+| Our document | BIR classification | Note |
+|---|---|---|
+| Sales Invoice – VAT | Principal | Valid for buyer's input VAT claim |
+| Sales Invoice – NON-VAT | Principal | Buyer cannot claim input VAT (no VAT charged) |
+| Sales Invoice – Charge Invoice | Principal | Issued at point of sale, not at collection |
+| Collection Receipt | Supplementary | Proof of payment only |
+| Job Order Receipt | Supplementary | Not a substitute for an Invoice on a taxable sale |
+| Delivery Receipt | Supplementary | Proof of delivery only |

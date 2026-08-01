@@ -21,8 +21,13 @@ import {
   TableSkeletonRows,
 } from "@/components/data-states";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
+import { cn } from "@/lib/utils";
 import { AuditFlagType } from "@/generated/prisma/enums";
-import { RECEIPT_KIND, type ReceiptRowDto } from "../schemas/receipt";
+import {
+  RECEIPT_KIND,
+  VOID_TYPE_LABEL,
+  type ReceiptRowDto,
+} from "../schemas/receipt";
 import { useAuditReceipt, useDailyReceipts, useDailySummary } from "../hooks/use-sales-audit";
 
 const peso = (v: string) => {
@@ -54,7 +59,7 @@ export function DailySalesView({ canAudit }: { canAudit: boolean }) {
   return (
     <div className="grid gap-4">
       {/* ——— the day's totals: VAT and Non-VAT reported separately ——— */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <SummaryCard
           label="VAT sales"
           value={s ? peso(s.vat.gross) : "—"}
@@ -70,6 +75,19 @@ export function DailySalesView({ canAudit }: { canAudit: boolean }) {
           value={s ? peso(s.nonVat.gross) : "—"}
           count={s?.nonVat.count}
         />
+        {/* Credit sales are revenue the day they're invoiced — the money just
+            hasn't arrived. Counted in gross sales; the Collection Receipt that
+            settles them later is not. */}
+        <SummaryCard
+          label="Charge invoices"
+          value={s ? peso(s.charge.gross) : "—"}
+          detail={
+            s
+              ? `on credit · VAT ${peso(s.charge.vatAmount)}`
+              : undefined
+          }
+          count={s?.charge.count}
+        />
         <SummaryCard
           label="JO receipts"
           value={s ? peso(s.joReceipts.gross) : "—"}
@@ -80,6 +98,12 @@ export function DailySalesView({ canAudit }: { canAudit: boolean }) {
           value={s ? peso(s.collections.gross) : "—"}
           detail="not counted as sales"
           count={s?.collections.count}
+        />
+        <SummaryCard
+          label="Receivable"
+          value={s ? peso(s.receivables.amount) : "—"}
+          detail="unpaid on today's receipts"
+          count={s?.receivables.count}
         />
       </div>
 
@@ -208,10 +232,40 @@ function ReceiptRow({
     );
   };
 
+  // A cancelled receipt is LISTED but not counted: every number in the booklet
+  // has to be accounted for (docs/sales.txt §4 rule 3), so it stays visible,
+  // struck through, with its reason on the row.
+  const isVoid = row.voidType !== null;
+
   return (
-    <TableRow>
+    <TableRow className={cn(isVoid && "bg-destructive/5")}>
       <TableCell className="font-mono font-semibold tabular-nums">
-        {row.documentNo}
+        <span className={cn(isVoid && "text-muted-foreground line-through")}>
+          {row.documentNo}
+        </span>
+        {isVoid && (
+          <div className="mt-0.5 grid gap-0.5">
+            <ColorBadge
+              tone="red"
+              label={VOID_TYPE_LABEL[row.voidType!].toUpperCase()}
+            />
+            <span className="text-xs font-normal text-muted-foreground">
+              {row.replacedByDocumentNo
+                ? `replaced by ${row.replacedByDocumentNo}`
+                : row.voidReason}
+            </span>
+            {row.voidedByName && (
+              <span className="text-xs font-normal text-muted-foreground">
+                by {row.voidedByName}
+              </span>
+            )}
+          </div>
+        )}
+        {row.replacesDocumentNo && (
+          <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+            replaces {row.replacesDocumentNo}
+          </div>
+        )}
       </TableCell>
       <TableCell>
         <ColorBadge
@@ -220,19 +274,28 @@ function ReceiptRow({
               ? "blue"
               : row.kind === RECEIPT_KIND.SI_NON_VAT
                 ? "purple"
-                : isCollection
-                  ? "gray"
-                  : "amber"
+                : row.kind === RECEIPT_KIND.SI_CHARGE
+                  ? "amber"
+                  : isCollection
+                    ? "gray"
+                    : "amber"
           }
           label={row.kindLabel}
         />
+        {parseFloat(row.balanceDue) > 0 && (
+          <div className="mt-0.5">
+            <ColorBadge tone="amber" label={`${peso(row.balanceDue)} unpaid`} />
+          </div>
+        )}
       </TableCell>
       <TableCell>{row.customerName}</TableCell>
       <TableCell className="text-muted-foreground">
         {row.joNumber ?? "—"}
       </TableCell>
       <TableCell className="text-right font-mono tabular-nums">
-        {peso(row.amount)}
+        <span className={cn(isVoid && "text-muted-foreground line-through")}>
+          {peso(row.amount)}
+        </span>
         {parseFloat(row.changeGiven) > 0 && (
           <div className="text-xs font-normal text-muted-foreground">
             tendered {peso(row.cashTendered ?? "0")} · change{" "}
@@ -253,14 +316,30 @@ function ReceiptRow({
         )}
       </TableCell>
       <TableCell className="text-sm">
-        <div className="grid gap-0.5">
-          <span>{row.method ?? "—"}</span>
-          {row.methodDetail && (
-            <span className="text-xs text-muted-foreground">
-              {row.methodDetail}
-            </span>
-          )}
-        </div>
+        {/* A split tender is unreadable from the header method alone, so the
+            lines are listed instead once there is more than one. */}
+        {row.payments.length > 1 ? (
+          <div className="grid gap-0.5">
+            {row.payments.map((p, i) => (
+              <span key={i} className="text-xs">
+                {p.method}{" "}
+                <span className="font-mono tabular-nums">{peso(p.amount)}</span>
+                {p.reference && (
+                  <span className="text-muted-foreground"> · {p.reference}</span>
+                )}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-0.5">
+            <span>{row.method ?? "—"}</span>
+            {row.methodDetail && (
+              <span className="text-xs text-muted-foreground">
+                {row.methodDetail}
+              </span>
+            )}
+          </div>
+        )}
       </TableCell>
       <TableCell>
         {row.auditStatus ? (

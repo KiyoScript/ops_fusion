@@ -1,5 +1,9 @@
 import { ValidationError } from "@/lib/errors";
-import { SaleType } from "@/generated/prisma/enums";
+import {
+  PaymentMethod,
+  PaymentStatus,
+  SaleType,
+} from "@/generated/prisma/enums";
 
 // ══════════════════════════════════════════════════════════════════════════
 // Money & VAT — the arithmetic behind every receipt.
@@ -56,7 +60,10 @@ export function splitVat(grossCentavos: number, type: SaleType): VatSplit {
   if (grossCentavos < 0) {
     throw new ValidationError("Amount cannot be negative.");
   }
-  if (type !== SaleType.SI_VAT) {
+  // A Charge Invoice is a principal document and carries VAT exactly as a
+  // cash Sales Invoice does — selling on credit does not change the tax, only
+  // when the money arrives.
+  if (type !== SaleType.SI_VAT && type !== SaleType.SI_CHARGE) {
     return { amount: grossCentavos, vatableSales: grossCentavos, vatAmount: 0 };
   }
   const vatableSales = Math.round(grossCentavos / VAT_DIVISOR);
@@ -67,19 +74,101 @@ export function splitVat(grossCentavos: number, type: SaleType): VatSplit {
   };
 }
 
+// ——— tender: what the customer actually handed over ———
+
+/** A tender line in centavos, as the service works with it. */
+export type Tender = {
+  method: PaymentMethod;
+  amount: number;
+  reference: string | null;
+};
+
+export type Settlement = {
+  tenders: Tender[];
+  /** Everything handed over, across all methods. */
+  received: number;
+  /** The part of it that settles this document — never more than the amount. */
+  applied: number;
+  /** Handed over above the amount due. Cash only. */
+  changeGiven: number;
+  /** Left unsettled: credit / utang / Accounts Receivable. */
+  balanceDue: number;
+  /** Physical cash handed over — what `Sale.cashTendered` records. */
+  cashTendered: number | null;
+};
+
 /**
- * Cash handed over vs. amount due. `null` tendered (a cheque, a bank transfer)
- * means no change is given.
+ * Work out one receipt's money from its tender lines.
+ *
+ * The lines ARE the money received — there is no separate "amount received"
+ * to keep in step with them. From that one number both directions fall out:
+ *
+ *   received > due  → the excess is CHANGE (cash back at the counter)
+ *   received < due  → the shortfall is a BALANCE: credit, utang, A/R, left
+ *                     open until a Collection Receipt settles it
+ *   no lines at all → nothing was received; the whole amount is A/R, which is
+ *                     exactly what a Charge Invoice is (docs/sales.txt §3.1.3)
+ *
+ * Duplicate methods are kept as SEPARATE lines on purpose — two cheques are
+ * two cheque numbers, and collapsing them would lose a reference the auditor
+ * needs.
  */
-export function computeChange(
-  tenderedCentavos: number | null,
+export function settleTenders(
+  lines: { method: PaymentMethod; amount: string; reference?: string }[],
   dueCentavos: number
-): number {
-  if (tenderedCentavos === null) return 0;
-  if (tenderedCentavos < dueCentavos) {
+): Settlement {
+  const tenders: Tender[] = lines.map((l, i) => {
+    const amount = toCentavos(l.amount);
+    if (amount <= 0) {
+      throw new ValidationError(
+        `Payment line ${i + 1} must be greater than zero.`
+      );
+    }
+    return { method: l.method, amount, reference: l.reference?.trim() || null };
+  });
+
+  const received = tenders.reduce((t, l) => t + l.amount, 0);
+  const cash = tenders
+    .filter((l) => l.method === PaymentMethod.CASH)
+    .reduce((t, l) => t + l.amount, 0);
+
+  const changeGiven = Math.max(received - dueCentavos, 0);
+  // Only cash comes back over the counter. Nobody hands ₱156 back out of a
+  // GCash transfer — an over-sent transfer is a refund, not change, and that
+  // is a different document.
+  if (changeGiven > cash) {
     throw new ValidationError(
-      `Cash received (${toAmount(tenderedCentavos)}) is less than the amount due (${toAmount(dueCentavos)}).`
+      `Only cash can be over-tendered. ${toAmount(changeGiven)} is above the ` +
+        `amount due but only ${toAmount(cash)} was paid in cash.`
     );
   }
-  return tenderedCentavos - dueCentavos;
+
+  const applied = Math.min(received, dueCentavos);
+  return {
+    tenders,
+    received,
+    applied,
+    changeGiven,
+    balanceDue: dueCentavos - applied,
+    cashTendered: cash > 0 ? cash : null,
+  };
+}
+
+/** PAID / PARTIAL / UNPAID, derived — never set by hand. */
+export function paymentStatusOf(
+  applied: number,
+  dueCentavos: number
+): PaymentStatus {
+  if (applied <= 0) return PaymentStatus.UNPAID;
+  return applied >= dueCentavos ? PaymentStatus.PAID : PaymentStatus.PARTIAL;
+}
+
+/**
+ * The header summary of a split: its LARGEST line. The day log, BIR reports
+ * and printables read `paymentMethod` / `methodDetail` off the header, so the
+ * dominant tender is what they show — `payments` carries the full breakdown.
+ * Ties go to the earlier line, keeping the counter's entry order meaningful.
+ */
+export function dominantTender(tenders: Tender[]): Tender {
+  return tenders.reduce((best, l) => (l.amount > best.amount ? l : best));
 }

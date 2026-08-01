@@ -36,6 +36,17 @@ model CollectionReceipt {
   billedToAddress String?
   billedToTin     String?
 
+  // — cancelled / voided / replaced — see the note in sale.prisma. —
+  voidType   ReceiptVoidType?
+  voidReason String?
+  voidedAt   DateTime?
+  voidedById String?
+  voidedBy   User?            @relation("CrVoidedBy", fields: [voidedById], references: [id])
+
+  replacedById String?            @unique
+  replacedBy   CollectionReceipt? @relation("CrReplacement", fields: [replacedById], references: [id])
+  replaces     CollectionReceipt? @relation("CrReplacement")
+
   receivedAt  DateTime
   notes       String?
   createdAt   DateTime  @default(now())
@@ -46,6 +57,8 @@ model CollectionReceipt {
 
   allocations  CrAllocation[]
   auditEntries AuditEntry[]
+  // Split tender: one row per method. See receipt-payment.prisma.
+  payments     ReceiptPayment[]
 
   @@index([customerId])
   @@index([receivedAt])
@@ -53,6 +66,7 @@ model CollectionReceipt {
   @@index([bookletId])
   @@index([createdById])
   @@index([jobOrderId])
+  @@index([voidedAt])
 }
 
 // "No floating CRs" (spec 2.4): every CR must allocate fully to specific sales

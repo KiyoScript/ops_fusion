@@ -9,6 +9,8 @@ import type {
   ReceiptListPageDto,
   ReceivePaymentInput,
   ReceivePaymentOptionsDto,
+  ReplaceReceiptInput,
+  VoidReceiptInput,
 } from "../schemas/receipt";
 import type { AuditReceiptInput } from "../schemas/audit";
 
@@ -99,13 +101,54 @@ export function useReceivePayment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: ReceivePaymentInput) =>
-      fetchJson<{ id: string; documentNo: string; changeGiven: string }>(
-        "/api/receipts",
-        json(input)
-      ),
+      fetchJson<{
+        id: string;
+        documentNo: string;
+        changeGiven: string;
+        amountPaid: string;
+        /** Unsettled remainder — straight to A/R. "0.00" on a cash sale. */
+        balanceDue: string;
+      }>("/api/receipts", json(input)),
     onSuccess: () => {
       // A payment consumes a booklet number and lands on the day's log.
       qc.invalidateQueries({ queryKey: ["receipts"] });
+      qc.invalidateQueries({ queryKey: ["booklets"] });
+    },
+  });
+}
+
+/**
+ * Cancel or void an issued receipt. The JO's balance reopens, so its payment
+ * options have to be refetched — that is what re-enables Receive Payment.
+ */
+export function useVoidReceipt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: VoidReceiptInput) =>
+      fetchJson<{ id: string; documentNo: string }>(
+        "/api/receipts/void",
+        json(input)
+      ),
+    // ["receipts"] is a prefix of the payment-options key, so this refetch is
+    // what reopens the JO's balance in the dialog.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["receipts"] }),
+  });
+}
+
+/** Void a receipt and issue its corrected successor — one transaction. */
+export function useReplaceReceipt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReplaceReceiptInput) =>
+      fetchJson<{
+        id: string;
+        documentNo: string;
+        changeGiven: string;
+        replacedDocumentNo: string;
+      }>("/api/receipts/void", json(input)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["receipts"] });
+      // A replacement consumes a fresh booklet number.
       qc.invalidateQueries({ queryKey: ["booklets"] });
     },
   });

@@ -17,6 +17,7 @@ export type AppAction =
   | "convert" // turn an approved quotation into a Job Order
   | "issue" // issue a delivery receipt
   | "audit" // auditor's sign-off on a receipt (legacy verified_by)
+  | "void" // cancel / void / replace an issued receipt (docs/sales.txt §5)
   | "maintain";
 
 export type AppSubject =

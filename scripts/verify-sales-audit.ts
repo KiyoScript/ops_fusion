@@ -99,6 +99,35 @@ async function main() {
     type: "CR", seriesStart: 300, seriesEnd: 399,
     label: `${PREFIX}CR booklet`, gapExempt: false,
   });
+  const ciBk = await booklets.create(cashier, {
+    type: "SI_CHARGE", seriesStart: 700, seriesEnd: 799,
+    label: `${PREFIX}CI booklet`, gapExempt: false,
+  });
+
+  // The three SI labels are ONE pre-printed IN series (docs/sales.txt §3.1),
+  // so whichever label you register next, it carries on from the same place —
+  // it never restarts a line of its own.
+  const [vatNext, nonVatNext, chargeNext] = await Promise.all([
+    booklets.suggestRange(actor, "SI_VAT"),
+    booklets.suggestRange(actor, "SI_NON_VAT"),
+    booklets.suggestRange(actor, "SI_CHARGE"),
+  ]);
+  check("all three SI labels continue ONE number line",
+    nonVatNext.suggestedStart === vatNext.suggestedStart && chargeNext.suggestedStart === vatNext.suggestedStart,
+    [vatNext.suggestedStart, nonVatNext.suggestedStart, chargeNext.suggestedStart]);
+  check("that line runs past the SI booklet just registered", vatNext.suggestedStart > 9004, vatNext.suggestedStart);
+  check("a Charge Invoice prints the same IN prefix", chargeNext.prefix === "IN", chargeNext.prefix);
+
+  // …and because it is one line, a DIFFERENT label may not claim numbers a
+  // VAT booklet already holds. The old guard keyed on type and let this pass.
+  let crossLabel = "";
+  try {
+    await booklets.create(cashier, {
+      type: "SI_NON_VAT", seriesStart: 9002, seriesEnd: 9010,
+      label: `${PREFIX}cross-label`, gapExempt: false,
+    });
+  } catch (e) { crossLabel = (e as Error).constructor.name; }
+  check("a Non-VAT range colliding with a VAT booklet is refused (ConflictError)", crossLabel === "ConflictError", crossLabel);
 
   const pending = await booklets.list(actor, { status: "PENDING_APPROVAL" });
   check("a new booklet awaits approval (not usable yet)", pending.some((b) => b.id === siBk.id));
@@ -113,7 +142,8 @@ async function main() {
   } catch (e) { denied = (e as Error).constructor.name; }
   check("cashier cannot approve their own booklet (ForbiddenError)", denied === "ForbiddenError", denied);
 
-  for (const b of [siBk, joBk, crBk]) await booklets.approve(actor, b.id);
+  for (const b of [siBk, joBk, crBk, ciBk]) await booklets.approve(actor, b.id);
+  check("a Charge Invoice draws the shared IN series", (await booklets.list(actor, { type: "SI_CHARGE", status: "ACTIVE" }))[0]?.nextDocumentNo === "IN-0700");
   const active = await booklets.list(actor, { type: "SI_VAT", status: "ACTIVE" });
   check("approved booklet is ACTIVE and shows its next number", active[0]?.nextDocumentNo === "IN-9000", active[0]?.nextDocumentNo);
 
@@ -128,7 +158,8 @@ async function main() {
   } catch (e) { conflict = (e as Error).constructor.name; }
   check("a SECOND active booklet of one type is refused (ConflictError)", conflict === "ConflictError", conflict);
 
-  // Overlapping ranges must be impossible — the DB exclusion constraint.
+  // Overlapping ranges must be impossible — the service refuses them, and the
+  // DB exclusion constraint backstops it for anything writing around it.
   let overlap = false;
   try {
     await booklets.create(cashier, {
@@ -159,9 +190,11 @@ async function main() {
   check("nothing received yet", opts.totalReceived === "0.00", opts.totalReceived);
 
   // 1. Downpayment on the JO — customer hands over ₱1,000 for a ₱500 slip.
+  //    The payment LINE is the money received; the receipt is for 500.
   const dp = await receipts.receivePayment(cashier, {
     jobOrderId: jo.id, kind: "JO_RECEIPT",
-    amount: "500.00", cashTendered: "1000.00",
+    amount: "500.00", cashTendered: "",
+    payments: [{ method: "CASH", amount: "1000.00", reference: undefined }],
     method: "CASH", methodDetail: undefined, notes: undefined,
   });
   check("JO receipt takes the next number (JO-0500)", dp.documentNo === "JO-0500", dp.documentNo);
@@ -175,6 +208,7 @@ async function main() {
   });
   check("SAME JO can also take a Sales Invoice", si.documentNo === "IN-9000", si.documentNo);
   check("exact cash → no change", si.changeGiven === "0.00", si.changeGiven);
+  check("exact cash → nothing left on credit", si.balanceDue === "0.00", si.balanceDue);
 
   const siRow = await prisma.sale.findUniqueOrThrow({ where: { documentNo: "IN-9000" } });
   check("SI stored vatable 1,000.00", siRow.vatableSales.toString() === "1000", siRow.vatableSales.toString());
@@ -198,16 +232,139 @@ async function main() {
   check("Collection Receipt takes the CR series", cr.documentNo === "CR-0300", cr.documentNo);
   check("non-cash method gives no change", cr.changeGiven === "0.00", cr.changeGiven);
 
-  // Underpayment must be refused.
-  let short = "";
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nSplit tender — one receipt, several methods");
+
+  // ₱1,500 cash + ₱1,200 GCash against a ₱2,200 JO receipt: ₱2,700 came in,
+  // so ₱500 goes back — out of the CASH part, which is the only part that can
+  // come back over the counter.
+  const split = await receipts.receivePayment(cashier, {
+    jobOrderId: jo.id, kind: "JO_RECEIPT",
+    amount: "2200.00", cashTendered: "",
+    payments: [
+      { method: "CASH", amount: "1500.00", reference: undefined },
+      { method: "GCASH", amount: "1200.00", reference: "GC-88123" },
+    ],
+    method: "CASH", methodDetail: undefined, notes: undefined,
+  });
+  check("split tender issues one receipt", split.documentNo === "JO-0501", split.documentNo);
+  check("over-tender gives change: 2,700 − 2,200 = 500.00", split.changeGiven === "500.00", split.changeGiven);
+  check("only the amount due is applied, not the whole 2,700", split.amountPaid === "2200.00", split.amountPaid);
+
+  const splitRow = await prisma.sale.findUniqueOrThrow({
+    where: { documentNo: "JO-0501" },
+    include: { payments: { orderBy: { seq: "asc" } } },
+  });
+  check("both tender lines stored", splitRow.payments.length === 2, splitRow.payments.length);
+  check("lines keep entry order", splitRow.payments.map((p) => p.method).join(",") === "CASH,GCASH", splitRow.payments.map((p) => p.method).join(","));
+  check("per-line reference kept", splitRow.payments[1].reference === "GC-88123", splitRow.payments[1].reference);
+  check("header shows the DOMINANT tender (Cash 1,500)", splitRow.paymentMethod === "CASH", splitRow.paymentMethod);
+  check("a fully-settled receipt is PAID", splitRow.paymentStatus === "PAID", splitRow.paymentStatus);
+
+  // A single-method payment is still one line — no special case in the data.
+  const oneLine = await prisma.sale.findUniqueOrThrow({
+    where: { documentNo: "IN-9000" },
+    include: { payments: true },
+  });
+  check("a normal payment stores exactly one line", oneLine.payments.length === 1, oneLine.payments.length);
+  check("that line carries the full amount", oneLine.payments[0].amount.toString() === "1120", oneLine.payments[0].amount.toString());
+
+  // Over-tendering on a NON-cash method is refused: nobody hands ₱500 back out
+  // of a GCash transfer — that is a refund, and a different document.
+  let overNonCash = "";
   try {
     await receipts.receivePayment(cashier, {
-      jobOrderId: jo.id, kind: "SI_NON_VAT",
-      amount: "500.00", cashTendered: "100.00", method: "CASH",
-      methodDetail: undefined, notes: undefined,
+      jobOrderId: jo.id, kind: "JO_RECEIPT",
+      amount: "2200.00", cashTendered: "",
+      payments: [{ method: "GCASH", amount: "2700.00", reference: undefined }],
+      method: "GCASH", methodDetail: undefined, notes: undefined,
     });
-  } catch (e) { short = (e as Error).constructor.name; }
-  check("cash short of the amount due is refused", short === "ValidationError", short);
+  } catch (e) { overNonCash = (e as Error).message; }
+  check("over-tender with no cash to give back is refused", overNonCash.includes("Only cash can be over-tendered"), overNonCash);
+
+  // ₱300 all on GCash + cheque tenders no cash at all — change must stay 0.
+  const noCash = await receipts.receivePayment(cashier, {
+    jobOrderId: jo.id, kind: "JO_RECEIPT",
+    amount: "300.00", cashTendered: "",
+    payments: [
+      { method: "GCASH", amount: "200.00", reference: "GC-1" },
+      { method: "CHECK", amount: "100.00", reference: "CHQ-2" },
+    ],
+    method: "GCASH", methodDetail: undefined, notes: undefined,
+  });
+  check("a split with no cash line gives no change", noCash.changeGiven === "0.00", noCash.changeGiven);
+
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nPartial payment → balance / utang / A/R");
+
+  // ₱1,000 handed over against a ₱2,200 receipt. The invoice books the FULL
+  // amount (and its VAT); ₱1,200 stays owed.
+  const partial = await receipts.receivePayment(cashier, {
+    jobOrderId: jo.id, kind: "JO_RECEIPT",
+    amount: "2200.00", cashTendered: "",
+    payments: [{ method: "CASH", amount: "1000.00", reference: undefined }],
+    method: "CASH", methodDetail: undefined, notes: undefined,
+  });
+  check("a short payment is ACCEPTED, not refused", partial.documentNo.startsWith("JO-"), partial.documentNo);
+  check("only what came in is applied", partial.amountPaid === "1000.00", partial.amountPaid);
+  check("the rest becomes a balance: 2,200 − 1,000 = 1,200.00", partial.balanceDue === "1200.00", partial.balanceDue);
+  check("short payment gives no change", partial.changeGiven === "0.00", partial.changeGiven);
+
+  const partialRow = await prisma.sale.findUniqueOrThrow({
+    where: { documentNo: partial.documentNo },
+  });
+  check("the receipt is still issued for the FULL amount", partialRow.amount.toString() === "2200", partialRow.amount.toString());
+  check("marked PARTIAL", partialRow.paymentStatus === "PARTIAL", partialRow.paymentStatus);
+
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nCharge Invoice — the sale on credit (docs/sales.txt §3.1.3)");
+
+  const charge = await receipts.receivePayment(cashier, {
+    jobOrderId: jo.id, kind: "SI_CHARGE",
+    amount: "1120.00", cashTendered: "",
+    payments: [], // nothing received — that is what "on credit" means
+    method: "CASH", methodDetail: undefined, notes: undefined,
+  });
+  check("Charge Invoice takes the shared IN series", charge.documentNo === "IN-0700", charge.documentNo);
+  check("nothing received", charge.amountPaid === "0.00", charge.amountPaid);
+  check("the whole amount is owed", charge.balanceDue === "1120.00", charge.balanceDue);
+
+  const chargeRow = await prisma.sale.findUniqueOrThrow({
+    where: { documentNo: "IN-0700" },
+    include: { payments: true },
+  });
+  check("marked UNPAID", chargeRow.paymentStatus === "UNPAID", chargeRow.paymentStatus);
+  check("no payment method on a credit sale", chargeRow.paymentMethod === null, chargeRow.paymentMethod);
+  check("no tender lines at all", chargeRow.payments.length === 0, chargeRow.payments.length);
+  // Selling on credit does not defer the tax: VAT is booked at point of sale.
+  check("a Charge Invoice carries VAT (÷ 1.12)", chargeRow.vatableSales.toString() === "1000", chargeRow.vatableSales.toString());
+  check("VAT booked at issue, not at collection", chargeRow.vatAmount.toString() === "120", chargeRow.vatAmount.toString());
+
+  // Every other kind is handed over in exchange for money.
+  let emptyPay = "";
+  try {
+    await receipts.receivePayment(cashier, {
+      jobOrderId: jo.id, kind: "JO_RECEIPT",
+      amount: "100.00", cashTendered: "", payments: [],
+      method: "CASH", methodDetail: undefined, notes: undefined,
+    });
+  } catch (e) { emptyPay = (e as Error).message; }
+  check("only a Charge Invoice may be issued with nothing received", emptyPay.includes("Charge Invoice"), emptyPay);
+
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nGuards");
+
+  // A zero or negative tender line is meaningless — catch the typo.
+  let zeroLine = "";
+  try {
+    await receipts.receivePayment(cashier, {
+      jobOrderId: jo.id, kind: "JO_RECEIPT",
+      amount: "500.00", cashTendered: "",
+      payments: [{ method: "CASH", amount: "0.00", reference: undefined }],
+      method: "CASH", methodDetail: undefined, notes: undefined,
+    });
+  } catch (e) { zeroLine = (e as Error).message; }
+  check("a zero payment line is refused", zeroLine.includes("greater than zero"), zeroLine);
 
   // No active Non-VAT booklet → a clear error, not a crash.
   let noBooklet = "";
@@ -231,7 +388,8 @@ async function main() {
     });
     nums.push(r.documentNo);
   }
-  check("sequential: JO-0501…JO-0504", nums.join(",") === "JO-0501,JO-0502,JO-0503,JO-0504", nums.join(","));
+  // 0500 downpayment, 0501–0502 split tender, 0503 the partial payment.
+  check("sequential: JO-0504…JO-0507", nums.join(",") === "JO-0504,JO-0505,JO-0506,JO-0507", nums.join(","));
   check("all numbers unique", new Set(nums).size === nums.length);
 
   // Concurrency: 5 cashiers hitting Receive Payment at the same instant must
@@ -277,16 +435,27 @@ async function main() {
   check("VAT report splits out the 12%", summary.vat.vatAmount === "168.00", summary.vat.vatAmount);
   check("VAT report splits out net sales", summary.vat.vatableSales === "1400.00", summary.vat.vatableSales);
   check("net + VAT === gross in the report", toCentavos(summary.vat.vatableSales) + toCentavos(summary.vat.vatAmount) === toCentavos(summary.vat.gross));
-  // JO receipts: 500 + (4 × 10) = 540.00
-  check("JO receipts totalled separately", summary.joReceipts.gross === "540.00", summary.joReceipts.gross);
+  // Charge invoice: 1,120.00 on credit — revenue AT POINT OF SALE.
+  check("charge invoices totalled separately", summary.charge.gross === "1120.00", summary.charge.gross);
+  check("charge invoice VAT is reported like any other", summary.charge.vatAmount === "120.00", summary.charge.vatAmount);
+  // JO receipts: 500 + 2200 (split) + 300 (no cash) + 2200 (partial) + (4 × 10)
+  check("JO receipts totalled separately", summary.joReceipts.gross === "5240.00", summary.joReceipts.gross);
+  // A split tender books its GROSS once — the lines are how it was paid, not
+  // extra revenue. This is the check that catches double-counting a split.
+  check("a split tender is counted ONCE, at its gross", summary.joReceipts.count === 8, summary.joReceipts.count);
   // Collections: 200 + (5 × 10) = 250.00
   check("collections totalled separately", summary.collections.gross === "250.00", summary.collections.gross);
-  // Gross sales = VAT + Non-VAT + JO receipts — NOT collections.
+  // Gross sales = VAT + Non-VAT + Charge + JO receipts — NOT collections. A
+  // credit sale is revenue the day it is invoiced; the Collection Receipt that
+  // settles it later would be the second count, so that one is excluded.
   check(
     "collections are EXCLUDED from gross sales (no double-count)",
-    summary.grossSales === "2108.00",
-    `${summary.grossSales} (expected 2108.00 = 1568 + 0 + 540)`
+    summary.grossSales === "7928.00",
+    `${summary.grossSales} (expected 7928.00 = 1568 + 0 + 1120 + 5240)`
   );
+  // A/R: the partial JO receipt (2,200 − 1,000) + the whole charge invoice.
+  check("receivables sum what is still owed", summary.receivables.amount === "2320.00", summary.receivables.amount);
+  check("receivables count only the unsettled receipts", summary.receivables.count === 2, summary.receivables.count);
 
   const day = await receipts.listDay(actor, { take: 50 });
   check("daily log lists every receipt kind", day.rows.length >= 11, day.rows.length);
@@ -328,6 +497,158 @@ async function main() {
     });
   } catch (e) { viewerDenied = (e as Error).constructor.name; }
   check("VIEWER cannot receive payment (ForbiddenError)", viewerDenied === "ForbiddenError", viewerDenied);
+
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nCancel / void a receipt (docs/sales.txt §5)");
+
+  const beforeVoid = await receipts.getDailySummary(actor);
+  const optsBefore = await receipts.getPaymentOptions(actor, jo.id);
+
+  const doomed = await receipts.receivePayment(cashier, {
+    jobOrderId: jo.id, kind: "JO_RECEIPT",
+    amount: "400.00", cashTendered: "400.00", method: "CASH",
+    methodDetail: undefined, notes: undefined,
+  });
+  const optsPaid = await receipts.getPaymentOptions(actor, jo.id);
+  check(
+    "a fresh receipt raises what the JO has received",
+    toCentavos(optsPaid.totalReceived) === toCentavos(optsBefore.totalReceived) + 40000,
+    `${optsBefore.totalReceived} → ${optsPaid.totalReceived}`
+  );
+
+  // §5.1 step 6: the cashier who issued it cannot also sign off the cancellation.
+  let cashierVoid = "";
+  try {
+    await receipts.voidReceipt(cashier, {
+      receiptId: doomed.id, kind: "JO_RECEIPT",
+      type: "CANCELLED", reason: "Customer changed their mind.",
+    });
+  } catch (e) { cashierVoid = (e as Error).constructor.name; }
+  check("a cashier cannot void a receipt (needs a supervisor)", cashierVoid === "ForbiddenError", cashierVoid);
+
+  await receipts.voidReceipt(actor, {
+    receiptId: doomed.id, kind: "JO_RECEIPT",
+    type: "CANCELLED", reason: "Customer changed their mind.",
+  });
+
+  const voided = await prisma.sale.findUniqueOrThrow({
+    where: { documentNo: doomed.documentNo },
+    include: { voidedBy: { select: { name: true } } },
+  });
+  check("the voided receipt is NOT deleted", voided.id === doomed.id);
+  check("it keeps its serial number", voided.documentNo === doomed.documentNo, voided.documentNo);
+  check("marked CANCELLED", voided.voidType === "CANCELLED", voided.voidType);
+  check("the reason is kept (written on its face)", voided.voidReason === "Customer changed their mind.", voided.voidReason);
+  check("the approver is named on it", voided.voidedBy?.name === admin.name, voided.voidedBy?.name);
+
+  const optsVoided = await receipts.getPaymentOptions(actor, jo.id);
+  check(
+    "a voided receipt stops counting as money received",
+    optsVoided.totalReceived === optsBefore.totalReceived,
+    `${optsPaid.totalReceived} → ${optsVoided.totalReceived}`
+  );
+  check(
+    "so the JO's balance REOPENS and can be paid again",
+    optsVoided.balance === optsBefore.balance,
+    optsVoided.balance
+  );
+  check(
+    "the cancelled receipt is still LISTED on the JO (all 50 leaves accounted for)",
+    optsVoided.issued.some((r) => r.documentNo === doomed.documentNo && r.voidType === "CANCELLED")
+  );
+
+  const afterVoid = await receipts.getDailySummary(actor);
+  check(
+    "a voided receipt is excluded from gross sales",
+    afterVoid.grossSales === beforeVoid.grossSales,
+    `${afterVoid.grossSales} vs ${beforeVoid.grossSales}`
+  );
+  const voidDay = await receipts.listDay(actor, { take: 100 });
+  check(
+    "but it still shows in the day log, marked",
+    voidDay.rows.some((r) => r.documentNo === doomed.documentNo && r.voidType === "CANCELLED")
+  );
+
+  let twice = "";
+  try {
+    await receipts.voidReceipt(actor, {
+      receiptId: doomed.id, kind: "JO_RECEIPT", type: "VOID", reason: "Again.",
+    });
+  } catch (e) { twice = (e as Error).message; }
+  check("cancelling the same receipt twice is refused", twice.includes("already been cancelled"), twice);
+
+  // The number it burned is NOT handed out again.
+  const afterVoidNext = await receipts.getPaymentOptions(actor, jo.id);
+  check(
+    "a cancelled number is never reissued",
+    afterVoidNext.nextNumbers.JO_RECEIPT !== doomed.documentNo,
+    `${doomed.documentNo} → next ${afterVoidNext.nextNumbers.JO_RECEIPT}`
+  );
+
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nReplace a receipt — void + reissue in one transaction");
+
+  const wrong = await receipts.receivePayment(cashier, {
+    jobOrderId: jo.id, kind: "JO_RECEIPT",
+    amount: "250.00", cashTendered: "250.00", method: "CASH",
+    methodDetail: undefined, notes: undefined,
+  });
+
+  const replaced = await receipts.replaceReceipt(actor, {
+    receiptId: wrong.id, kind: "JO_RECEIPT",
+    reason: "Wrong amount encoded — should be 260.00.",
+    replacement: {
+      jobOrderId: jo.id, kind: "JO_RECEIPT",
+      amount: "260.00", cashTendered: "",
+      payments: [{ method: "CASH", amount: "300.00", reference: undefined }],
+      method: "CASH", methodDetail: undefined, notes: undefined,
+    },
+  });
+  check("replacing reports both serials", replaced.replacedDocumentNo === wrong.documentNo, replaced.replacedDocumentNo);
+  check("the replacement takes the NEXT number", replaced.documentNo !== wrong.documentNo, replaced.documentNo);
+  check("the replacement's own change is computed: 300 − 260 = 40.00", replaced.changeGiven === "40.00", replaced.changeGiven);
+
+  const oldRow = await prisma.sale.findUniqueOrThrow({
+    where: { documentNo: wrong.documentNo },
+    include: { replacedBy: { select: { documentNo: true } } },
+  });
+  const newRow = await prisma.sale.findUniqueOrThrow({
+    where: { documentNo: replaced.documentNo },
+    include: { replaces: { select: { documentNo: true } } },
+  });
+  check("the spoiled receipt is marked REPLACED", oldRow.voidType === "REPLACED", oldRow.voidType);
+  check("the reason is kept", oldRow.voidReason?.includes("Wrong amount") ?? false, oldRow.voidReason);
+  // §5.1 step 3: each one carries the other's number.
+  check("the old points at the new", oldRow.replacedBy?.documentNo === replaced.documentNo, oldRow.replacedBy?.documentNo);
+  check("the new points back at the old", newRow.replaces?.documentNo === wrong.documentNo, newRow.replaces?.documentNo);
+
+  const afterReplace = await receipts.getDailySummary(actor);
+  check(
+    "only the REPLACEMENT counts as revenue (260, not 250 + 260)",
+    toCentavos(afterReplace.grossSales) === toCentavos(afterVoid.grossSales) + 26000,
+    `${afterVoid.grossSales} → ${afterReplace.grossSales}`
+  );
+
+  // A replacement must draw from the same series as the receipt it supersedes.
+  const stray = await receipts.receivePayment(cashier, {
+    jobOrderId: jo.id, kind: "JO_RECEIPT",
+    amount: "15.00", cashTendered: "15.00", method: "CASH",
+    methodDetail: undefined, notes: undefined,
+  });
+  let crossKind = "";
+  try {
+    await receipts.replaceReceipt(actor, {
+      receiptId: stray.id, kind: "JO_RECEIPT", reason: "Trying to cross series.",
+      replacement: {
+        jobOrderId: jo.id, kind: "COLLECTION",
+        amount: "15.00", cashTendered: "15.00", method: "CASH",
+        methodDetail: undefined, notes: undefined,
+      },
+    });
+  } catch (e) { crossKind = (e as Error).message; }
+  check("a replacement cannot switch receipt type", crossKind.includes("same receipt type"), crossKind);
+  const strayStill = await prisma.sale.findUniqueOrThrow({ where: { documentNo: stray.documentNo } });
+  check("a refused replacement leaves the original untouched", strayStill.voidType === null, strayStill.voidType);
 
   await cleanup();
   console.log(fails === 0 ? "\nALL SALES-AUDIT CHECKS PASSED" : `\n${fails} FAILED`);

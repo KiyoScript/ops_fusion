@@ -43,8 +43,19 @@ export interface IBookletRepository {
   }): Promise<BookletRecord[]>;
   findById(id: string, tx?: DbTx): Promise<BookletRecord | null>;
   create(data: BookletCreateData): Promise<{ id: string }>;
-  /** Highest seriesEnd across ALL booklets of a type — where the next block starts. */
-  maxSeriesEnd(type: BookletType): Promise<number>;
+  /**
+   * Highest seriesEnd on one number line — where the next block starts. Keyed
+   * on the prefix, not the type: the three Sales Invoice labels all print "IN"
+   * and run as one series, so a Non-VAT booklet carries on from wherever the
+   * last VAT or Charge one ended.
+   */
+  maxSeriesEnd(prefix: string): Promise<number>;
+  /** Booklets on the same number line whose range collides with [start, end]. */
+  findOverlapping(
+    prefix: string,
+    seriesStart: number,
+    seriesEnd: number
+  ): Promise<BookletRecord[]>;
   setStatus(
     id: string,
     data: {
@@ -110,13 +121,32 @@ export class PrismaBookletRepository implements IBookletRepository {
     return prisma.booklet.create({ data, select: { id: true } });
   }
 
-  async maxSeriesEnd(type: BookletType): Promise<number> {
+  async maxSeriesEnd(prefix: string): Promise<number> {
     const top = await prisma.booklet.findFirst({
-      where: { type },
+      where: { prefix },
       select: { seriesEnd: true },
       orderBy: { seriesEnd: "desc" },
     });
     return top?.seriesEnd ?? 0;
+  }
+
+  async findOverlapping(
+    prefix: string,
+    seriesStart: number,
+    seriesEnd: number
+  ): Promise<BookletRecord[]> {
+    return prisma.booklet.findMany({
+      // Two ranges overlap when each begins at or before the other one ends.
+      // Mirrors Booklet_no_overlapping_ranges so the clash comes back as a
+      // readable message instead of a raw constraint violation.
+      where: {
+        prefix,
+        seriesStart: { lte: seriesEnd },
+        seriesEnd: { gte: seriesStart },
+      },
+      select: bookletSelect,
+      orderBy: { seriesStart: "asc" },
+    });
   }
 
   async setStatus(

@@ -6,14 +6,27 @@ import { BookletStatus, BookletType } from "@/generated/prisma/enums";
 // Ported from the legacy Doc_Series sheet (DocSeriesService.js).
 //
 // Range size is set PER BOOKLET (the legacy sheet hard-coded blocks of 50).
-// The service suggests the next block after the last range of that type; the
-// admin is free to size a 25-, 50- or 100-leaf booklet.
+// The service suggests the next block after the last range on that NUMBER LINE
+// (see BOOKLET_PREFIX); the admin is free to size a 25-, 50- or 100-leaf
+// booklet.
 // ══════════════════════════════════════════════════════════════════════════
 
-/** The prefix each document type prints on its number: IN-0578, JO-0042… */
+/**
+ * The prefix each document type prints on its number: IN-0578, JO-0042…
+ *
+ * The prefix IS the number line. Types sharing one are one continuous series —
+ * which is why all three Sales Invoice labels print "IN", and why the DB's
+ * Booklet_no_overlapping_ranges constraint keys on this column rather than on
+ * the type.
+ */
 export const BOOKLET_PREFIX: Record<BookletType, string> = {
   [BookletType.SI_VAT]: "IN",
   [BookletType.SI_NON_VAT]: "IN",
+  // The SAME "IN" line as the other two labels. The Sales Invoice is one
+  // document with "three separate labels of use" (docs/sales.txt §3.1),
+  // pre-printed as one continuous series — a Charge Invoice leaf differs from
+  // a VAT leaf only in the wording printed on it, never in its number.
+  [BookletType.SI_CHARGE]: "IN",
   [BookletType.JO_SLIP]: "JO",
   [BookletType.CR]: "CR",
   [BookletType.DR]: "DR",
@@ -22,6 +35,7 @@ export const BOOKLET_PREFIX: Record<BookletType, string> = {
 export const BOOKLET_TYPE_LABEL: Record<BookletType, string> = {
   [BookletType.SI_VAT]: "Sales Invoice — VAT",
   [BookletType.SI_NON_VAT]: "Sales Invoice — Non-VAT",
+  [BookletType.SI_CHARGE]: "Sales Invoice — Charge Invoice",
   [BookletType.JO_SLIP]: "Job Order Receipt",
   [BookletType.CR]: "Collection Receipt",
   [BookletType.DR]: "Delivery Receipt",

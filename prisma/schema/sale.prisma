@@ -9,15 +9,37 @@
 enum SaleType {
   SI_VAT
   SI_NON_VAT
+  // Sale on credit (docs/sales.txt §3.1.3). Books revenue AT POINT OF SALE
+  // like any other invoice — what differs is that the money has not arrived:
+  // the unpaid part sits in Accounts Receivable until a Collection Receipt
+  // settles it. Carries VAT exactly as SI_VAT does.
+  SI_CHARGE
   JO_SLIP // Job Order receipt — the downpayment / acknowledgement slip
 }
 
-// Kept for the A/R module (deferred): today Receive Payment always settles the
-// document in full, so rows land as PAID.
+// How much of the document's amount has actually been received.
+//   PAID    — settled in full at issue (the ordinary cash sale)
+//   PARTIAL — some money came in; the rest is Accounts Receivable
+//   UNPAID  — nothing came in; the whole amount is A/R (a Charge Invoice)
+// Derived from amountPaid vs amount, never set by hand.
 enum PaymentStatus {
   UNPAID
   PARTIAL
   PAID
+}
+
+// Shared by Sale and CollectionReceipt (collection-receipt.prisma).
+//
+// docs/sales.txt §5: a spoiled receipt is never thrown away or renumbered —
+// it stays in the booklet at its own serial position so all 50 leaves can be
+// accounted for. These three are the marks written on its face:
+//   CANCELLED — the transaction did not push through at all
+//   VOID      — the receipt itself was spoiled (wrong amount, misprint)
+//   REPLACED  — reissued under a new serial, and the two point at each other
+enum ReceiptVoidType {
+  CANCELLED
+  VOID
+  REPLACED
 }
 
 // A receipt issued at the counter: Job Order receipt, or Sales Invoice
@@ -57,6 +79,25 @@ model Sale {
   billedToAddress String?
   billedToTin     String?
 
+  // — cancelled / voided / replaced (docs/sales.txt §5) —
+  // NOT a soft delete: the row stays, keeps its serial number, and simply
+  // stops counting as revenue. deletedAt hides a receipt; voidedAt accounts
+  // for it. The booklet number is never reissued either way.
+  voidType   ReceiptVoidType?
+  voidReason String?
+  voidedAt   DateTime?
+  voidedById String?
+  // The supervisor who approved the cancellation — §5.1 step 6 wants the
+  // issuer (createdBy) and an approver both named on it.
+  voidedBy   User?            @relation("SaleVoidedBy", fields: [voidedById], references: [id])
+
+  // REPLACED only: written on the spoiled receipt, pointing at the one issued
+  // in its place (§5.1 step 3). `replaces` is the same link read backwards —
+  // newReceipt.replaces is the receipt it superseded.
+  replacedById String? @unique
+  replacedBy   Sale?   @relation("SaleReplacement", fields: [replacedById], references: [id])
+  replaces     Sale?   @relation("SaleReplacement")
+
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -66,6 +107,8 @@ model Sale {
 
   auditEntries  AuditEntry[]
   crAllocations CrAllocation[]
+  // Split tender: one row per method. See receipt-payment.prisma.
+  payments      ReceiptPayment[]
 
   @@index([customerId])
   @@index([saleDate])
@@ -74,4 +117,6 @@ model Sale {
   @@index([bookletId])
   @@index([createdById])
   @@index([jobOrderId])
+  // The cancellation log (§5.1 step 5) is a scan of this index.
+  @@index([voidedAt])
 }

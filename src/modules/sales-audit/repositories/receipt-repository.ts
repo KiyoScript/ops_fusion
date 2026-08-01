@@ -4,6 +4,8 @@ import type {
   AuditEntryStatus,
   AuditFlagType,
   PaymentMethod,
+  PaymentStatus,
+  ReceiptVoidType,
   SaleType,
 } from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
@@ -22,6 +24,13 @@ const latestAudit = {
   take: 1,
 } satisfies Prisma.Sale$auditEntriesArgs;
 
+// Split-tender lines ride along with every receipt row: a receipt paid two
+// ways is not readable from the header alone.
+const paymentLines = {
+  select: { method: true, amount: true, reference: true },
+  orderBy: { seq: "asc" },
+} satisfies Prisma.Sale$paymentsArgs;
+
 const saleSelect = {
   id: true,
   documentNo: true,
@@ -30,6 +39,7 @@ const saleSelect = {
   vatableSales: true,
   vatAmount: true,
   amountPaid: true,
+  paymentStatus: true,
   cashTendered: true,
   changeGiven: true,
   paymentMethod: true,
@@ -40,6 +50,15 @@ const saleSelect = {
   jobOrder: { select: { joNumber: true } },
   createdBy: { select: { name: true } },
   auditEntries: latestAudit,
+  payments: paymentLines,
+  // A cancelled receipt still shows in every list — it has to, so all 50
+  // leaves of the booklet can be accounted for (docs/sales.txt §4).
+  voidType: true,
+  voidReason: true,
+  voidedAt: true,
+  voidedBy: { select: { name: true } },
+  replacedBy: { select: { documentNo: true } },
+  replaces: { select: { documentNo: true } },
 } satisfies Prisma.SaleSelect;
 
 const crSelect = {
@@ -64,6 +83,13 @@ const crSelect = {
     orderBy: { auditedAt: "desc" },
     take: 1,
   },
+  payments: paymentLines,
+  voidType: true,
+  voidReason: true,
+  voidedAt: true,
+  voidedBy: { select: { name: true } },
+  replacedBy: { select: { crNumber: true } },
+  replaces: { select: { crNumber: true } },
 } satisfies Prisma.CollectionReceiptSelect;
 
 const joForReceiptSelect = {
@@ -90,6 +116,14 @@ export type JoForReceiptRecord = Prisma.JobOrderGetPayload<{
   select: typeof joForReceiptSelect;
 }>;
 
+/** One tender line, ready to insert. `seq` is the counter's entry order. */
+export type PaymentLineCreateData = {
+  method: PaymentMethod;
+  amount: string;
+  reference: string | null;
+  seq: number;
+};
+
 /** Money crosses this boundary as a string — Decimal(12,2), never a float. */
 export type SaleCreateData = {
   documentNo: string;
@@ -102,15 +136,19 @@ export type SaleCreateData = {
   vatableSales: string;
   vatAmount: string;
   amountPaid: string;
+  paymentStatus: PaymentStatus;
   cashTendered: string | null;
   changeGiven: string;
-  paymentMethod: PaymentMethod;
+  /** Null on a pure credit sale — no money changed hands to have a method. */
+  paymentMethod: PaymentMethod | null;
   methodDetail: string | null;
   billedToName: string | null;
   billedToAddress: string | null;
   billedToTin: string | null;
   notes: string | null;
   createdById: string;
+  /** Split tender — always at least one line, summing to `amount`. */
+  payments: PaymentLineCreateData[];
 };
 
 export type CrCreateData = {
@@ -129,6 +167,8 @@ export type CrCreateData = {
   receivedAt: Date;
   notes: string | null;
   createdById: string;
+  /** Split tender — always at least one line, summing to `amount`. */
+  payments: PaymentLineCreateData[];
 };
 
 export type AuditCreateData = {
@@ -141,6 +181,26 @@ export type AuditCreateData = {
 };
 
 export type ReceiptDayFilter = { from: Date; to: Date; q?: string };
+
+/** The mark written on a spoiled receipt, plus who signed it off. */
+export type VoidMarkData = {
+  type: ReceiptVoidType;
+  reason: string;
+  voidedById: string;
+  /** Set only when a replacement was issued in the same transaction. */
+  replacedById?: string;
+};
+
+/** A receipt as the void/replace flow needs to see it, either ledger. */
+export type ReceiptForVoidRecord = {
+  id: string;
+  documentNo: string;
+  jobOrderId: string | null;
+  customerId: string;
+  amount: string;
+  voidedAt: Date | null;
+  createdById: string;
+};
 
 export interface IReceiptRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T>;
@@ -158,6 +218,11 @@ export interface IReceiptRepository {
   findSale(id: string): Promise<{ id: string } | null>;
   findCr(id: string): Promise<{ id: string } | null>;
   createAuditEntry(data: AuditCreateData): Promise<{ id: string }>;
+  /** The receipt about to be cancelled — either ledger, same shape. */
+  findSaleForVoid(id: string): Promise<ReceiptForVoidRecord | null>;
+  findCrForVoid(id: string): Promise<ReceiptForVoidRecord | null>;
+  markSaleVoid(id: string, data: VoidMarkData, tx: DbTx): Promise<void>;
+  markCrVoid(id: string, data: VoidMarkData, tx: DbTx): Promise<void>;
 }
 
 export class PrismaReceiptRepository implements IReceiptRepository {
@@ -173,11 +238,19 @@ export class PrismaReceiptRepository implements IReceiptRepository {
   }
 
   async createSale(data: SaleCreateData, tx: DbTx): Promise<{ id: string }> {
-    return tx.sale.create({ data, select: { id: true } });
+    const { payments, ...header } = data;
+    return tx.sale.create({
+      data: { ...header, payments: { create: payments } },
+      select: { id: true },
+    });
   }
 
   async createCr(data: CrCreateData, tx: DbTx): Promise<{ id: string }> {
-    return tx.collectionReceipt.create({ data, select: { id: true } });
+    const { payments, ...header } = data;
+    return tx.collectionReceipt.create({
+      data: { ...header, payments: { create: payments } },
+      select: { id: true },
+    });
   }
 
   async listByJobOrder(
@@ -255,5 +328,63 @@ export class PrismaReceiptRepository implements IReceiptRepository {
 
   async createAuditEntry(data: AuditCreateData): Promise<{ id: string }> {
     return prisma.auditEntry.create({ data, select: { id: true } });
+  }
+
+  async findSaleForVoid(id: string): Promise<ReceiptForVoidRecord | null> {
+    const s = await prisma.sale.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        documentNo: true,
+        jobOrderId: true,
+        customerId: true,
+        amount: true,
+        voidedAt: true,
+        createdById: true,
+      },
+    });
+    return s && { ...s, amount: s.amount.toString() };
+  }
+
+  async findCrForVoid(id: string): Promise<ReceiptForVoidRecord | null> {
+    const c = await prisma.collectionReceipt.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        crNumber: true,
+        jobOrderId: true,
+        customerId: true,
+        amount: true,
+        voidedAt: true,
+        createdById: true,
+      },
+    });
+    return c && { ...c, documentNo: c.crNumber, amount: c.amount.toString() };
+  }
+
+  async markSaleVoid(id: string, data: VoidMarkData, tx: DbTx): Promise<void> {
+    await tx.sale.update({
+      where: { id },
+      data: {
+        voidType: data.type,
+        voidReason: data.reason,
+        voidedAt: new Date(),
+        voidedById: data.voidedById,
+        replacedById: data.replacedById ?? null,
+      },
+    });
+  }
+
+  async markCrVoid(id: string, data: VoidMarkData, tx: DbTx): Promise<void> {
+    await tx.collectionReceipt.update({
+      where: { id },
+      data: {
+        voidType: data.type,
+        voidReason: data.reason,
+        voidedAt: new Date(),
+        voidedById: data.voidedById,
+        replacedById: data.replacedById ?? null,
+      },
+    });
   }
 }
