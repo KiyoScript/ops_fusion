@@ -48,15 +48,23 @@ type FormState = {
   possibleOffcut: boolean;
   openingQty: string;
   notes: string;
+  unitOther: boolean; // UI flag: unit is a free-typed value, not a preset
 };
 
 const NO_SUPPLIER = "__none__";
+const NEW_PREFIX = "__new_prefix__";
+const UNIT_OTHER = "__other__";
+// Common stock units for the shop; anything else → "Other…" (free text).
+const UNIT_PRESETS = [
+  "pc", "sheet", "ream", "roll", "bottle", "can", "pack",
+  "box", "set", "meter", "sqft", "kg", "liter", "bundle",
+];
 
 const empty: FormState = {
   code: "", name: "", category: "", location: "", area: "",
   unit: "pc", packSize: "0", unitCost: "0", unitPrice: "",
   reorderLevel: "0", supplierId: NO_SUPPLIER, status: "ACTIVE",
-  possibleOffcut: false, openingQty: "0", notes: "",
+  possibleOffcut: false, openingQty: "0", notes: "", unitOther: false,
 };
 
 function fromMaterial(m: MaterialDto): FormState {
@@ -76,6 +84,7 @@ function fromMaterial(m: MaterialDto): FormState {
     possibleOffcut: m.possibleOffcut,
     openingQty: "0",
     notes: m.notes ?? "",
+    unitOther: !UNIT_PRESETS.includes(m.unit),
   };
 }
 
@@ -92,6 +101,9 @@ export function MaterialFormDialog({
   const invalidate = useInvalidateInventory();
   const options = useMaterialOptions(open);
   const [form, setForm] = useState<FormState>(empty);
+  const [prefixSel, setPrefixSel] = useState(""); // chosen prefix in the dropdown
+  const [addingPrefix, setAddingPrefix] = useState(false);
+  const [newPrefix, setNewPrefix] = useState("");
   const [pending, startTransition] = useTransition();
   const isEdit = !!material;
 
@@ -101,7 +113,12 @@ export function MaterialFormDialog({
   const [syncedKey, setSyncedKey] = useState(formKey);
   if (formKey !== syncedKey) {
     setSyncedKey(formKey);
-    if (open) setForm(material ? fromMaterial(material) : empty);
+    if (open) {
+      setForm(material ? fromMaterial(material) : empty);
+      setPrefixSel("");
+      setAddingPrefix(false);
+      setNewPrefix("");
+    }
   }
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -173,20 +190,80 @@ export function MaterialFormDialog({
                 value={form.code}
                 onChange={(e) => set("code", e.target.value.toUpperCase())}
                 placeholder="PAP-001"
+                readOnly={isEdit}
+                aria-readonly={isEdit}
+                className={isEdit ? "cursor-not-allowed bg-muted font-mono text-muted-foreground" : "font-mono"}
               />
-              {!isEdit && (options.data?.prefixes.length ?? 0) > 0 && (
-                <div className="flex flex-wrap gap-1 pt-0.5">
-                  {options.data!.prefixes.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => suggestFor(p)}
-                      className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted"
-                    >
-                      {p}-…
-                    </button>
-                  ))}
+              {!isEdit && (
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <Select
+                    value={prefixSel}
+                    onValueChange={(v) => {
+                      if (!v) return;
+                      if (v === NEW_PREFIX) {
+                        setAddingPrefix(true);
+                        setPrefixSel("");
+                        return;
+                      }
+                      setAddingPrefix(false);
+                      setPrefixSel(v);
+                      suggestFor(v);
+                    }}
+                  >
+                    <SelectTrigger className="h-7 w-44 text-xs" aria-label="Code prefix">
+                      <SelectValue>
+                        {(v) => (v && v !== NEW_PREFIX ? `${v}-…` : "Pick a prefix…")}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(options.data?.prefixes ?? []).map((p) => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                      <SelectItem value={NEW_PREFIX}>＋ New prefix…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {addingPrefix && (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        autoFocus
+                        value={newPrefix}
+                        onChange={(e) => setNewPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && newPrefix.trim()) {
+                            e.preventDefault();
+                            suggestFor(newPrefix.trim());
+                            setPrefixSel(newPrefix.trim());
+                            setAddingPrefix(false);
+                            setNewPrefix("");
+                          }
+                        }}
+                        placeholder="New prefix"
+                        className="h-7 w-24 text-xs"
+                        aria-label="New code prefix"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        disabled={!newPrefix.trim()}
+                        onClick={() => {
+                          suggestFor(newPrefix.trim());
+                          setPrefixSel(newPrefix.trim());
+                          setAddingPrefix(false);
+                          setNewPrefix("");
+                        }}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  )}
                 </div>
+              )}
+              {isEdit && (
+                <p className="text-xs text-muted-foreground">
+                  Item code is permanent — it can’t be changed.
+                </p>
               )}
             </div>
             <div className="grid gap-1.5">
@@ -218,7 +295,34 @@ export function MaterialFormDialog({
           <div className="grid gap-2 sm:grid-cols-3">
             <div className="grid gap-1.5">
               <Label htmlFor="mf-unit">Unit (stock)</Label>
-              <Input id="mf-unit" value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="pc / sheet / ream" />
+              <Select
+                value={form.unitOther ? UNIT_OTHER : form.unit}
+                onValueChange={(v) => {
+                  if (v === UNIT_OTHER) setForm((f) => ({ ...f, unitOther: true, unit: "" }));
+                  else setForm((f) => ({ ...f, unitOther: false, unit: v ?? "pc" }));
+                }}
+              >
+                <SelectTrigger id="mf-unit" className="w-full">
+                  <SelectValue>
+                    {(v) => (v === UNIT_OTHER ? "Other…" : ((v as string) || "pc"))}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {UNIT_PRESETS.map((u) => (
+                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                  ))}
+                  <SelectItem value={UNIT_OTHER}>Other…</SelectItem>
+                </SelectContent>
+              </Select>
+              {form.unitOther && (
+                <Input
+                  value={form.unit}
+                  onChange={(e) => set("unit", e.target.value)}
+                  placeholder="Type unit (e.g. gallon)"
+                  className="mt-1"
+                  aria-label="Custom unit"
+                />
+              )}
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="mf-pack">Pack size (pcs/bundle)</Label>
@@ -239,10 +343,21 @@ export function MaterialFormDialog({
               <Label htmlFor="mf-price">Price (per bundle)</Label>
               <Input id="mf-price" inputMode="decimal" value={form.unitPrice} onChange={(e) => set("unitPrice", sanitizeDecimal(e.target.value))} className="text-right tabular-nums" placeholder="optional" />
             </div>
-            {!isEdit && (
+            {!isEdit ? (
               <div className="grid gap-1.5">
                 <Label htmlFor="mf-opening">Opening stock (pcs)</Label>
                 <Input id="mf-opening" inputMode="numeric" value={form.openingQty} onChange={(e) => set("openingQty", sanitizeInteger(e.target.value))} className="text-right tabular-nums" />
+              </div>
+            ) : (
+              <div className="grid gap-1.5">
+                <Label>On hand (pcs)</Label>
+                <div
+                  className="flex h-9 items-center justify-end rounded-md border bg-muted px-3 text-sm tabular-nums text-muted-foreground"
+                  aria-readonly
+                >
+                  {(material?.onHand ?? 0).toLocaleString()} {material?.unit}
+                </div>
+                <p className="text-xs text-muted-foreground">Change stock via an adjustment.</p>
               </div>
             )}
           </div>
@@ -252,7 +367,13 @@ export function MaterialFormDialog({
               <Label htmlFor="mf-supplier">Supplier</Label>
               <Select value={form.supplierId} onValueChange={(v) => set("supplierId", v ?? NO_SUPPLIER)}>
                 <SelectTrigger id="mf-supplier" className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(v) =>
+                      v === NO_SUPPLIER || !v
+                        ? "— none —"
+                        : (options.data?.suppliers.find((s) => s.id === v)?.name ?? "…")
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NO_SUPPLIER}>— none —</SelectItem>

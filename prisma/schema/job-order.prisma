@@ -65,6 +65,7 @@ model JobOrder {
   collectionReceipts CollectionReceipt[]
   deliveryReceipts   DeliveryReceipt[]
   apApplications     AdvancePaymentApplication[]
+  materialRequests   MaterialRequest[]
 
   @@index([customerId])
   @@index([status])

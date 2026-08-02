@@ -57,6 +57,11 @@ model User {
   stockAdjustmentsDecided   StockAdjustment[]  @relation("AdjDecidedBy")
   cycleCountsCounted        CycleCount[]       @relation("CycleCountedBy")
   cycleCountsApproved       CycleCount[]       @relation("CycleApprovedBy")
+
+  // Material Requests
+  materialRequestsRequested MaterialRequest[] @relation("MrRequestedBy")
+  materialRequestsDecided   MaterialRequest[] @relation("MrDecidedBy")
+  materialRequestsReleased  MaterialRequest[] @relation("MrReleasedBy")
 }
 
 // Auth.js OAuth account linking (Google)

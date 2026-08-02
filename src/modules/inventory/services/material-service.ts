@@ -144,17 +144,15 @@ export class MaterialService {
     const { id, ...rest } = input;
     const existing = await this.materials.findById(id);
     if (!existing) throw new NotFoundError("Item not found.");
-    const code = rest.code.trim();
-    if (await this.materials.codeExists(code, id)) {
-      throw new ConflictError(`Item code "${code}" already exists.`);
-    }
     if (rest.supplierId && !(await this.suppliers.findById(rest.supplierId))) {
       throw new ValidationError("Selected supplier no longer exists.");
     }
 
-    // openingQty is a create-only convenience; edits never re-open stock, so
-    // the repo simply ignores it (MaterialWrite omits it).
-    const write = { ...rest, code };
+    // Item code is the item's IDENTITY — it is never changed on update. The
+    // form shows it read-only; we also pin it to the stored value here so a
+    // crafted payload can't rename an item and orphan its ledger history.
+    // (openingQty is a create-only convenience; the repo's MaterialWrite omits it.)
+    const write = { ...rest, code: existing.code };
     await this.materials.withTransaction(async (tx) => {
       await this.materials.update(id, write, tx);
       await this.activity.log(
@@ -163,7 +161,7 @@ export class MaterialService {
           entityType: "Material",
           entityId: id,
           action: "update",
-          payload: { code, name: write.name },
+          payload: { code: existing.code, name: write.name },
         },
         tx
       );

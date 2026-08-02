@@ -18,6 +18,7 @@ export type AppAction =
   | "issue" // issue a delivery receipt
   | "audit" // auditor's sign-off on a receipt (legacy verified_by)
   | "void" // cancel / void / replace an issued receipt (docs/sales.txt §5)
+  | "release" // issue stock against an approved Material Request
   | "maintain";
 
 export type AppSubject =
@@ -43,6 +44,7 @@ export type AppSubject =
   | "StockLedger" // the append-only stock movement log (read-only view)
   | "StockAdjustment" // manual stock corrections (request → approve → post)
   | "CycleCount" // physical counts → variance → post
+  | "MaterialRequest" // issue stock to a JO (submit → approve → release)
   // ——— System administration ———
   | "ModuleFlag" // enable/disable feature modules — admin only (manage-all)
   | never;

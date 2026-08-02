@@ -23,12 +23,12 @@ model ReceiptPayment {
   collectionReceiptId String?
   collectionReceipt   CollectionReceipt? @relation(fields: [collectionReceiptId], references: [id], onDelete: Cascade)
 
-  method PaymentMethod
-  amount Decimal       @db.Decimal(12, 2)
+  method    PaymentMethod
+  amount    Decimal       @db.Decimal(12, 2)
   /// Cheque no. / GCash reference for THIS line — a split can carry several.
   reference String?
   /// Order as entered at the counter, so the receipt reprints identically.
-  seq Int @default(0)
+  seq       Int           @default(0)
 
   createdAt DateTime @default(now())
 

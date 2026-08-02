@@ -19,6 +19,11 @@ import type {
   CycleCountDetailDto,
   CycleCountListPageDto,
 } from "../schemas/stock";
+import type {
+  DuplicateJoHintDto,
+  MrDetailDto,
+  MrListPageDto,
+} from "../schemas/material-request";
 
 const KEY = "inventory";
 
@@ -160,6 +165,60 @@ export function useSuppliers(filters: { q?: string; includeInactive?: boolean })
       if (filters.includeInactive) search.set("includeInactive", "true");
       return fetchJson<SupplierDto[]>(`/api/inventory/suppliers?${search}`);
     },
+  });
+}
+
+// ——— Material Requests ———
+
+export function useMaterialRequests(filters: { q?: string; status?: string }) {
+  return useInfiniteQuery({
+    queryKey: [KEY, "material-requests", filters],
+    queryFn: ({ pageParam }) => {
+      const search = new URLSearchParams();
+      if (filters.q) search.set("q", filters.q);
+      if (filters.status) search.set("status", filters.status);
+      if (pageParam) search.set("cursor", pageParam);
+      return fetchJson<MrListPageDto>(`/api/inventory/material-requests?${search}`);
+    },
+    initialPageParam: "",
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+export function useMaterialRequestDetail(id: string | null) {
+  return useQuery({
+    queryKey: [KEY, "material-request", id],
+    queryFn: () => fetchJson<MrDetailDto>(`/api/inventory/material-requests/${id}`),
+    enabled: id !== null,
+    staleTime: 0,
+  });
+}
+
+export function useDuplicateJoHint(jobOrderId: string | null) {
+  return useQuery({
+    queryKey: [KEY, "mr-dup-hint", jobOrderId],
+    queryFn: () =>
+      fetchJson<DuplicateJoHintDto>(
+        `/api/inventory/material-requests/dup-hint?jobOrderId=${encodeURIComponent(jobOrderId!)}`
+      ),
+    enabled: jobOrderId !== null,
+    staleTime: 0,
+  });
+}
+
+/** Job Order type-ahead for the MR form — reuses the JO list endpoint. */
+export function useJobOrderSearch(q: string, enabled = true) {
+  return useQuery({
+    queryKey: [KEY, "jo-search", q],
+    queryFn: () => {
+      const search = new URLSearchParams({ take: "20" });
+      if (q) search.set("q", q);
+      return fetchJson<{ rows: { id: string; joNumber: string; customerName: string }[] }>(
+        `/api/job-orders?${search}`
+      ).then((p) => p.rows);
+    },
+    enabled,
+    staleTime: 10_000,
   });
 }
 

@@ -18,6 +18,9 @@ export default async function InventoryPage() {
         canMaintainMaterial={ability.can("maintain", "Material")}
         canCreateStockOps={ability.can("create", "StockAdjustment")}
         canApprove={ability.can("approve", "StockAdjustment")}
+        canCreateMr={ability.can("create", "MaterialRequest")}
+        canApproveMr={ability.can("approve", "MaterialRequest")}
+        canReleaseMr={ability.can("release", "MaterialRequest")}
       />
     </>
   );

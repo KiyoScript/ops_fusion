@@ -50,37 +50,38 @@ enum MaterialStatus {
 }
 
 model Material {
-  id           String         @id @default(cuid())
+  id             String         @id @default(cuid())
   // Item code carries a PREFIX (category grouping) + running number, e.g.
   // "PAP-001", "INK-012". Free-form as entered, unique-validated.
-  code         String         @unique
-  name         String
-  category     String? // what the prefix means (Paper, Ink, …)
-  location     String? // storeroom / shelf
-  area         String? // sub-location / bin
-  unit         String         @default("pc") // stocking UoM label
+  code           String         @unique
+  name           String
+  category       String? // what the prefix means (Paper, Ink, …)
+  location       String? // storeroom / shelf
+  area           String? // sub-location / bin
+  unit           String         @default("pc") // stocking UoM label
   // pcs per bundle; 0 ⇒ by-piece (×1). Bridges bundle-priced buying to
   // piece-tracked stock — the ONLY place the two units meet.
-  packSize     Int            @default(0)
-  unitCost     Decimal        @db.Decimal(12, 4) // cost per PIECE
-  unitPrice    Decimal?       @db.Decimal(12, 2) // price per BUNDLE (optional)
-  reorderLevel Int            @default(0) // in pcs; 0 ⇒ no alert
-  status       MaterialStatus @default(ACTIVE)
+  packSize       Int            @default(0)
+  unitCost       Decimal        @db.Decimal(12, 4) // cost per PIECE
+  unitPrice      Decimal?       @db.Decimal(12, 2) // price per BUNDLE (optional)
+  reorderLevel   Int            @default(0) // in pcs; 0 ⇒ no alert
+  status         MaterialStatus @default(ACTIVE)
   // Legacy AllItems flag: material can yield reusable offcuts (LFP roll stock).
   // Dormant here; the LFP module will consume it.
-  possibleOffcut Boolean      @default(false)
-  notes        String?
-  supplierId   String?
-  supplier     Supplier?      @relation(fields: [supplierId], references: [id])
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  deletedAt    DateTime?
-  createdById  String
-  createdBy    User           @relation("MaterialCreatedBy", fields: [createdById], references: [id])
+  possibleOffcut Boolean        @default(false)
+  notes          String?
+  supplierId     String?
+  supplier       Supplier?      @relation(fields: [supplierId], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+  createdById    String
+  createdBy      User           @relation("MaterialCreatedBy", fields: [createdById], references: [id])
 
-  ledgerEntries   StockLedgerEntry[]
-  adjustmentLines StockAdjustmentLine[]
-  cycleCountLines CycleCountLine[]
+  ledgerEntries        StockLedgerEntry[]
+  adjustmentLines      StockAdjustmentLine[]
+  cycleCountLines      CycleCountLine[]
+  materialRequestLines MaterialRequestLine[]
 
   @@index([code])
   @@index([category])
