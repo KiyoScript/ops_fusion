@@ -443,6 +443,22 @@ export const collectFromCustomerInput = z.object({
   issueDocument: z.boolean().optional(),
   receivedAt: z.string().optional(),
   notes: z.string().trim().max(2000).optional(),
+
+  /**
+   * Reissue a spoiled Collection Receipt (docs/sales.txt §5.1). The old one is
+   * marked REPLACED and this one issued in the SAME transaction, with the two
+   * serials written on each other — neither may exist alone.
+   */
+  replaces: z
+    .object({
+      receiptId: z.string().min(1),
+      reason: z
+        .string()
+        .trim()
+        .min(3, "Write the reason for the replacement.")
+        .max(500),
+    })
+    .optional(),
 });
 
 export type CollectFromCustomerInput = z.infer<typeof collectFromCustomerInput>;
@@ -491,6 +507,8 @@ export type CollectResultDto = {
   creditCreated: string;
   /** Invoices this payment closed outright. */
   invoicesClosed: number;
+  /** The serial this one supersedes, when it was issued as a replacement. */
+  replacedDocumentNo: string | null;
 };
 
 /**

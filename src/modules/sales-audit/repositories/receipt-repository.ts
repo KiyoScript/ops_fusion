@@ -328,6 +328,14 @@ export interface IReceiptRepository {
 
   /** How many live collections have been applied to this invoice. */
   countAllocationsForSale(saleId: string): Promise<number>;
+
+  /**
+   * What one collection paid down. Needed when planning its REPLACEMENT: the
+   * old allocations are still in place while the new payment is being worked
+   * out, so the invoices look more settled than they are about to be, and the
+   * replacement would be capped too low.
+   */
+  listAllocations(crId: string): Promise<{ saleId: string; amount: string }[]>;
 }
 
 export class PrismaReceiptRepository implements IReceiptRepository {
@@ -634,6 +642,16 @@ export class PrismaReceiptRepository implements IReceiptRepository {
     // The allocation rows go with the cancellation: the CR itself survives
     // (struck through, serial intact) but it no longer pays for anything.
     await tx.crAllocation.deleteMany({ where: { crId } });
+  }
+
+  async listAllocations(
+    crId: string
+  ): Promise<{ saleId: string; amount: string }[]> {
+    const rows = await prisma.crAllocation.findMany({
+      where: { crId },
+      select: { saleId: true, amount: true },
+    });
+    return rows.map((r) => ({ saleId: r.saleId, amount: r.amount.toString() }));
   }
 
   async countAllocationsForSale(saleId: string): Promise<number> {

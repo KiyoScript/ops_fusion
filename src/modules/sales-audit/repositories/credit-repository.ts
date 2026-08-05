@@ -24,6 +24,7 @@ export type CreditRecord = {
   status: AdvancePaymentStatus;
   /** The collection whose excess created it — null for a plain advance. */
   sourceDocumentNo: string | null;
+  sourceCollectionReceiptId: string | null;
 };
 
 export type CreditCreateData = {
@@ -97,6 +98,7 @@ const creditSelect = {
   receivedAt: true,
   status: true,
   applications: { select: { amount: true } },
+  sourceCollectionReceiptId: true,
   sourceCollectionReceipt: { select: { crNumber: true } },
 };
 
@@ -108,6 +110,7 @@ type CreditRow = {
   receivedAt: Date;
   status: AdvancePaymentStatus;
   applications: { amount: unknown }[];
+  sourceCollectionReceiptId: string | null;
   sourceCollectionReceipt: { crNumber: string | null } | null;
 };
 
@@ -121,6 +124,7 @@ const toRecord = (c: CreditRow): CreditRecord => ({
   receivedAt: c.receivedAt,
   status: c.status,
   sourceDocumentNo: c.sourceCollectionReceipt?.crNumber ?? null,
+  sourceCollectionReceiptId: c.sourceCollectionReceiptId,
 });
 
 export class PrismaCreditRepository implements ICreditRepository {

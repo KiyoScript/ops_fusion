@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftIcon, HandCoinsIcon } from "lucide-react";
+import { ArrowLeftIcon, BanIcon, HandCoinsIcon, RefreshCwIcon } from "lucide-react";
 import { fetchJson } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,8 +16,10 @@ import {
   VOID_TYPE_LABEL,
   type AgingBucket,
   type CustomerAccountDto,
+  type CustomerPaymentDto,
 } from "../schemas/receipt";
 import { CollectPaymentDialog } from "./collect-payment-dialog";
+import { VoidReceiptDialog, type VoidTarget } from "./void-receipt-dialog";
 
 const peso = (v: string) =>
   `₱${parseFloat(v || "0").toLocaleString("en-PH", {
@@ -56,8 +58,17 @@ const CREDIT_STATUS_LABEL = {
  * shop and money the shop is holding are opposite signs, and folding them into
  * a single figure hides both.
  */
-export function CustomerAccountView({ customerId }: { customerId: string }) {
+export function CustomerAccountView({
+  customerId,
+  canVoid = false,
+}: {
+  customerId: string;
+  /** Cancelling a receipt takes a supervisor — docs/sales.txt §5.1 step 6. */
+  canVoid?: boolean;
+}) {
   const [collecting, setCollecting] = useState(false);
+  const [voiding, setVoiding] = useState<VoidTarget | null>(null);
+  const [replacing, setReplacing] = useState<CustomerPaymentDto | null>(null);
 
   const account = useQuery({
     queryKey: ["receivables", "account", customerId],
@@ -260,7 +271,14 @@ export function CustomerAccountView({ customerId }: { customerId: string }) {
           />
         ) : (
           <Table
-            head={["Receipt", "Date", "Method", "Received", "Applied to"]}
+            head={[
+              "Receipt",
+              "Date",
+              "Method",
+              "Received",
+              "Applied to",
+              canVoid ? "" : "",
+            ]}
             alignRight={[3]}
           >
             {a.payments.map((p) => {
@@ -344,6 +362,38 @@ export function CustomerAccountView({ customerId }: { customerId: string }) {
                       )}
                     </span>
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    {/* A cancelled payment is already marked; there is nothing
+                        left to do to it. §5.1 step 6 wants a supervisor. */}
+                    {!isVoid && canVoid && (
+                      <span className="flex justify-end gap-1">
+                        {p.documentIssued && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setReplacing(p)}
+                          >
+                            <RefreshCwIcon /> Replace
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setVoiding({
+                              id: p.id,
+                              kind: "COLLECTION",
+                              documentNo: p.documentNo,
+                              kindLabel: "Collection Receipt",
+                              amount: peso(p.amount),
+                            })
+                          }
+                        >
+                          <BanIcon /> Cancel
+                        </Button>
+                      </span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -355,6 +405,20 @@ export function CustomerAccountView({ customerId }: { customerId: string }) {
         customerId={collecting ? customerId : null}
         onClose={() => setCollecting(false)}
       />
+      <CollectPaymentDialog
+        customerId={replacing ? customerId : null}
+        replaces={
+          replacing && replacing.documentNo
+            ? {
+                id: replacing.id,
+                documentNo: replacing.documentNo,
+                amount: replacing.amount,
+              }
+            : null
+        }
+        onClose={() => setReplacing(null)}
+      />
+      <VoidReceiptDialog receipt={voiding} onClose={() => setVoiding(null)} />
     </div>
   );
 }

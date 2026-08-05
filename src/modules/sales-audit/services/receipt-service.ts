@@ -713,10 +713,20 @@ export class ReceiptService {
   ): Promise<CollectResultDto> {
     assertCan(actor, "create", "Sale");
 
+    // A replacement supersedes a spoiled receipt: the old one is voided and
+    // the corrected one issued in the SAME transaction, so §5.1 step 3's pair
+    // of cross-referenced serials can never be left half-written.
+    const supersedes = input.replaces
+      ? await this.loadForReplacement(actor, input.replaces.receiptId)
+      : null;
+
     const customer = await this.customers.findById(input.customerId);
     if (!customer) throw new NotFoundError("Customer not found.");
 
-    const open = await this.openInvoicesFor(input.customerId);
+    const open = await this.openInvoicesFor(
+      input.customerId,
+      supersedes?.allocations
+    );
     if (open.length === 0) {
       throw new ValidationError(
         `${customer.name} has nothing outstanding — there is no invoice for this payment to settle.`
@@ -730,7 +740,11 @@ export class ReceiptService {
     const received = lines.reduce((t, l) => t + toCentavos(l.amount), 0);
     const settled = settleTenders(lines, received);
 
-    const available = await this.credits.listOpen(input.customerId);
+    // Credit the superseded payment itself created is about to be withdrawn
+    // with it, so it is not available to fund its own replacement.
+    const available = (await this.credits.listOpen(input.customerId)).filter(
+      (c) => c.sourceCollectionReceiptId !== (supersedes?.id ?? null)
+    );
     const creditAvailable = available.reduce(
       (t, c) => t + toCentavos(c.remaining),
       0
@@ -793,6 +807,14 @@ export class ReceiptService {
       : null;
 
     const result = await this.receipts.withTransaction(async (tx) => {
+      // Undo the superseded payment FIRST so the invoices it settled are open
+      // again by the time the replacement allocates against them — otherwise
+      // the guarded UPDATE would refuse, seeing them as already paid.
+      if (supersedes) {
+        await this.receipts.reverseAllocations(supersedes.id, tx);
+        await this.credits.reverseForCollection(supersedes.id, tx);
+      }
+
       const documentNo = undocumented
         ? null
         : await this.allocateNumber(BookletType.CR, tx);
@@ -854,6 +876,19 @@ export class ReceiptService {
         );
       }
 
+      if (supersedes) {
+        await this.receipts.markCrVoid(
+          supersedes.id,
+          {
+            type: ReceiptVoidType.REPLACED,
+            reason: input.replaces!.reason.trim(),
+            voidedById: actor.id,
+            replacedById: cr.id,
+          },
+          tx
+        );
+      }
+
       return { id: cr.id, documentNo: documentNo?.value ?? null };
     });
 
@@ -866,10 +901,11 @@ export class ReceiptService {
       userId: actor.id,
       entityType: "CollectionReceipt",
       entityId: result.id,
-      action: "collect-from-customer",
+      action: supersedes ? "replace-collection" : "collect-from-customer",
       payload: {
         customer: customer.name,
         documentNo: result.documentNo ?? "(no document issued)",
+        replaces: supersedes?.documentNo ?? "",
         received: toAmount(received),
         applied: toAmount(applied),
         creditUsed: toAmount(creditApplied),
@@ -886,15 +922,63 @@ export class ReceiptService {
       creditUsed: toAmount(creditApplied),
       creditCreated: toAmount(excess),
       invoicesClosed: closed,
+      replacedDocumentNo: supersedes?.documentNo ?? null,
     };
   }
 
-  /** A customer's open invoices across every job order, oldest first. */
-  private async openInvoicesFor(customerId: string) {
+  /**
+   * The payment a replacement supersedes, with the checks that make replacing
+   * it safe at all.
+   */
+  private async loadForReplacement(actor: Actor, receiptId: string) {
+    assertCan(actor, "void", "Sale");
+
+    const old = await this.findReceipt(receiptId, true);
+    if (old.documentNo === null) {
+      // Replacing means reissuing under a NEW serial with the two written on
+      // each other. A payment with no serial has nothing to supersede.
+      throw new ValidationError(
+        "This payment was recorded without a Collection Receipt, so there is no " +
+          "document to replace. Cancel it and record the payment again."
+      );
+    }
+
+    const spent = await this.credits.spentFromCreditsCreatedBy(old.id);
+    if (spent > 0) {
+      throw new ValidationError(
+        `The credit this payment left on the account has already been spent on ${spent} later payment${spent === 1 ? "" : "s"}. Cancel those first.`
+      );
+    }
+
+    return {
+      id: old.id,
+      documentNo: old.documentNo,
+      allocations: await this.receipts.listAllocations(old.id),
+    };
+  }
+
+  /**
+   * A customer's open invoices across every job order, oldest first.
+   *
+   * `reopening` adds an about-to-be-reversed payment's allocations back onto
+   * the balances, so a replacement is measured against the debt as it will be
+   * once the old payment is withdrawn — not as it stands with that payment
+   * still counted.
+   */
+  private async openInvoicesFor(
+    customerId: string,
+    reopening?: { saleId: string; amount: string }[]
+  ) {
     const rows = await this.receipts.listReceivables(customerId);
+    const readded = new Map<string, number>();
+    for (const a of reopening ?? []) {
+      readded.set(a.saleId, (readded.get(a.saleId) ?? 0) + toCentavos(a.amount));
+    }
     return rows
       .map((r) => {
-        const openBalance = openBalanceOf(r.amount, r.amountPaid, r.settledAmount);
+        const openBalance =
+          openBalanceOf(r.amount, r.amountPaid, r.settledAmount) +
+          (readded.get(r.id) ?? 0);
         return {
           openBalance,
           dto: {

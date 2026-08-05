@@ -19,13 +19,27 @@ import { ReceiptVoidType } from "@/generated/prisma/enums";
 import {
   VOID_TYPE_HINT,
   VOID_TYPE_LABEL,
-  type ReceiptRowDto,
+  type ReceiptKind,
 } from "../schemas/receipt";
 import { useVoidReceipt } from "../hooks/use-sales-audit";
 import { OnHandCheck } from "./on-hand-check";
 
 /** CANCELLED and VOID are terminal here; REPLACED runs through Receive Payment. */
 const CHOICES = [ReceiptVoidType.CANCELLED, ReceiptVoidType.VOID] as const;
+
+/**
+ * The minimum this dialog needs to cancel something. Deliberately not
+ * ReceiptRowDto: the same action is reached from the job order's receipt list
+ * and from a customer's payment history, and those carry different shapes.
+ */
+export type VoidTarget = {
+  id: string;
+  kind: ReceiptKind;
+  /** Null for a payment recorded without a Collection Receipt. */
+  documentNo: string | null;
+  kindLabel: string;
+  amount: string;
+};
 
 /**
  * Cancel or void an issued receipt — docs/sales.txt §5.
@@ -39,7 +53,7 @@ export function VoidReceiptDialog({
   onClose,
   onVoided,
 }: {
-  receipt: ReceiptRowDto | null;
+  receipt: VoidTarget | null;
   onClose: () => void;
   onVoided?: () => void;
 }) {
@@ -63,7 +77,9 @@ export function VoidReceiptDialog({
       toast.error("Write the reason for the cancellation.");
       return;
     }
-    if (!onHand) {
+    // Only a printed receipt has paper to hold up — see the OnHandCheck below,
+    // which is not rendered at all when there is none.
+    if (receipt.documentNo && !onHand) {
       toast.error(`Confirm that ${receipt.documentNo} is on hand first.`);
       return;
     }
@@ -71,10 +87,14 @@ export function VoidReceiptDialog({
       { receiptId: receipt.id, kind: receipt.kind, type, reason },
       {
         onSuccess: (r) => {
-          toast.success(`${r.documentNo} marked ${VOID_TYPE_LABEL[type]}.`, {
-            description:
-              "The number stays in the booklet. This job order can be paid again.",
-          });
+          toast.success(
+            `${r.documentNo ?? "The payment"} marked ${VOID_TYPE_LABEL[type]}.`,
+            {
+              description: r.documentNo
+                ? "The number stays in the booklet. The balance it settled reopens."
+                : "The balance it settled reopens.",
+            }
+          );
           reset();
           onVoided?.();
         },
@@ -92,7 +112,7 @@ export function VoidReceiptDialog({
           </DialogTitle>
           <DialogDescription>
             {receipt
-              ? `${receipt.documentNo} · ${receipt.kindLabel} · ${receipt.amount}`
+              ? `${receipt.documentNo ?? "Payment"} · ${receipt.kindLabel} · ${receipt.amount}`
               : ""}
           </DialogDescription>
         </DialogHeader>

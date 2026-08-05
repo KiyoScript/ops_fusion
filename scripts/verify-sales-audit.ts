@@ -1062,6 +1062,55 @@ async function main() {
     lockedCredit.includes("already been spent"), lockedCredit);
 
   // ─────────────────────────────────────────────────────────────────────
+  console.log("\nReplacing a customer-level Collection Receipt");
+
+  const joR = await makeJo(550, "900");
+  await receipts.receivePayment(cashier, {
+    ...base, jobOrderId: joR.id, kind: "SI_CHARGE", amount: "900.00", payments: [],
+  });
+  const mistyped = await receipts.collectFromCustomer(cashier, {
+    customerId: customer.id,
+    payments: [{ method: "CASH", amount: "500.00", reference: undefined }],
+    issueDocument: true,
+  });
+
+  const fixed = await receipts.collectFromCustomer(actor, {
+    customerId: customer.id,
+    payments: [{ method: "CASH", amount: "600.00", reference: undefined }],
+    issueDocument: true,
+    replaces: { receiptId: mistyped.id, reason: "Wrong amount encoded — 600, not 500." },
+  });
+  check("the replacement reports both serials",
+    fixed.replacedDocumentNo === mistyped.documentNo, fixed.replacedDocumentNo);
+  check("…and takes the next number", fixed.documentNo !== mistyped.documentNo, fixed.documentNo);
+  check("the corrected amount is applied", fixed.applied === "600.00", fixed.applied);
+
+  const oldCr = await prisma.collectionReceipt.findUniqueOrThrow({
+    where: { id: mistyped.id },
+    include: { replacedBy: { select: { crNumber: true } }, allocations: true },
+  });
+  const newCr = await prisma.collectionReceipt.findUniqueOrThrow({
+    where: { id: fixed.id },
+    include: { replaces: { select: { crNumber: true } } },
+  });
+  check("the spoiled receipt is marked REPLACED", oldCr.voidType === "REPLACED", oldCr.voidType);
+  check("the old points at the new", oldCr.replacedBy?.crNumber === fixed.documentNo, oldCr.replacedBy?.crNumber);
+  check("the new points back at the old", newCr.replaces?.crNumber === mistyped.documentNo, newCr.replaces?.crNumber);
+  check("the superseded receipt no longer pays for anything", oldCr.allocations.length === 0, oldCr.allocations.length);
+
+  // The invoice must reflect the REPLACEMENT only — not both, and not neither.
+  const joRInvoice = await prisma.sale.findFirstOrThrow({
+    where: { jobOrder: { joNumber: `${PREFIX}JO-550` }, type: "SI_CHARGE" },
+  });
+  check("the invoice is settled by the replacement alone",
+    joRInvoice.settledAmount.toString() === "600", joRInvoice.settledAmount.toString());
+
+  // A replacement is not blocked by the debt its own predecessor was paying.
+  check("replacing did not double-count the old payment",
+    toCentavos((await receipts.getCollectOptions(cashier, customer.id)).totalOutstanding) === toCentavos("300.00"),
+    (await receipts.getCollectOptions(cashier, customer.id)).totalOutstanding);
+
+  // ─────────────────────────────────────────────────────────────────────
   console.log("\nAccounts Receivable ledger");
 
   // The collection tests above deliberately drained the account, so give the

@@ -25,6 +25,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ColorBadge } from "@/components/color-badge";
 import { ErrorState } from "@/components/data-states";
+import { OnHandCheck } from "./on-hand-check";
 import { sanitizeDecimal } from "@/lib/form-numeric";
 import { cn } from "@/lib/utils";
 import { PaymentMethod } from "@/generated/prisma/enums";
@@ -80,9 +81,12 @@ const newLine = (method: PaymentMethod = PaymentMethod.CASH): Line => ({
  */
 export function CollectPaymentDialog({
   customerId,
+  replaces,
   onClose,
 }: {
   customerId: string | null;
+  /** Reissuing a spoiled Collection Receipt — §5.1: void and reissue together. */
+  replaces?: { id: string; documentNo: string; amount: string } | null;
   onClose: () => void;
 }) {
   const options = useCollectOptions(customerId);
@@ -93,6 +97,8 @@ export function CollectPaymentDialog({
   const [creditToApply, setCreditToApply] = useState("");
   const [notes, setNotes] = useState("");
   const [issueDocument, setIssueDocument] = useState(true);
+  const [replaceReason, setReplaceReason] = useState("");
+  const [replaceOnHand, setReplaceOnHand] = useState(false);
   /** Rows the cashier has typed into — null until they take over. */
   const [manual, setManual] = useState<Record<string, string> | null>(null);
 
@@ -101,11 +107,15 @@ export function CollectPaymentDialog({
     setCreditToApply("");
     setNotes("");
     setIssueDocument(true);
+    setReplaceReason("");
+    setReplaceOnHand(false);
     setManual(null);
     onClose();
   };
 
   const received = lines.reduce((t, l) => t + num(l.amount), 0);
+  // No active booklet means no receipt can be printed, whatever the tick says.
+  const willPrint = issueDocument && (data?.nextCrNumber ?? null) !== null;
   const creditAvailable = num(data?.creditAvailable ?? "0");
   const creditUsed = Math.min(num(creditToApply), creditAvailable);
   const pool = received + creditUsed;
@@ -173,12 +183,14 @@ export function CollectPaymentDialog({
         return `${peso(appliedFor(inv.id) / 100)} applied to ${inv.documentNo}, which only has ${peso(num(inv.openBalance))} outstanding.`;
       }
     }
-    if (cent(received) === 0 && issueDocument)
+    if (cent(received) === 0 && willPrint)
       return "This payment is funded entirely by credit, so no money is received. Untick the Collection Receipt.";
     if (creditUsed > 0 && toCredit > 0)
       return `This spends ${peso(creditUsed)} of credit and would leave ${peso(toCredit / 100)} back on the account. Apply only what the invoices need.`;
-    if (issueDocument && !data.nextCrNumber)
-      return "No active Collection Receipt booklet. Register and approve one under Sales Audit Maintenance.";
+    if (replaces && replaceReason.trim().length < 3)
+      return "Write the reason for the replacement.";
+    if (replaces && !replaceOnHand)
+      return `Confirm that ${replaces.documentNo} is on hand before reissuing it.`;
     return null;
   };
 
@@ -210,13 +222,20 @@ export function CollectPaymentDialog({
                 amount: (appliedFor(inv.id) / 100).toFixed(2),
               }))
           : undefined,
-        issueDocument,
+        issueDocument: willPrint,
         notes: notes.trim() || undefined,
+        replaces: replaces
+          ? { receiptId: replaces.id, reason: replaceReason }
+          : undefined,
       },
       {
         onSuccess: (r) => {
           const bits = [
-            r.documentNo ? `${r.documentNo} issued.` : "Payment recorded.",
+            r.replacedDocumentNo
+              ? `${r.replacedDocumentNo} replaced by ${r.documentNo}.`
+              : r.documentNo
+                ? `${r.documentNo} issued.`
+                : "Payment recorded.",
             r.invoicesClosed > 0 &&
               `${r.invoicesClosed} invoice${r.invoicesClosed === 1 ? "" : "s"} closed.`,
             cent(num(r.creditCreated)) > 0 &&
@@ -239,7 +258,8 @@ export function CollectPaymentDialog({
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <HandCoinsIcon className="size-5" /> Receive Payment
+            <HandCoinsIcon className="size-5" />
+            {replaces ? "Replace Collection Receipt" : "Receive Payment"}
           </DialogTitle>
           <DialogDescription>
             {data
@@ -260,6 +280,40 @@ export function CollectPaymentDialog({
           />
         ) : data ? (
           <div className="grid gap-5">
+            {/* ——— reissue mode ——— */}
+            {replaces && (
+              <div className="grid gap-3 rounded-md border border-amber-500/40 bg-amber-50 p-3 text-sm dark:bg-amber-500/10">
+                <span className="font-medium text-amber-900 dark:text-amber-200">
+                  Replacing {replaces.documentNo} · {peso(num(replaces.amount))}
+                </span>
+                <p className="text-xs text-amber-900/80 dark:text-amber-200/80">
+                  Issuing below marks {replaces.documentNo} REPLACED and writes
+                  the two serial numbers on each other. Both happen together —
+                  neither can be left half-done. Everything{" "}
+                  {replaces.documentNo} settled reopens first, so the invoices
+                  below already show what it was paying for.
+                </p>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cp-replace-reason">
+                    Reason <span className="text-destructive">*</span>
+                  </Label>
+                  <Textarea
+                    id="cp-replace-reason"
+                    value={replaceReason}
+                    onChange={(e) => setReplaceReason(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. wrong amount encoded"
+                  />
+                </div>
+                <OnHandCheck
+                  id="cp-replace-onhand"
+                  checked={replaceOnHand}
+                  onChange={setReplaceOnHand}
+                  documentNo={replaces.documentNo}
+                />
+              </div>
+            )}
+
             {/* ——— what they handed over ——— */}
             <div className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
@@ -494,30 +548,54 @@ export function CollectPaymentDialog({
               )}
             </div>
 
+            {/* The serial is shown, not merely promised: the cashier is about
+                to write this number on paper, and "the next CR number" is not
+                something they can check anywhere else on this screen. */}
             <label
               htmlFor="cp-issue-doc"
-              className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm"
+              className={cn(
+                "flex items-start gap-3 rounded-md border p-3 text-sm",
+                data.nextCrNumber ? "cursor-pointer" : "opacity-70"
+              )}
             >
               <input
                 id="cp-issue-doc"
                 type="checkbox"
-                checked={issueDocument}
+                checked={issueDocument && data.nextCrNumber !== null}
+                disabled={data.nextCrNumber === null}
                 onChange={(e) => setIssueDocument(e.target.checked)}
                 className="mt-0.5 size-4 shrink-0 accent-primary"
               />
               <span className="grid gap-0.5">
-                <span className="font-medium">
+                <span className="flex flex-wrap items-center gap-2 font-medium">
                   Print a Collection Receipt
-                  {issueDocument && data.nextCrNumber && (
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">
+                  {data.nextCrNumber ? (
+                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">
                       {data.nextCrNumber}
                     </span>
+                  ) : (
+                    <ColorBadge tone="amber" label="no active booklet" />
                   )}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {issueDocument
-                    ? "Consumes the next CR number from the active booklet."
-                    : "The payment is still recorded and the balances still close — no booklet number is used."}
+                  {!data.nextCrNumber ? (
+                    <>
+                      No Collection Receipt booklet is active, so no number can
+                      be issued. Register and approve one under{" "}
+                      <strong>Sales Audit Maintenance</strong> — or record the
+                      payment without a receipt, which still closes the balance.
+                    </>
+                  ) : issueDocument ? (
+                    <>
+                      {data.nextCrNumber} will be consumed from the active
+                      booklet and cannot be reused.
+                    </>
+                  ) : (
+                    <>
+                      The payment is still recorded and the balances still close
+                      — {data.nextCrNumber} stays unused.
+                    </>
+                  )}
                 </span>
               </span>
             </label>
@@ -545,7 +623,9 @@ export function CollectPaymentDialog({
           >
             {collect.isPending
               ? "Recording…"
-              : `Apply ${peso(applied / 100)}`}
+              : willPrint && data?.nextCrNumber
+                ? `Apply ${peso(applied / 100)} · issue ${data.nextCrNumber}`
+                : `Apply ${peso(applied / 100)}`}
           </Button>
         </DialogFooter>
       </DialogContent>
