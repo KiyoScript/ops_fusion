@@ -72,6 +72,24 @@ model Sale {
   methodDetail  String? // cheque no. / GCash reference
   paymentStatus PaymentStatus  @default(PAID)
 
+  // Collected AFTER issue, via CrAllocation (collection-receipt.prisma).
+  //
+  // Deliberately separate from amountPaid: amountPaid is what the printed
+  // invoice says was handed over at the counter, and a receipt is a legal
+  // record — settling a Charge Invoice next month must not rewrite it. The
+  // open balance is therefore `amount − amountPaid − settledAmount`.
+  //
+  // Denormalised from sum(CrAllocation.amount) and maintained in the SAME
+  // transaction as the allocation, so a customer-wide A/R list is one indexed
+  // scan instead of a join-and-aggregate per invoice.
+  settledAmount Decimal @default(0) @db.Decimal(12, 2)
+
+  // SI_CHARGE only: saleDate + the customer's credit terms, frozen at issue.
+  // Stored rather than derived because Customer.creditTermDays may change, and
+  // an invoice's due date must not move under an aging report that already
+  // counted it. Null on every other type — they are paid at the counter.
+  dueDate DateTime?
+
   // Snapshot of who it was billed to, taken AT ISSUE. A receipt is a legal
   // record: editing the Customer's TIN next year must not silently rewrite
   // last year's invoice.
@@ -119,4 +137,6 @@ model Sale {
   @@index([jobOrderId])
   // The cancellation log (§5.1 step 5) is a scan of this index.
   @@index([voidedAt])
+  // The A/R ledger: open charge invoices for one customer, oldest first.
+  @@index([customerId, type, dueDate])
 }

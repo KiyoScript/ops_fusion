@@ -65,6 +65,9 @@ type NavChild = {
   href: string;
   /** Only shown when the user's ability allows this action/subject. */
   requires?: [AppAction, AppSubject];
+  /** Hidden when this feature module is disabled — a sub-page can belong to a
+   *  module of its own, nested inside its parent's (Settings → Modules). */
+  module?: ModuleKey;
 };
 
 type NavItem = {
@@ -91,7 +94,19 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { title: "Inquiries", href: "/inquiries", icon: Inbox, module: "inquiries" },
       { title: "Quotations", href: "/quotations", icon: FileText, module: "quotations" },
-      { title: "Sales Audit", href: "/sales-audit", icon: ShieldCheck, module: "sales-audit" },
+      {
+        title: "Sales Audit",
+        href: "/sales-audit",
+        icon: ShieldCheck,
+        module: "sales-audit",
+        children: [
+          {
+            title: "Receivables",
+            href: "/sales-audit/receivables",
+            module: "receivables",
+          },
+        ],
+      },
     ],
   },
   {
@@ -240,7 +255,8 @@ export function AppSidebar({
                   {visibleItems.map((item) => {
                     const visibleChildren = (item.children ?? []).filter(
                       (child) =>
-                        !child.requires || ability.can(...child.requires)
+                        (!child.requires || ability.can(...child.requires)) &&
+                        (!child.module || enabled.has(child.module))
                     );
                     // Collapsed by default; auto-opens when the user is
                     // inside one of its pages so the location stays visible.

@@ -10,6 +10,15 @@ enum AdvancePaymentStatus {
 
 // Canonical advance-payment entity (spec section 4):
 // created in Sales, consumed by the JO approval gate and DR issuance.
+//
+// Also the shop's CUSTOMER CREDIT, in the QuickBooks sense. A customer who
+// hands over more than they owe does not get the difference back over the
+// counter — it is held here as UNAPPLIED and drawn down by a later collection,
+// exactly as QuickBooks parks an overpayment as an unapplied credit.
+//
+// It is deliberately NOT a receivable of its own: money held for a customer is
+// the opposite sign, and netting it against A/R would understate what is owed.
+// The A/R ledger reports the two side by side.
 model AdvancePayment {
   id          String               @id @default(cuid())
   customerId  String
@@ -26,11 +35,18 @@ model AdvancePayment {
   createdById String
   createdBy   User                 @relation("ApCreatedBy", fields: [createdById], references: [id])
 
+  // The collection whose excess created this credit — null when the credit was
+  // taken as a plain advance rather than as change on a payment. Cancelling
+  // that collection is what takes the credit back off the customer's account.
+  sourceCollectionReceiptId String?
+  sourceCollectionReceipt   CollectionReceipt? @relation("ApFromCollection", fields: [sourceCollectionReceiptId], references: [id])
+
   applications AdvancePaymentApplication[]
 
   @@index([customerId, status])
   @@index([deletedAt])
   @@index([createdById])
+  @@index([sourceCollectionReceiptId])
 }
 
 model AdvancePaymentApplication {
@@ -41,13 +57,21 @@ model AdvancePaymentApplication {
   jobOrder          JobOrder?        @relation(fields: [jobOrderId], references: [id])
   deliveryReceiptId String?
   deliveryReceipt   DeliveryReceipt? @relation(fields: [deliveryReceiptId], references: [id])
-  amount            Decimal          @db.Decimal(12, 2)
-  appliedById       String
-  appliedBy         User             @relation("ApAppliedBy", fields: [appliedById], references: [id])
-  appliedAt         DateTime         @default(now())
+
+  // The collection that SPENT this credit. Which invoices it settled is not
+  // repeated here — that collection's own CrAllocation rows already say, and
+  // duplicating it would give the two records room to disagree.
+  collectionReceiptId String?
+  collectionReceipt   CollectionReceipt? @relation("ApAppliedToCollection", fields: [collectionReceiptId], references: [id])
+
+  amount      Decimal  @db.Decimal(12, 2)
+  appliedById String
+  appliedBy   User     @relation("ApAppliedBy", fields: [appliedById], references: [id])
+  appliedAt   DateTime @default(now())
 
   @@index([advancePaymentId])
   @@index([jobOrderId])
   @@index([deliveryReceiptId])
+  @@index([collectionReceiptId])
   @@index([appliedById])
 }

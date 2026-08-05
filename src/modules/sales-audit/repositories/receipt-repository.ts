@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { ConflictError } from "@/lib/errors";
 import type { Prisma } from "@/generated/prisma/client";
 import type {
   AuditEntryStatus,
@@ -39,6 +40,9 @@ const saleSelect = {
   vatableSales: true,
   vatAmount: true,
   amountPaid: true,
+  // Collected since issue. openBalance = amount − amountPaid − settledAmount.
+  settledAmount: true,
+  dueDate: true,
   paymentStatus: true,
   cashTendered: true,
   changeGiven: true,
@@ -64,6 +68,7 @@ const saleSelect = {
 const crSelect = {
   id: true,
   crNumber: true,
+  documentIssued: true,
   amount: true,
   cashTendered: true,
   changeGiven: true,
@@ -84,6 +89,10 @@ const crSelect = {
     take: 1,
   },
   payments: paymentLines,
+  // Which invoices this collection paid down. Its presence is also what
+  // distinguishes a modern collection from a legacy one written before
+  // allocations existed — see positionOf in receipt-service.ts.
+  allocations: { select: { saleId: true, amount: true } },
   voidType: true,
   voidReason: true,
   voidedAt: true,
@@ -103,6 +112,10 @@ const joForReceiptSelect = {
       address: true,
       tin: true,
       vatRegistered: true,
+      // Credit control — read even when the flag is off, so the service can
+      // decide; the flag is what makes it binding, not the absence of data.
+      creditTermDays: true,
+      creditLimit: true,
     },
   },
   items: { select: { lineTotal: true } },
@@ -137,6 +150,8 @@ export type SaleCreateData = {
   vatAmount: string;
   amountPaid: string;
   paymentStatus: PaymentStatus;
+  /** SI_CHARGE only: saleDate + the customer's terms. Null on the rest. */
+  dueDate: Date | null;
   cashTendered: string | null;
   changeGiven: string;
   /** Null on a pure credit sale — no money changed hands to have a method. */
@@ -151,8 +166,16 @@ export type SaleCreateData = {
   payments: PaymentLineCreateData[];
 };
 
+/** Which invoice a collection pays down, and by how much. */
+export type AllocationCreateData = {
+  saleId: string;
+  amount: string;
+};
+
 export type CrCreateData = {
-  crNumber: string;
+  /** Null when the customer declined the printed CR — no serial is consumed. */
+  crNumber: string | null;
+  documentIssued: boolean;
   bookletId: string | null;
   customerId: string;
   jobOrderId: string | null;
@@ -169,6 +192,8 @@ export type CrCreateData = {
   createdById: string;
   /** Split tender — always at least one line, summing to `amount`. */
   payments: PaymentLineCreateData[];
+  /** The invoices this money pays down. Sums to `amount` — "no floating CRs". */
+  allocations: AllocationCreateData[];
 };
 
 export type AuditCreateData = {
@@ -194,12 +219,34 @@ export type VoidMarkData = {
 /** A receipt as the void/replace flow needs to see it, either ledger. */
 export type ReceiptForVoidRecord = {
   id: string;
-  documentNo: string;
+  /** Null only for an undocumented collection — money in, no CR printed. */
+  documentNo: string | null;
   jobOrderId: string | null;
   customerId: string;
   amount: string;
   voidedAt: Date | null;
   createdById: string;
+};
+
+/** One customer's A/R position, for the ledger list and the credit check. */
+export type ReceivableRecord = {
+  id: string;
+  documentNo: string;
+  type: SaleType;
+  saleDate: Date;
+  dueDate: Date | null;
+  amount: string;
+  amountPaid: string;
+  settledAmount: string;
+  jobOrderNo: string | null;
+  customer: {
+    id: string;
+    name: string;
+    address: string | null;
+    tin: string | null;
+    creditTermDays: number | null;
+    creditLimit: string | null;
+  };
 };
 
 export interface IReceiptRepository {
@@ -223,6 +270,36 @@ export interface IReceiptRepository {
   findCrForVoid(id: string): Promise<ReceiptForVoidRecord | null>;
   markSaleVoid(id: string, data: VoidMarkData, tx: DbTx): Promise<void>;
   markCrVoid(id: string, data: VoidMarkData, tx: DbTx): Promise<void>;
+
+  // ——— accounts receivable ———
+
+  /**
+   * Every invoice that could still be owed on: charge invoices, plus any older
+   * partially-paid invoice from before "an invoice is always fully paid".
+   *
+   * `paymentStatus` records the position AT ISSUE and is never rewritten, so
+   * it is a safe SUPERSET filter — invoices since settled by a collection are
+   * still returned here and dropped by the caller, which computes the open
+   * balance. Narrowing it in SQL would need `amount − amountPaid −
+   * settledAmount > 0`, a three-column comparison Prisma cannot express.
+   */
+  listReceivables(customerId?: string): Promise<ReceivableRecord[]>;
+
+  /** Record a collection against invoices and close down their balances. */
+  allocate(
+    crId: string,
+    allocations: AllocationCreateData[],
+    tx: DbTx
+  ): Promise<void>;
+
+  /**
+   * Undo a cancelled collection's allocations — the receivable reopens.
+   * Without this a voided CR would leave the invoices it touched looking paid.
+   */
+  reverseAllocations(crId: string, tx: DbTx): Promise<void>;
+
+  /** How many live collections have been applied to this invoice. */
+  countAllocationsForSale(saleId: string): Promise<number>;
 }
 
 export class PrismaReceiptRepository implements IReceiptRepository {
@@ -246,11 +323,17 @@ export class PrismaReceiptRepository implements IReceiptRepository {
   }
 
   async createCr(data: CrCreateData, tx: DbTx): Promise<{ id: string }> {
-    const { payments, ...header } = data;
-    return tx.collectionReceipt.create({
+    // Allocations are applied by `allocate` rather than nested here, so the
+    // matching settledAmount bumps ride in the same call and cannot drift.
+    const { payments, allocations, ...header } = data;
+    const created = await tx.collectionReceipt.create({
       data: { ...header, payments: { create: payments } },
       select: { id: true },
     });
+    if (allocations.length > 0) {
+      await this.allocate(created.id, allocations, tx);
+    }
+    return created;
   }
 
   async listByJobOrder(
@@ -360,6 +443,122 @@ export class PrismaReceiptRepository implements IReceiptRepository {
       },
     });
     return c && { ...c, documentNo: c.crNumber, amount: c.amount.toString() };
+  }
+
+  // ——— accounts receivable ———
+
+  async listReceivables(customerId?: string): Promise<ReceivableRecord[]> {
+    const rows = await prisma.sale.findMany({
+      where: {
+        deletedAt: null,
+        voidedAt: null,
+        ...(customerId ? { customerId } : {}),
+        paymentStatus: { in: ["UNPAID", "PARTIAL"] },
+      },
+      select: {
+        id: true,
+        documentNo: true,
+        type: true,
+        saleDate: true,
+        dueDate: true,
+        amount: true,
+        amountPaid: true,
+        settledAmount: true,
+        jobOrder: { select: { joNumber: true } },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            tin: true,
+            creditTermDays: true,
+            creditLimit: true,
+          },
+        },
+      },
+      // Oldest first: an A/R ledger is read from the stalest debt down, and
+      // that is also the order collections are applied in.
+      //
+      // By saleDate, NOT dueDate: Postgres sorts NULLs last, so ordering by
+      // due date would push every invoice with no agreed terms below newer
+      // dated ones — the exact opposite of oldest-first.
+      orderBy: [{ saleDate: "asc" }, { id: "asc" }],
+    });
+
+    return rows.map((r) => ({
+      id: r.id,
+      documentNo: r.documentNo,
+      type: r.type,
+      saleDate: r.saleDate,
+      dueDate: r.dueDate,
+      amount: r.amount.toString(),
+      amountPaid: r.amountPaid.toString(),
+      settledAmount: r.settledAmount.toString(),
+      jobOrderNo: r.jobOrder?.joNumber ?? null,
+      customer: {
+        id: r.customer.id,
+        name: r.customer.name,
+        address: r.customer.address,
+        tin: r.customer.tin,
+        creditTermDays: r.customer.creditTermDays,
+        creditLimit: r.customer.creditLimit?.toString() ?? null,
+      },
+    }));
+  }
+
+  async allocate(
+    crId: string,
+    allocations: AllocationCreateData[],
+    tx: DbTx
+  ): Promise<void> {
+    for (const a of allocations) {
+      // The open balance is re-checked HERE, inside the transaction, as part
+      // of the same statement that increments it.
+      //
+      // The service already capped the collection at what was outstanding,
+      // but it read that a moment earlier and outside any lock: two cashiers
+      // collecting the last ₱500 of one invoice at the same instant would
+      // both pass that check and settle ₱1,000 against a ₱500 debt. The
+      // WHERE clause makes the check and the write atomic — Postgres locks
+      // the row for the update, so the second one matches nothing and we
+      // raise instead of silently over-collecting.
+      const applied = await tx.$executeRaw`
+        UPDATE "Sale"
+           SET "settledAmount" = "settledAmount" + ${a.amount}::decimal
+         WHERE "id" = ${a.saleId}
+           AND "amount" - "amountPaid" - "settledAmount" >= ${a.amount}::decimal
+      `;
+      if (applied === 0) {
+        throw new ConflictError(
+          "That invoice was collected against while this payment was being entered. Reopen the job order and try again."
+        );
+      }
+      await tx.crAllocation.create({
+        data: { crId, saleId: a.saleId, amount: a.amount },
+      });
+    }
+  }
+
+  async reverseAllocations(crId: string, tx: DbTx): Promise<void> {
+    const rows = await tx.crAllocation.findMany({
+      where: { crId },
+      select: { saleId: true, amount: true },
+    });
+    for (const a of rows) {
+      await tx.sale.update({
+        where: { id: a.saleId },
+        data: { settledAmount: { decrement: a.amount } },
+      });
+    }
+    // The allocation rows go with the cancellation: the CR itself survives
+    // (struck through, serial intact) but it no longer pays for anything.
+    await tx.crAllocation.deleteMany({ where: { crId } });
+  }
+
+  async countAllocationsForSale(saleId: string): Promise<number> {
+    return prisma.crAllocation.count({
+      where: { saleId, cr: { voidedAt: null, deletedAt: null } },
+    });
   }
 
   async markSaleVoid(id: string, data: VoidMarkData, tx: DbTx): Promise<void> {

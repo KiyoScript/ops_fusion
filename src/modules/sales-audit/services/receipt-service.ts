@@ -9,12 +9,20 @@ import {
   ReceiptVoidType,
   SaleType,
 } from "@/generated/prisma/enums";
+import { resolveEnabledModules } from "@/lib/modules";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
+import type { IModuleFlagRepository } from "@/modules/shared/repositories/module-flag-repository";
+import { PrismaModuleFlagRepository } from "@/modules/shared/repositories/module-flag-repository";
+import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
+import { PrismaCustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import type { DbTx } from "@/modules/shared/repositories/types";
 import type { IBookletRepository } from "../repositories/booklet-repository";
 import { PrismaBookletRepository } from "../repositories/booklet-repository";
+import type { ICreditRepository } from "../repositories/credit-repository";
+import { PrismaCreditRepository } from "../repositories/credit-repository";
 import type {
+  AllocationCreateData,
   CrRecord,
   IReceiptRepository,
   JoForReceiptRecord,
@@ -25,8 +33,14 @@ import type { AuditReceiptInput } from "../schemas/audit";
 import {
   RECEIPT_KIND,
   RECEIPT_KIND_LABEL,
+  type CollectFromCustomerInput,
+  type CollectOptionsDto,
+  type CollectResultDto,
+  type CustomerCreditDto,
   type DailySalesSummaryDto,
+  type OpenInvoiceDto,
   type PaymentLineDto,
+  type ReceiptAvailabilityDto,
   type ReceiptKind,
   type ReceiptListFilters,
   type ReceiptListPageDto,
@@ -66,22 +80,64 @@ const KIND_SALE_TYPE: Record<
   SI_CHARGE: SaleType.SI_CHARGE,
 };
 
+/** The revenue documents. A collection is not one of these. */
+const INVOICE_KINDS: ReceiptKind[] = [
+  RECEIPT_KIND.SI_VAT,
+  RECEIPT_KIND.SI_NON_VAT,
+  RECEIPT_KIND.SI_CHARGE,
+];
+
 /** What every issue path hands back — the numbers the counter needs. */
 type IssueResult = {
   id: string;
-  documentNo: string;
+  /** Null when a collection was recorded without printing a CR. */
+  documentNo: string | null;
   changeGiven: string;
   amountPaid: string;
   /** Unsettled remainder, straight to A/R. "0.00" on an ordinary cash sale. */
   balanceDue: string;
 };
 
+/**
+ * A job order's money position, in centavos.
+ *
+ * The whole point of this type is that `unbilled` and `outstanding` are
+ * DIFFERENT numbers. The old code carried one "balance" (job total less cash
+ * received) and used it for both jobs, which is why a job already covered by a
+ * charge invoice — billed in full, collected not at all — still looked wide
+ * open and invited a second invoice for the same money.
+ */
+type JoPosition = {
+  joTotal: number;
+  /** Face value of every live receipt raised against the job. */
+  billed: number;
+  /** Money actually in: paid at the counter, plus every collection since. */
+  collected: number;
+  /** Job total less billed — how much may still be INVOICED. */
+  unbilled: number;
+  /** Billed but not collected — A/R, how much may still be COLLECTED. */
+  outstanding: number;
+  hasInvoice: boolean;
+  hasJoReceipt: boolean;
+  /** The live invoices with money still owed on them, oldest first. */
+  openInvoices: { sale: SaleRecord; openBalance: number }[];
+};
+
 export class ReceiptService {
   constructor(
     private readonly receipts: IReceiptRepository,
     private readonly booklets: IBookletRepository,
-    private readonly activity: IActivityLogRepository
+    private readonly activity: IActivityLogRepository,
+    private readonly flags: IModuleFlagRepository,
+    private readonly credits: ICreditRepository,
+    private readonly customers: ICustomerRepository
   ) {}
+
+  /** Is a feature module switched on? Resolved from overrides + coded default. */
+  private async moduleEnabled(key: "credit-control" | "receivables") {
+    const rows = await this.flags.listOverrides();
+    return resolveEnabledModules(new Map(rows.map((r) => [r.key, r.enabled]))).has(key);
+  }
 
   /**
    * Everything the Receive Payment dialog opens with: the customer's name,
@@ -102,34 +158,59 @@ export class ReceiptService {
       ...crs.map(crToRow),
     ].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
 
-    // What the customer has actually handed over against this JO. Collection
-    // Receipts count as money received even though they are not revenue.
-    //
-    // A cancelled receipt contributes NOTHING — that is the whole point of
-    // voiding one: the balance reopens and the counter can issue a fresh
-    // receipt against this JO (docs/sales.txt §5).
-    const live = <T extends { voidedAt: Date | null }>(rows: T[]) =>
-      rows.filter((r) => r.voidedAt === null);
-    const receivedCentavos =
-      live(sales).reduce((s, r) => s + toCentavos(r.amountPaid.toString()), 0) +
-      live(crs).reduce((s, r) => s + toCentavos(r.amount.toString()), 0);
-
-    const joTotal = joTotalCentavos(jo);
+    const position = positionOf(jo, sales, crs);
+    const creditEnabled = await this.moduleEnabled("credit-control");
+    const credit = await this.creditPositionOf(jo, creditEnabled);
 
     const nextNumbers = {} as Record<ReceiptKind, string | null>;
     for (const kind of Object.values(RECEIPT_KIND)) {
       nextNumbers[kind] = await this.peekNextNumber(KIND_BOOKLET[kind]);
     }
 
+    const availability = availabilityOf(position, credit, nextNumbers);
+
     return {
       jobOrderId: jo.id,
       joNumber: jo.joNumber,
-      customer: jo.customer,
-      joTotal: toAmount(joTotal),
-      totalReceived: toAmount(receivedCentavos),
-      balance: toAmount(Math.max(joTotal - receivedCentavos, 0)),
+      customer: {
+        id: jo.customer.id,
+        name: jo.customer.name,
+        address: jo.customer.address,
+        tin: jo.customer.tin,
+        vatRegistered: jo.customer.vatRegistered,
+      },
+      joTotal: toAmount(position.joTotal),
+      totalReceived: toAmount(position.collected),
+      unbilled: toAmount(position.unbilled),
+      outstanding: toAmount(position.outstanding),
+      availability,
+      recommended: recommendKind(position, availability, jo.customer.vatRegistered),
+      openInvoices: position.openInvoices.map(({ sale, openBalance }) =>
+        toOpenInvoice(sale, openBalance)
+      ),
+      credit,
       nextNumbers,
       issued,
+    };
+  }
+
+  /** The customer's credit standing — their whole A/R, not just this job. */
+  private async creditPositionOf(jo: JoForReceiptRecord, enabled: boolean) {
+    const rows = await this.receipts.listReceivables(jo.customer.id);
+    const customerOutstanding = rows.reduce(
+      (t, r) => t + openBalanceOf(r.amount, r.amountPaid, r.settledAmount),
+      0
+    );
+    const limit =
+      jo.customer.creditLimit === null
+        ? null
+        : toCentavos(jo.customer.creditLimit.toString());
+    return {
+      enabled,
+      termDays: jo.customer.creditTermDays,
+      limit: limit === null ? null : toAmount(limit),
+      customerOutstanding: toAmount(customerOutstanding),
+      available: limit === null ? null : toAmount(limit - customerOutstanding),
     };
   }
 
@@ -160,7 +241,7 @@ export class ReceiptService {
       action: "receive-payment",
       payload: {
         kind: input.kind,
-        documentNo: result.documentNo,
+        documentNo: result.documentNo ?? "(no document issued)",
         joNumber: plan.jo.joNumber,
         amount: toAmount(plan.amount),
         // A split, and an unpaid balance, are the two things an auditor most
@@ -190,11 +271,36 @@ export class ReceiptService {
   async voidReceipt(
     actor: Actor,
     input: VoidReceiptInput
-  ): Promise<{ id: string; documentNo: string }> {
+  ): Promise<{ id: string; documentNo: string | null }> {
     assertCan(actor, "void", "Sale");
 
     const isCollection = input.kind === RECEIPT_KIND.COLLECTION;
     const receipt = await this.findReceipt(input.receiptId, isCollection);
+
+    if (!isCollection) {
+      // An invoice that has already been collected against cannot be pulled
+      // out from under those collections — the money would still be recorded
+      // as paying for a document that no longer exists. Cancel the collections
+      // first, which reopens the receivable, then cancel the invoice.
+      const collected = await this.receipts.countAllocationsForSale(receipt.id);
+      if (collected > 0) {
+        throw new ValidationError(
+          `${receipt.documentNo} has ${collected} collection${collected === 1 ? "" : "s"} ` +
+            `applied to it. Cancel those first — cancelling this invoice now would leave that money owed against nothing.`
+        );
+      }
+    } else {
+      // Cancelling a collection takes back the credit its overpayment created.
+      // Once some of that credit has already paid down another invoice, taking
+      // it back would leave that invoice settled by money that no longer
+      // exists — so the collection that spent it has to be undone first.
+      const spent = await this.credits.spentFromCreditsCreatedBy(receipt.id);
+      if (spent > 0) {
+        throw new ValidationError(
+          `The credit this payment left on the account has already been spent on ${spent} later payment${spent === 1 ? "" : "s"}. Cancel those first.`
+        );
+      }
+    }
 
     await this.receipts.withTransaction(async (tx) => {
       const mark = {
@@ -202,8 +308,18 @@ export class ReceiptService {
         reason: input.reason.trim(),
         voidedById: actor.id,
       };
-      if (isCollection) await this.receipts.markCrVoid(receipt.id, mark, tx);
-      else await this.receipts.markSaleVoid(receipt.id, mark, tx);
+      if (isCollection) {
+        // Undo what this collection paid down BEFORE marking it cancelled, so
+        // the invoices it touched go back to being owed. Same transaction:
+        // a half-reversed collection would silently understate A/R.
+        await this.receipts.reverseAllocations(receipt.id, tx);
+        // …and undo what it did to customer credit: any credit it spent goes
+        // back on the account, any credit it created comes off.
+        await this.credits.reverseForCollection(receipt.id, tx);
+        await this.receipts.markCrVoid(receipt.id, mark, tx);
+      } else {
+        await this.receipts.markSaleVoid(receipt.id, mark, tx);
+      }
     });
 
     await this.activity.log({
@@ -212,7 +328,7 @@ export class ReceiptService {
       entityId: receipt.id,
       action: "void-receipt",
       payload: {
-        documentNo: receipt.documentNo,
+        documentNo: receipt.documentNo ?? "(no document issued)",
         type: input.type,
         reason: input.reason.trim(),
         amount: receipt.amount,
@@ -246,7 +362,17 @@ export class ReceiptService {
       );
     }
 
-    const plan = await this.planIssue(input.replacement);
+    if (old.documentNo === null) {
+      // Replacing means reissuing under a NEW serial with the two written on
+      // each other (§5.1 step 3). A payment recorded without a receipt has no
+      // serial to supersede — cancel it and record it again.
+      throw new ValidationError(
+        "This payment was recorded without a Collection Receipt, so there is no " +
+          "document to replace. Cancel it and record the payment again."
+      );
+    }
+
+    const plan = await this.planIssue(input.replacement, old.id);
     const result = await this.receipts.withTransaction(async (tx) => {
       const issued = await this.issue(actor, plan, tx);
       const mark = {
@@ -255,8 +381,14 @@ export class ReceiptService {
         voidedById: actor.id,
         replacedById: issued.id,
       };
-      if (isCollection) await this.receipts.markCrVoid(old.id, mark, tx);
-      else await this.receipts.markSaleVoid(old.id, mark, tx);
+      if (isCollection) {
+        // The superseded collection stops paying for anything; its successor
+        // writes its own allocations in the same transaction.
+        await this.receipts.reverseAllocations(old.id, tx);
+        await this.receipts.markCrVoid(old.id, mark, tx);
+      } else {
+        await this.receipts.markSaleVoid(old.id, mark, tx);
+      }
       return issued;
     });
 
@@ -267,7 +399,7 @@ export class ReceiptService {
       action: "replace-receipt",
       payload: {
         documentNo: old.documentNo,
-        replacedBy: result.documentNo,
+        replacedBy: result.documentNo ?? "(no document issued)",
         reason: input.reason.trim(),
       },
     });
@@ -283,7 +415,7 @@ export class ReceiptService {
     if (!receipt) throw new NotFoundError("Receipt not found.");
     if (receipt.voidedAt) {
       throw new ValidationError(
-        `${receipt.documentNo} has already been cancelled.`
+        `${receipt.documentNo ?? "This payment"} has already been cancelled.`
       );
     }
     return receipt;
@@ -294,7 +426,13 @@ export class ReceiptService {
    * JO, the VAT split, the tender lines, the change. Kept out of the tx so the
    * booklet row is locked for as short a time as possible.
    */
-  private async planIssue(input: ReceivePaymentInput) {
+  private async planIssue(
+    input: ReceivePaymentInput,
+    /** The receipt about to be superseded, if this is a replacement: it is
+     *  voided in the same transaction, so it must not count against the caps
+     *  its own successor is measured by. */
+    supersedesId?: string
+  ) {
     const jo = await this.receipts.findJobOrder(input.jobOrderId);
     if (!jo) throw new NotFoundError("Job order not found.");
 
@@ -303,22 +441,65 @@ export class ReceiptService {
       throw new ValidationError("Enter an amount greater than zero.");
     }
 
+    const { sales, crs } = await this.receipts.listByJobOrder(input.jobOrderId);
+    const position = positionOf(
+      jo,
+      sales.filter((s) => s.id !== supersedesId),
+      crs.filter((c) => c.id !== supersedesId)
+    );
+
+    const creditEnabled = await this.moduleEnabled("credit-control");
+    const credit = await this.creditPositionOf(jo, creditEnabled);
+    // Same reason as above: a replacement must not be blocked by the credit a
+    // superseded charge invoice is still holding.
+    const superseded = sales.find((s) => s.id === supersedesId);
+    const creditHeldBySuperseded = superseded
+      ? openBalanceOf(
+          superseded.amount.toString(),
+          superseded.amountPaid.toString(),
+          superseded.settledAmount.toString()
+        )
+      : 0;
+
+    assertIssuable({
+      kind: input.kind,
+      amount,
+      position,
+      credit,
+      creditHeldBySuperseded,
+    });
+
     // The tender lines ARE the money received: over the amount gives change,
-    // under it leaves a balance in A/R, none at all is a pure credit sale.
-    // A single-method payment is the same thing with one line, so there is
-    // only one code path below.
+    // under it is refused outright below. A single-method payment is the same
+    // thing with one line, so there is only one code path.
     const lines = input.payments ?? [
       { method: input.method, amount: input.amount, reference: input.methodDetail },
     ];
     const settled = settleTenders(lines, amount);
-    // Every kind but a Charge Invoice is a document handed over at the counter
-    // in exchange for money — issuing one with nothing received is a mistake,
-    // and almost always means the wrong receipt type was picked.
-    if (settled.received === 0 && input.kind !== RECEIPT_KIND.SI_CHARGE) {
+
+    if (input.kind === RECEIPT_KIND.SI_CHARGE) {
+      // A Charge Invoice IS the "no money yet" document. Taking cash against
+      // one at the counter means it was the wrong choice — that sale is an
+      // ordinary invoice, and the two must not be blurred or the A/R ledger
+      // stops meaning anything.
+      if (settled.received > 0) {
+        throw new ValidationError(
+          `A ${RECEIPT_KIND_LABEL.SI_CHARGE} records a sale on credit — nothing is received against it. ` +
+            `Issue a ${RECEIPT_KIND_LABEL.SI_VAT} or ${RECEIPT_KIND_LABEL.SI_NON_VAT} for what was actually paid.`
+        );
+      }
+    } else if (settled.balanceDue > 0) {
+      // Every other kind is handed over in exchange for money, so it must be
+      // covered in full. Short payment is not a partial invoice: it is either
+      // a smaller invoice for what was paid, or a Charge Invoice for the rest.
+      // Only SI_CHARGE may open a receivable (docs/sales.txt §3.1.3).
       throw new ValidationError(
-        `Nothing was received. A sale on credit is issued as a ${RECEIPT_KIND_LABEL.SI_CHARGE}.`
+        `${toAmount(settled.received)} was received against a ${toAmount(amount)} ` +
+          `${RECEIPT_KIND_LABEL[input.kind]}. Issue it for ${toAmount(settled.received)} instead, ` +
+          `or put the balance on credit with a ${RECEIPT_KIND_LABEL.SI_CHARGE}.`
       );
     }
+
     const header = settled.tenders.length
       ? dominantTender(settled.tenders)
       : null;
@@ -328,7 +509,40 @@ export class ReceiptService {
       throw new ValidationError("Invalid payment date.");
     }
 
-    return { input, jo, amount, settled, header, receivedAt };
+    // Terms are frozen onto the invoice at issue — see sale.prisma. Only a
+    // charge invoice falls due, and only while credit control is switched on.
+    const dueDate =
+      input.kind === RECEIPT_KIND.SI_CHARGE &&
+      creditEnabled &&
+      jo.customer.creditTermDays !== null
+        ? new Date(
+            receivedAt.getTime() + jo.customer.creditTermDays * 86_400_000
+          )
+        : null;
+
+    const allocations =
+      input.kind === RECEIPT_KIND.COLLECTION
+        ? planAllocations(
+            position.openInvoices.map(({ sale, openBalance }) => ({
+              id: sale.id,
+              documentNo: sale.documentNo,
+              openBalance,
+            })),
+            settled.applied,
+            input.allocations
+          )
+        : [];
+
+    return {
+      input,
+      jo,
+      amount,
+      settled,
+      header,
+      receivedAt,
+      dueDate,
+      allocations,
+    };
   }
 
   /**
@@ -344,10 +558,17 @@ export class ReceiptService {
     plan: Awaited<ReturnType<ReceiptService["planIssue"]>>,
     tx: DbTx
   ): Promise<IssueResult> {
-    const { input, jo, amount, settled, header, receivedAt } = plan;
+    const { input, jo, amount, settled, header, receivedAt, dueDate } = plan;
 
-    const documentNo = await this.allocateNumber(KIND_BOOKLET[input.kind], tx);
-    const bookletId = documentNo.bookletId;
+    // A collection the customer declined a receipt for consumes NO booklet
+    // number — that is the whole point of the toggle. Every other kind is a
+    // document by definition and always draws its next serial.
+    const undocumented =
+      input.kind === RECEIPT_KIND.COLLECTION && input.issueDocument === false;
+    const documentNo = undocumented
+      ? null
+      : await this.allocateNumber(KIND_BOOKLET[input.kind], tx);
+    const bookletId = documentNo?.bookletId ?? null;
 
     const billedTo = {
       billedToName: jo.customer.name,
@@ -381,7 +602,8 @@ export class ReceiptService {
     if (input.kind === RECEIPT_KIND.COLLECTION) {
       const created = await this.receipts.createCr(
         {
-          crNumber: documentNo.value,
+          crNumber: documentNo?.value ?? null,
+          documentIssued: !undocumented,
           bookletId,
           customerId: jo.customer.id,
           jobOrderId: jo.id,
@@ -391,11 +613,14 @@ export class ReceiptService {
           method: header?.method ?? PaymentMethod.CASH,
           methodDetail: header?.reference ?? null,
           receivedAt,
+          // Writing these closes the receivable: each one bumps its invoice's
+          // settledAmount in this same transaction.
+          allocations: plan.allocations,
           ...counter,
         },
         tx
       );
-      return { id: created.id, documentNo: documentNo.value, ...money };
+      return { id: created.id, documentNo: documentNo?.value ?? null, ...money };
     }
 
     const saleType = KIND_SALE_TYPE[input.kind];
@@ -403,6 +628,15 @@ export class ReceiptService {
     // off the FULL invoice amount, not off what was received. Selling on
     // credit does not defer the tax.
     const vat = splitVat(amount, saleType);
+
+    // Unreachable — only a collection may be undocumented — but the compiler
+    // cannot know that, and a silent `!` here would be the sort of thing that
+    // bites when a fifth receipt kind is added.
+    if (!documentNo) {
+      throw new ValidationError(
+        `A ${RECEIPT_KIND_LABEL[input.kind]} is always issued as a numbered document.`
+      );
+    }
 
     const created = await this.receipts.createSale(
       {
@@ -412,6 +646,7 @@ export class ReceiptService {
         customerId: jo.customer.id,
         jobOrderId: jo.id,
         saleDate: receivedAt,
+        dueDate,
         amount: toAmount(vat.amount),
         vatableSales: toAmount(vat.vatableSales),
         vatAmount: toAmount(vat.vatAmount),
@@ -424,6 +659,258 @@ export class ReceiptService {
       tx
     );
     return { id: created.id, documentNo: documentNo.value, ...money };
+  }
+
+  // ——— customer-level collection (the QuickBooks "Receive Payment") ———
+
+  /** Everything the Collect dialog opens with: what they owe, what we hold. */
+  async getCollectOptions(
+    actor: Actor,
+    customerId: string
+  ): Promise<CollectOptionsDto> {
+    assertCan(actor, "read", "Sale");
+    const customer = await this.customers.findById(customerId);
+    if (!customer) throw new NotFoundError("Customer not found.");
+
+    const open = await this.openInvoicesFor(customerId);
+    const credits = await this.credits.listOpen(customerId);
+
+    return {
+      customerId: customer.id,
+      customerName: customer.name,
+      customerAddress: customer.address,
+      customerTin: customer.tin,
+      invoices: open.map((i) => i.dto),
+      totalOutstanding: toAmount(
+        open.reduce((t, i) => t + i.openBalance, 0)
+      ),
+      credits: credits.map(toCreditDto),
+      creditAvailable: toAmount(
+        credits.reduce((t, c) => t + toCentavos(c.remaining), 0)
+      ),
+      nextCrNumber: await this.peekNextNumber(BookletType.CR),
+    };
+  }
+
+  /**
+   * Take a payment against a customer's ACCOUNT rather than one job order.
+   *
+   * The money is applied oldest-invoice-first across every open invoice they
+   * have, whatever job order it belongs to, unless the cashier names the
+   * invoices themselves. Anything left over is held as customer credit — not
+   * refused, and not handed back over the counter.
+   *
+   * Three quantities move, and they are deliberately not the same number:
+   *
+   *   received  — tender taken in now. ONLY this counts as the day's
+   *               collections; credit is not cash arriving twice.
+   *   applied   — what reached the invoices: received + credit spent.
+   *   credit    — spent from the account, or newly parked on it.
+   */
+  async collectFromCustomer(
+    actor: Actor,
+    input: CollectFromCustomerInput
+  ): Promise<CollectResultDto> {
+    assertCan(actor, "create", "Sale");
+
+    const customer = await this.customers.findById(input.customerId);
+    if (!customer) throw new NotFoundError("Customer not found.");
+
+    const open = await this.openInvoicesFor(input.customerId);
+    if (open.length === 0) {
+      throw new ValidationError(
+        `${customer.name} has nothing outstanding — there is no invoice for this payment to settle.`
+      );
+    }
+
+    const lines = input.payments ?? [];
+    // Reused for its per-line validation; with `due` set to the total there is
+    // no shortfall and no change to compute — an account payment is not a
+    // counter sale, and money over is parked rather than handed back.
+    const received = lines.reduce((t, l) => t + toCentavos(l.amount), 0);
+    const settled = settleTenders(lines, received);
+
+    const available = await this.credits.listOpen(input.customerId);
+    const creditAvailable = available.reduce(
+      (t, c) => t + toCentavos(c.remaining),
+      0
+    );
+    const creditApplied = input.creditApplied
+      ? toCentavos(input.creditApplied)
+      : 0;
+    if (creditApplied < 0) {
+      throw new ValidationError("Credit applied cannot be negative.");
+    }
+    if (creditApplied > creditAvailable) {
+      throw new ValidationError(
+        `Only ${toAmount(creditAvailable)} of credit is on ${customer.name}'s account.`
+      );
+    }
+
+    const pool = received + creditApplied;
+    if (pool <= 0) {
+      throw new ValidationError(
+        "Nothing to apply — enter a payment, or apply a credit on file."
+      );
+    }
+
+    const undocumented = input.issueDocument === false;
+    if (received === 0 && !undocumented) {
+      // A Collection Receipt acknowledges money handed over. Settling purely
+      // from credit moves nothing across the counter, so there is nothing for
+      // the receipt to attest to and no reason to burn a serial on it.
+      throw new ValidationError(
+        "This payment is funded entirely by credit already on file, so no money is being received. Record it without a Collection Receipt."
+      );
+    }
+
+    const allocations = planAllocations(
+      open.map((i) => ({
+        id: i.dto.id,
+        documentNo: i.dto.documentNo,
+        openBalance: i.openBalance,
+      })),
+      pool,
+      input.allocations,
+      true
+    );
+    const applied = allocations.reduce((t, a) => t + toCentavos(a.amount), 0);
+    const excess = pool - applied;
+
+    if (creditApplied > 0 && excess > 0) {
+      throw new ValidationError(
+        `This payment spends ${toAmount(creditApplied)} of credit and would leave ${toAmount(excess)} back on the account. Apply only what the invoices need.`
+      );
+    }
+
+    const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
+    if (Number.isNaN(receivedAt.getTime())) {
+      throw new ValidationError("Invalid payment date.");
+    }
+
+    const header = settled.tenders.length
+      ? dominantTender(settled.tenders)
+      : null;
+
+    const result = await this.receipts.withTransaction(async (tx) => {
+      const documentNo = undocumented
+        ? null
+        : await this.allocateNumber(BookletType.CR, tx);
+
+      const cr = await this.receipts.createCr(
+        {
+          crNumber: documentNo?.value ?? null,
+          documentIssued: !undocumented,
+          bookletId: documentNo?.bookletId ?? null,
+          customerId: customer.id,
+          // Not tied to any one job order — that is the whole point of paying
+          // against the account.
+          jobOrderId: null,
+          amount: toAmount(received),
+          method: header?.method ?? PaymentMethod.CASH,
+          methodDetail: header?.reference ?? null,
+          cashTendered:
+            settled.cashTendered === null ? null : toAmount(settled.cashTendered),
+          changeGiven: "0.00",
+          billedToName: customer.name,
+          billedToAddress: customer.address,
+          billedToTin: customer.tin,
+          receivedAt,
+          notes: input.notes?.trim() || null,
+          createdById: actor.id,
+          payments: settled.tenders.map((t, seq) => ({
+            method: t.method,
+            amount: toAmount(t.amount),
+            reference: t.reference,
+            seq,
+          })),
+          allocations,
+        },
+        tx
+      );
+
+      // Spend credit oldest-first, the same convention as oldest invoice.
+      let need = creditApplied;
+      for (const credit of available) {
+        if (need <= 0) break;
+        const take = Math.min(need, toCentavos(credit.remaining));
+        await this.credits.apply(credit.id, toAmount(take), cr.id, actor.id, tx);
+        need -= take;
+      }
+
+      if (excess > 0) {
+        await this.credits.create(
+          {
+            customerId: customer.id,
+            amount: toAmount(excess),
+            method: header?.method ?? PaymentMethod.CASH,
+            reference: header?.reference ?? null,
+            receivedAt,
+            notes: `Overpayment on ${documentNo?.value ?? "an unreceipted payment"}`,
+            createdById: actor.id,
+            sourceCollectionReceiptId: cr.id,
+          },
+          tx
+        );
+      }
+
+      return { id: cr.id, documentNo: documentNo?.value ?? null };
+    });
+
+    const closed = allocations.filter((a) => {
+      const invoice = open.find((i) => i.dto.id === a.saleId);
+      return invoice && toCentavos(a.amount) >= invoice.openBalance;
+    }).length;
+
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "CollectionReceipt",
+      entityId: result.id,
+      action: "collect-from-customer",
+      payload: {
+        customer: customer.name,
+        documentNo: result.documentNo ?? "(no document issued)",
+        received: toAmount(received),
+        applied: toAmount(applied),
+        creditUsed: toAmount(creditApplied),
+        creditCreated: toAmount(excess),
+        invoices: allocations.length,
+      },
+    });
+
+    return {
+      id: result.id,
+      documentNo: result.documentNo,
+      received: toAmount(received),
+      applied: toAmount(applied),
+      creditUsed: toAmount(creditApplied),
+      creditCreated: toAmount(excess),
+      invoicesClosed: closed,
+    };
+  }
+
+  /** A customer's open invoices across every job order, oldest first. */
+  private async openInvoicesFor(customerId: string) {
+    const rows = await this.receipts.listReceivables(customerId);
+    return rows
+      .map((r) => {
+        const openBalance = openBalanceOf(r.amount, r.amountPaid, r.settledAmount);
+        return {
+          openBalance,
+          dto: {
+            id: r.id,
+            documentNo: r.documentNo,
+            kindLabel: RECEIPT_KIND_LABEL[SALE_TYPE_KIND[r.type]],
+            saleDate: r.saleDate.toISOString(),
+            dueDate: r.dueDate?.toISOString() ?? null,
+            amount: r.amount,
+            openBalance: toAmount(openBalance),
+            daysOverdue: daysOverdueOf(r.dueDate),
+            joNumber: r.jobOrderNo,
+          },
+        };
+      })
+      .filter((i) => i.openBalance > 0);
   }
 
   /** The day's receipts — the legacy daily sales log. */
@@ -481,9 +968,16 @@ export class ReceiptService {
     const grossSales =
       sum(vatRows) + sum(nonVatRows) + sum(chargeRows) + sum(joRows);
 
-    // What is still owed on today's receipts, whatever kind they are.
+    // What is still owed on today's receipts, whatever kind they are — net of
+    // any collection since, so an invoice paid down today stops counting.
     const owed = sales
-      .map((s) => toCentavos(s.amount.toString()) - toCentavos(s.amountPaid.toString()))
+      .map((s) =>
+        openBalanceOf(
+          s.amount.toString(),
+          s.amountPaid.toString(),
+          s.settledAmount.toString()
+        )
+      )
       .filter((d) => d > 0);
 
     const vatOf = (rows: typeof vatRows) => ({
@@ -596,6 +1090,342 @@ export class ReceiptService {
   }
 }
 
+// ——— position: what a job order has been billed, and what it has paid ———
+
+/** Still owed on one invoice, never below zero. All three args are Decimals. */
+function openBalanceOf(
+  amount: string,
+  amountPaid: string,
+  settledAmount: string
+): number {
+  return Math.max(
+    toCentavos(amount) - toCentavos(amountPaid) - toCentavos(settledAmount),
+    0
+  );
+}
+
+/**
+ * Work out a job order's whole money position from its receipts.
+ *
+ * Cancelled receipts contribute NOTHING — that is the point of voiding one:
+ * the job reopens and the counter can issue a fresh receipt (docs/sales.txt
+ * §5). So every sum here runs over live rows only.
+ */
+function positionOf(
+  jo: JoForReceiptRecord,
+  sales: SaleRecord[],
+  crs: CrRecord[]
+): JoPosition {
+  const liveSales = sales.filter((s) => s.voidedAt === null);
+  const liveCrs = crs.filter((c) => c.voidedAt === null);
+
+  const joTotal = joTotalCentavos(jo);
+  const billed = liveSales.reduce(
+    (t, s) => t + toCentavos(s.amount.toString()),
+    0
+  );
+
+  // Money in AGAINST THIS JOB: paid at the counter, plus everything collected
+  // against its invoices since.
+  //
+  // Read off the invoices' settledAmount rather than off this job's own
+  // collection receipts, because a customer-level payment settles invoices
+  // across several job orders at once and is attached to none of them. Summing
+  // the job's own CRs would miss that money entirely — and double-count it
+  // whenever a CR happened to be job-scoped.
+  const collected =
+    liveSales.reduce(
+      (t, s) =>
+        t +
+        toCentavos(s.amountPaid.toString()) +
+        toCentavos(s.settledAmount.toString()),
+      0
+    ) +
+    // Legacy collections written before allocations existed carry no
+    // settledAmount to be found in, so they are counted from their own face.
+    liveCrs
+      .filter((c) => c.allocations.length === 0)
+      .reduce((t, c) => t + toCentavos(c.amount.toString()), 0);
+
+  const openInvoices = liveSales
+    .map((sale) => ({
+      sale,
+      openBalance: openBalanceOf(
+        sale.amount.toString(),
+        sale.amountPaid.toString(),
+        sale.settledAmount.toString()
+      ),
+    }))
+    .filter((x) => x.openBalance > 0)
+    // Oldest first — the order collections are applied in.
+    .sort((a, b) => a.sale.saleDate.getTime() - b.sale.saleDate.getTime());
+
+  return {
+    joTotal,
+    billed,
+    collected,
+    unbilled: Math.max(joTotal - billed, 0),
+    outstanding: openInvoices.reduce((t, x) => t + x.openBalance, 0),
+    hasInvoice: liveSales.some((s) => s.type !== SaleType.JO_SLIP),
+    hasJoReceipt: liveSales.some((s) => s.type === SaleType.JO_SLIP),
+    openInvoices,
+  };
+}
+
+type CreditPosition = {
+  enabled: boolean;
+  termDays: number | null;
+  limit: string | null;
+  customerOutstanding: string;
+  available: string | null;
+};
+
+/**
+ * The STRUCTURAL reason a receipt kind cannot be issued — everything that does
+ * not depend on the amount. Shared by the server gate and the dialog's tiles,
+ * deliberately: a greyed-out tile and a rejected request must never disagree
+ * about why.
+ */
+function blockReasonFor(
+  kind: ReceiptKind,
+  position: JoPosition,
+  credit: CreditPosition
+): string | null {
+  if (kind === RECEIPT_KIND.COLLECTION) {
+    return position.outstanding > 0
+      ? null
+      : "Nothing is outstanding on this job order — a collection settles an invoice already issued.";
+  }
+
+  // A Job Order Receipt means the customer never asked for an invoice. Once
+  // either has been issued the other is off the table, or the same sale would
+  // be counted twice in the day's gross.
+  if (kind === RECEIPT_KIND.JO_RECEIPT && position.hasInvoice) {
+    return "This job order has already been invoiced. A Job Order Receipt is only for a sale with no invoice.";
+  }
+  if (INVOICE_KINDS.includes(kind) && position.hasJoReceipt) {
+    return "This job order was acknowledged with a Job Order Receipt, which stands in place of an invoice.";
+  }
+
+  if (position.unbilled <= 0) {
+    return "This job order is already invoiced in full. Cancel or replace a receipt to reopen it.";
+  }
+
+  if (
+    kind === RECEIPT_KIND.SI_CHARGE &&
+    credit.enabled &&
+    credit.limit !== null &&
+    toCentavos(credit.available ?? "0") <= 0
+  ) {
+    return `This customer is at their ${credit.limit} credit limit — ${credit.customerOutstanding} is already outstanding.`;
+  }
+
+  return null;
+}
+
+/** Per-kind availability for the dialog: structural rules plus booklet stock. */
+function availabilityOf(
+  position: JoPosition,
+  credit: CreditPosition,
+  nextNumbers: Record<ReceiptKind, string | null>
+): Record<ReceiptKind, ReceiptAvailabilityDto> {
+  const out = {} as Record<ReceiptKind, ReceiptAvailabilityDto>;
+  for (const kind of Object.values(RECEIPT_KIND)) {
+    let reason = blockReasonFor(kind, position, credit);
+    // A collection with no CR booklet is still allowed — the receipt is
+    // optional, so an empty booklet only costs the printed document.
+    if (!reason && !nextNumbers[kind] && kind !== RECEIPT_KIND.COLLECTION) {
+      reason = `No active booklet for ${RECEIPT_KIND_LABEL[kind]}. Register and approve one under Sales Audit Maintenance.`;
+    }
+    out[kind] = { enabled: reason === null, reason };
+  }
+  return out;
+}
+
+/** The kind the counter should reach for, preselected in the dialog. */
+function recommendKind(
+  position: JoPosition,
+  availability: Record<ReceiptKind, ReceiptAvailabilityDto>,
+  vatRegistered: boolean
+): ReceiptKind | null {
+  const ok = (k: ReceiptKind) => availability[k].enabled;
+
+  // Still something to bill: the VAT status on the customer record decides
+  // which invoice, which is the question the cashier used to have to ask.
+  if (position.unbilled > 0) {
+    const preferred = vatRegistered
+      ? RECEIPT_KIND.SI_VAT
+      : RECEIPT_KIND.SI_NON_VAT;
+    if (ok(preferred)) return preferred;
+  }
+  // Fully billed but not fully collected — the customer is here to pay.
+  if (position.outstanding > 0 && ok(RECEIPT_KIND.COLLECTION)) {
+    return RECEIPT_KIND.COLLECTION;
+  }
+  return Object.values(RECEIPT_KIND).find(ok) ?? null;
+}
+
+/** The server gate: structural rules, then the amount caps. */
+function assertIssuable(args: {
+  kind: ReceiptKind;
+  amount: number;
+  position: JoPosition;
+  credit: CreditPosition;
+  creditHeldBySuperseded: number;
+}): void {
+  const { kind, amount, position, credit, creditHeldBySuperseded } = args;
+
+  const reason = blockReasonFor(kind, position, credit);
+  if (reason) throw new ValidationError(reason);
+
+  if (kind === RECEIPT_KIND.COLLECTION) {
+    if (amount > position.outstanding) {
+      throw new ValidationError(
+        `Collecting ${toAmount(amount)} but only ${toAmount(position.outstanding)} is outstanding on this job order.`
+      );
+    }
+    return;
+  }
+
+  if (amount > position.unbilled) {
+    throw new ValidationError(
+      `Billing ${toAmount(amount)} but only ${toAmount(position.unbilled)} is left to invoice on this job order.`
+    );
+  }
+
+  if (kind === RECEIPT_KIND.SI_CHARGE && credit.enabled && credit.limit !== null) {
+    const available =
+      toCentavos(credit.limit) -
+      toCentavos(credit.customerOutstanding) +
+      creditHeldBySuperseded;
+    if (amount > available) {
+      throw new ValidationError(
+        `${toAmount(amount)} on credit would put this customer past their ${credit.limit} limit — ` +
+          `${credit.customerOutstanding} is already outstanding, leaving ${toAmount(Math.max(available, 0))} available.`
+      );
+    }
+  }
+}
+
+/**
+ * Which invoices a collection pays down. "No floating CRs" (spec 2.4): every
+ * peso must land on a specific invoice, so this either validates what the
+ * cashier chose or applies it oldest-first, which is what they do by hand.
+ */
+function planAllocations(
+  invoices: AllocatableInvoice[],
+  pool: number,
+  requested?: { saleId: string; amount: string }[],
+  /**
+   * May the money exceed what the invoices need?
+   *
+   * At the counter, no: a job-scoped collection is capped at that job's
+   * outstanding, so every peso must land somewhere. On a customer account,
+   * yes: the excess becomes credit held for them, the way QuickBooks parks an
+   * overpayment.
+   */
+  allowExcess = false
+): AllocationCreateData[] {
+  if (pool <= 0) return [];
+
+  if (requested && requested.length > 0) {
+    const seen = new Set<string>();
+    for (const a of requested) {
+      if (seen.has(a.saleId)) {
+        throw new ValidationError(
+          "The same invoice is listed twice — combine it into one line."
+        );
+      }
+      seen.add(a.saleId);
+
+      const invoice = invoices.find((x) => x.id === a.saleId);
+      if (!invoice) {
+        throw new ValidationError(
+          "A payment can only be applied to an invoice that is still open."
+        );
+      }
+      if (toCentavos(a.amount) > invoice.openBalance) {
+        throw new ValidationError(
+          `${toAmount(toCentavos(a.amount))} applied to ${invoice.documentNo}, which only has ${toAmount(invoice.openBalance)} outstanding.`
+        );
+      }
+    }
+
+    const total = requested.reduce((t, a) => t + toCentavos(a.amount), 0);
+    if (total > pool) {
+      throw new ValidationError(
+        `The allocations total ${toAmount(total)} but only ${toAmount(pool)} is available to apply.`
+      );
+    }
+    if (!allowExcess && total !== pool) {
+      throw new ValidationError(
+        `The allocations total ${toAmount(total)} but ${toAmount(pool)} was collected — every peso must be applied to an invoice.`
+      );
+    }
+    return requested.map((a) => ({ saleId: a.saleId, amount: a.amount }));
+  }
+
+  let remaining = pool;
+  const out: AllocationCreateData[] = [];
+  for (const invoice of invoices) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, invoice.openBalance);
+    out.push({ saleId: invoice.id, amount: toAmount(take) });
+    remaining -= take;
+  }
+  if (remaining > 0 && !allowExcess) {
+    // Unreachable on the counter path: assertIssuable already capped the
+    // amount at `outstanding`.
+    throw new ValidationError(
+      `${toAmount(remaining)} of this collection has no open invoice to apply to.`
+    );
+  }
+  return out;
+}
+
+/** The shape planAllocations works in, whichever ledger it came from. */
+type AllocatableInvoice = {
+  id: string;
+  documentNo: string;
+  openBalance: number;
+};
+
+/** Days past due, floored at 0. Null when the invoice carries no terms. */
+function daysOverdueOf(dueDate: Date | null): number | null {
+  if (!dueDate) return null;
+  return Math.max(
+    0,
+    Math.floor((Date.now() - dueDate.getTime()) / 86_400_000)
+  );
+}
+
+function toCreditDto(c: {
+  id: string;
+  amount: string;
+  applied: string;
+  remaining: string;
+  method: PaymentMethod;
+  reference: string | null;
+  receivedAt: Date;
+  status: "UNAPPLIED" | "PARTIALLY_APPLIED" | "FULLY_APPLIED";
+  sourceDocumentNo: string | null;
+}): CustomerCreditDto {
+  return { ...c, receivedAt: c.receivedAt.toISOString() };
+}
+
+function toOpenInvoice(sale: SaleRecord, openBalance: number): OpenInvoiceDto {
+  return {
+    id: sale.id,
+    documentNo: sale.documentNo,
+    kindLabel: RECEIPT_KIND_LABEL[SALE_TYPE_KIND[sale.type]],
+    saleDate: sale.saleDate.toISOString(),
+    dueDate: sale.dueDate?.toISOString() ?? null,
+    amount: sale.amount.toString(),
+    openBalance: toAmount(openBalance),
+    daysOverdue: daysOverdueOf(sale.dueDate),
+  };
+}
+
 // ——— helpers ———
 
 function kindOfBooklet(type: BookletType): ReceiptKind {
@@ -652,18 +1482,32 @@ function saleToRow(s: SaleRecord): ReceiptRowDto {
     kind,
     kindLabel: RECEIPT_KIND_LABEL[kind],
     documentNo: s.documentNo,
+    documentIssued: true,
     customerName: s.billedToName ?? s.customer.name,
     joNumber: s.jobOrder?.joNumber ?? null,
     amount: s.amount.toString(),
     vatableSales: s.vatableSales.toString(),
     vatAmount: s.vatAmount.toString(),
     amountPaid: s.amountPaid.toString(),
-    balanceDue: toAmount(
-      Math.max(
-        toCentavos(s.amount.toString()) - toCentavos(s.amountPaid.toString()),
-        0
-      )
-    ),
+    settledAmount: s.settledAmount.toString(),
+    // Net of collections since issue — an invoice paid down by a CR is no
+    // longer owed, even though amountPaid still reads what the paper says.
+    //
+    // A CANCELLED receipt owes NOTHING. Only the document was cancelled, not
+    // the underlying job, so the job's balance reopens and is re-billed on a
+    // fresh receipt — leaving a debt on the cancelled one too would show the
+    // same money owed twice. Zeroed here rather than in one view so no future
+    // caller can reintroduce the double-count.
+    balanceDue: s.voidedAt
+      ? "0.00"
+      : toAmount(
+          openBalanceOf(
+            s.amount.toString(),
+            s.amountPaid.toString(),
+            s.settledAmount.toString()
+          )
+        ),
+    dueDate: s.dueDate?.toISOString() ?? null,
     paymentStatus: s.paymentStatus,
     cashTendered: s.cashTendered?.toString() ?? null,
     changeGiven: s.changeGiven.toString(),
@@ -690,7 +1534,10 @@ function crToRow(c: CrRecord): ReceiptRowDto {
     id: c.id,
     kind: RECEIPT_KIND.COLLECTION,
     kindLabel: RECEIPT_KIND_LABEL.COLLECTION,
+    // Null when the customer declined the printed receipt — the payment is
+    // still on the ledger, it simply has no serial to show.
     documentNo: c.crNumber,
+    documentIssued: c.documentIssued,
     customerName: c.billedToName ?? c.customer.name,
     joNumber: c.jobOrder?.joNumber ?? null,
     amount: c.amount.toString(),
@@ -698,8 +1545,10 @@ function crToRow(c: CrRecord): ReceiptRowDto {
     vatableSales: "0.00",
     vatAmount: "0.00",
     amountPaid: c.amount.toString(),
+    settledAmount: "0.00",
     // A collection acknowledges what came in — it is never itself unpaid.
     balanceDue: "0.00",
+    dueDate: null,
     paymentStatus: PaymentStatus.PAID,
     cashTendered: c.cashTendered?.toString() ?? null,
     changeGiven: c.changeGiven.toString(),
@@ -729,7 +1578,10 @@ export function getReceiptService(): ReceiptService {
   instance ??= new ReceiptService(
     new PrismaReceiptRepository(),
     new PrismaBookletRepository(),
-    new PrismaActivityLogRepository()
+    new PrismaActivityLogRepository(),
+    new PrismaModuleFlagRepository(),
+    new PrismaCreditRepository(),
+    new PrismaCustomerRepository()
   );
   return instance;
 }

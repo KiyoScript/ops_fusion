@@ -11,8 +11,20 @@ export type CustomerSuggestion = CustomerOption & {
   email: string | null;
 };
 
+/** Billing identity plus credit standing — what a receipt is made out to. */
+export type CustomerBillingRecord = {
+  id: string;
+  name: string;
+  address: string | null;
+  tin: string | null;
+  vatRegistered: boolean;
+  creditTermDays: number | null;
+  creditLimit: string | null;
+};
+
 export interface ICustomerRepository {
   search(query: string, take?: number): Promise<CustomerSuggestion[]>;
+  findById(id: string): Promise<CustomerBillingRecord | null>;
   findOrCreateByName(
     name: string,
     createdById: string,
@@ -30,6 +42,11 @@ export interface ICustomerRepository {
     names: string[],
     createdById: string
   ): Promise<{ idByName: Map<string, string>; created: number }>;
+  /** Credit terms & ceiling. Null on either clears it — see customer.prisma. */
+  setCredit(
+    id: string,
+    data: { creditTermDays: number | null; creditLimit: string | null }
+  ): Promise<{ id: string; name: string }>;
 }
 
 export class PrismaCustomerRepository implements ICustomerRepository {
@@ -49,6 +66,17 @@ export class PrismaCustomerRepository implements ICustomerRepository {
       orderBy: { name: "asc" },
       take,
     });
+  }
+
+  async findById(id: string): Promise<CustomerBillingRecord | null> {
+    const c = await prisma.customer.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true, name: true, address: true, tin: true,
+        vatRegistered: true, creditTermDays: true, creditLimit: true,
+      },
+    });
+    return c && { ...c, creditLimit: c.creditLimit?.toString() ?? null };
   }
 
   async fillContactDetails(
@@ -116,5 +144,19 @@ export class PrismaCustomerRepository implements ICustomerRepository {
       for (const c of created) idByName.set(c.name.toLowerCase(), c.id);
     }
     return { idByName, created: missing.length };
+  }
+
+  async setCredit(
+    id: string,
+    data: { creditTermDays: number | null; creditLimit: string | null }
+  ): Promise<{ id: string; name: string }> {
+    return prisma.customer.update({
+      where: { id },
+      data: {
+        creditTermDays: data.creditTermDays,
+        creditLimit: data.creditLimit,
+      },
+      select: { id: true, name: true },
+    });
   }
 }

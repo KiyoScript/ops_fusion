@@ -67,10 +67,24 @@ export const paymentLineInput = z.object({
   reference: z.string().trim().max(120).optional(),
 });
 
+/** Which invoice a collection pays down, and by how much. */
+export const allocationInput = z.object({
+  saleId: z.string().min(1),
+  amount: money,
+});
+
 export const receivePaymentInput = z.object({
   jobOrderId: z.string().min(1, "Job order is required."),
   kind: z.enum(RECEIPT_KIND),
-  /** Amount of the document — what the customer owes on this receipt. */
+  /**
+   * The FACE VALUE of the document being issued — not the job order's total.
+   *
+   * On an invoice this is what the cashier chooses to bill now, capped at the
+   * job's unbilled remainder: a ₱500 downpayment on a ₱1,344 job issues an
+   * invoice for ₱500, and the ₱844 is invoiced later by a second one. On a
+   * Charge Invoice it is the amount put on credit; on a collection, the amount
+   * being collected.
+   */
   amount: money,
   /** @deprecated The cash payment line carries this now. Ignored. */
   cashTendered: optionalMoney,
@@ -86,6 +100,25 @@ export const receivePaymentInput = z.object({
   methodDetail: z.string().trim().max(120).optional(),
   receivedAt: z.string().optional(), // ISO date; defaults to now
   notes: z.string().trim().max(2000).optional(),
+
+  /**
+   * COLLECTION only — whether to print a numbered Collection Receipt.
+   *
+   * False means the money is still recorded and the receivable still closes,
+   * but no booklet number is consumed. The CR is a *supplementary* document
+   * (docs/sales.txt §6): the customer may simply not want one.
+   *
+   * Optional rather than defaulted so callers building the input by hand are
+   * not forced to spell out the common case; the service reads it as true
+   * unless explicitly false.
+   */
+  issueDocument: z.boolean().optional(),
+
+  /**
+   * COLLECTION only — which invoices the money pays down. Omit and the service
+   * applies it oldest-invoice-first, which is what the counter does by hand.
+   */
+  allocations: z.array(allocationInput).max(50).optional(),
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -148,6 +181,28 @@ export type ReceiptListFilters = z.infer<typeof receiptListFilters>;
 
 // ——— DTOs ———
 
+/** Whether a receipt kind may be issued right now, and why not if it can't. */
+export type ReceiptAvailabilityDto = {
+  enabled: boolean;
+  /** Shown on the disabled tile — never leave the cashier guessing. */
+  reason: string | null;
+};
+
+/** An invoice with money still owed on it — what a collection pays down. */
+export type OpenInvoiceDto = {
+  id: string;
+  documentNo: string;
+  kindLabel: string;
+  saleDate: string;
+  dueDate: string | null;
+  /** Face value of the invoice. */
+  amount: string;
+  /** Still owed: amount − amountPaid − settledAmount. */
+  openBalance: string;
+  /** Days past due — 0 while current, null when the invoice has no terms. */
+  daysOverdue: number | null;
+};
+
 /** What the Receive Payment dialog needs to open: the JO, pre-filled. */
 export type ReceivePaymentOptionsDto = {
   jobOrderId: string;
@@ -159,10 +214,40 @@ export type ReceivePaymentOptionsDto = {
     tin: string | null;
     vatRegistered: boolean;
   };
-  /** JO total, and what's already been received against it. */
   joTotal: string;
+  /** Money actually in against this JO — invoices paid at the counter plus
+   *  every collection since. */
   totalReceived: string;
-  balance: string;
+  /**
+   * The two numbers that drive everything. They are NOT the same thing, and
+   * conflating them is what let a fully-invoiced job be invoiced again:
+   *
+   *   unbilled    — job total less every live receipt's face value. Governs
+   *                 whether another INVOICE may be issued.
+   *   outstanding — billed but not yet collected (A/R). Governs whether a
+   *                 COLLECTION may be issued.
+   *
+   * A ₱1,344 job carrying one charge invoice has unbilled ₱0 and outstanding
+   * ₱1,344: nothing left to invoice, everything left to collect.
+   */
+  unbilled: string;
+  outstanding: string;
+  /** Per kind: may it be issued, and if not, why not. */
+  availability: Record<ReceiptKind, ReceiptAvailabilityDto>;
+  /** The kind the counter should reach for, given the state. Preselected. */
+  recommended: ReceiptKind | null;
+  /** Open invoices on this JO, oldest first — what a collection settles. */
+  openInvoices: OpenInvoiceDto[];
+  /** Credit terms & limit. `enabled` mirrors the credit-control module flag. */
+  credit: {
+    enabled: boolean;
+    termDays: number | null;
+    limit: string | null;
+    /** This customer's open A/R across ALL their job orders. */
+    customerOutstanding: string;
+    /** limit − customerOutstanding; null when no limit is set. */
+    available: string | null;
+  };
   /** Next number per receipt kind — null when no ACTIVE booklet exists. */
   nextNumbers: Record<ReceiptKind, string | null>;
   /** Receipts already issued against this JO. */
@@ -180,17 +265,24 @@ export type ReceiptRowDto = {
   id: string;
   kind: ReceiptKind;
   kindLabel: string;
-  documentNo: string;
+  /** Null only on an undocumented collection — money in, no CR printed. */
+  documentNo: string | null;
+  /** False only on an undocumented collection. Always true for a Sale. */
+  documentIssued: boolean;
   customerName: string;
   joNumber: string | null;
   /** Gross, VAT-inclusive. */
   amount: string;
   vatableSales: string;
   vatAmount: string;
-  /** What was actually received and applied to this document. */
+  /** What was actually received and applied to this document AT ISSUE. */
   amountPaid: string;
-  /** Left unsettled — credit / utang / Accounts Receivable. "0.00" if paid. */
+  /** Collected against it SINCE issue, via collection receipts. */
+  settledAmount: string;
+  /** Left unsettled — credit / utang / A/R. "0.00" once fully collected. */
   balanceDue: string;
+  /** SI_CHARGE only: when it falls due under the customer's terms. */
+  dueDate: string | null;
   paymentStatus: PaymentStatus;
   cashTendered: string | null;
   changeGiven: string;
@@ -236,3 +328,191 @@ export type DailySalesSummaryDto = {
   receivables: { count: number; amount: string };
   pendingAudit: number;
 };
+
+// ══════════════════════════════════════════════════════════════════════════
+// ACCOUNTS RECEIVABLE — who owes us what, and how long it has been owed.
+//
+// Aging runs off Sale.dueDate, frozen at issue from the customer's terms. An
+// invoice with no terms has no due date and can never be overdue; it sits in
+// the CURRENT bucket until someone agrees terms with that customer.
+// ══════════════════════════════════════════════════════════════════════════
+
+export const AGING_BUCKETS = ["CURRENT", "D1_30", "D31_60", "D61_90", "D90_PLUS"] as const;
+export type AgingBucket = (typeof AGING_BUCKETS)[number];
+
+export const AGING_BUCKET_LABEL: Record<AgingBucket, string> = {
+  CURRENT: "Current",
+  D1_30: "1–30 days",
+  D31_60: "31–60 days",
+  D61_90: "61–90 days",
+  D90_PLUS: "90+ days",
+};
+
+/** Where an invoice falls, by days past its due date. */
+export function bucketFor(daysOverdue: number | null): AgingBucket {
+  if (daysOverdue === null || daysOverdue <= 0) return "CURRENT";
+  if (daysOverdue <= 30) return "D1_30";
+  if (daysOverdue <= 60) return "D31_60";
+  if (daysOverdue <= 90) return "D61_90";
+  return "D90_PLUS";
+}
+
+/** One customer's line on the A/R ledger. */
+export type ReceivableCustomerDto = {
+  customerId: string;
+  customerName: string;
+  invoiceCount: number;
+  /** Total still owed across every open invoice. */
+  outstanding: string;
+  /** The oldest open invoice's age in days past due; null if none are due. */
+  oldestDaysOverdue: number | null;
+  /** Outstanding split by age. */
+  aging: Record<AgingBucket, string>;
+  creditTermDays: number | null;
+  creditLimit: string | null;
+  /** limit − outstanding; null when no limit is set. Negative = over limit. */
+  creditAvailable: string | null;
+  overLimit: boolean;
+  /**
+   * Money the shop is HOLDING for this customer from an overpayment — the
+   * opposite sign to `outstanding`, and deliberately not netted against it.
+   * A customer can appear here owing nothing and still hold credit.
+   */
+  creditOnAccount: string;
+};
+
+export type ReceivablesSummaryDto = {
+  totalOutstanding: string;
+  customerCount: number;
+  invoiceCount: number;
+  aging: Record<AgingBucket, string>;
+  /** Customers whose open A/R exceeds their credit limit. */
+  overLimitCount: number;
+  /** Total unspent customer credit the shop is holding. */
+  totalCreditOnAccount: string;
+};
+
+export type ReceivablesPageDto = {
+  summary: ReceivablesSummaryDto;
+  customers: ReceivableCustomerDto[];
+  /** Mirrors the credit-control module flag — hides limit columns when off. */
+  creditControlEnabled: boolean;
+};
+
+/** A customer's Statement of Account: every open invoice, oldest first. */
+export type StatementOfAccountDto = {
+  customerId: string;
+  customerName: string;
+  customerAddress: string | null;
+  customerTin: string | null;
+  asOf: string;
+  invoices: (OpenInvoiceDto & {
+    joNumber: string | null;
+    bucket: AgingBucket;
+  })[];
+  totalOutstanding: string;
+  aging: Record<AgingBucket, string>;
+  creditTermDays: number | null;
+  creditLimit: string | null;
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// CUSTOMER-LEVEL COLLECTION — the QuickBooks "Receive Payment" shape.
+//
+// A customer pays down their ACCOUNT, not one job order: one payment settles
+// as many invoices as it reaches, across whatever job orders they belong to,
+// applied oldest-first unless the cashier says otherwise. Money over and above
+// what is owed is held as customer credit rather than refused or handed back.
+// ══════════════════════════════════════════════════════════════════════════
+
+export const collectFromCustomerInput = z.object({
+  customerId: z.string().min(1, "Customer is required."),
+  /**
+   * What the customer handed over now. Split across `payments` when they pay
+   * two ways. May be zero when the payment is funded entirely by credit.
+   */
+  payments: z.array(paymentLineInput).max(10, "At most 10 payment lines.").optional(),
+  /** Credit on file to spend on this payment. Drawn oldest-credit-first. */
+  creditApplied: optionalMoney,
+  /**
+   * Which invoices this settles, and for how much. Omit and the money is
+   * applied oldest-invoice-first, which is what the counter does by hand.
+   */
+  allocations: z.array(allocationInput).max(50).optional(),
+  /** Print a numbered Collection Receipt? See receivePaymentInput. */
+  issueDocument: z.boolean().optional(),
+  receivedAt: z.string().optional(),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export type CollectFromCustomerInput = z.infer<typeof collectFromCustomerInput>;
+
+/** One credit on a customer's account — money held FOR them. */
+export type CustomerCreditDto = {
+  id: string;
+  amount: string;
+  applied: string;
+  remaining: string;
+  method: PaymentMethod;
+  reference: string | null;
+  receivedAt: string;
+  status: "UNAPPLIED" | "PARTIALLY_APPLIED" | "FULLY_APPLIED";
+  /** The collection whose excess created it. */
+  sourceDocumentNo: string | null;
+};
+
+/** What the Collect dialog opens with. */
+export type CollectOptionsDto = {
+  customerId: string;
+  customerName: string;
+  customerAddress: string | null;
+  customerTin: string | null;
+  /** Open invoices across every job order, oldest first. */
+  invoices: (OpenInvoiceDto & { joNumber: string | null })[];
+  totalOutstanding: string;
+  /** Credits with money left on them, oldest first. */
+  credits: CustomerCreditDto[];
+  creditAvailable: string;
+  /** Next CR number, or null when no booklet is active. */
+  nextCrNumber: string | null;
+};
+
+export type CollectResultDto = {
+  id: string;
+  /** Null when no Collection Receipt was printed. */
+  documentNo: string | null;
+  /** Tender taken in — what the day's collections count. */
+  received: string;
+  /** Total applied to invoices, tender plus any credit spent. */
+  applied: string;
+  /** Credit spent funding this payment. */
+  creditUsed: string;
+  /** Overpayment parked as new credit on the account. */
+  creditCreated: string;
+  /** Invoices this payment closed outright. */
+  invoicesClosed: number;
+};
+
+/**
+ * Set a customer's credit terms. Both fields clear with null: no terms and no
+ * ceiling is the pre-existing behaviour, and must stay reachable.
+ */
+export const setCreditInput = z.object({
+  customerId: z.string().min(1),
+  /** Net days until a charge invoice falls due. Null = no terms. */
+  creditTermDays: z.number().int().min(0).max(365).nullable(),
+  /** Ceiling on total open A/R. Null = no ceiling. */
+  creditLimit: money.nullable(),
+});
+
+export type SetCreditInput = z.infer<typeof setCreditInput>;
+
+export const receivableFilters = z.object({
+  q: z.string().trim().max(200).optional(),
+  /** Show only customers with something in this bucket. */
+  bucket: z.enum(AGING_BUCKETS).optional(),
+  /** Only customers past their credit limit. */
+  overLimitOnly: z.coerce.boolean().optional(),
+});
+
+export type ReceivableFilters = z.infer<typeof receivableFilters>;

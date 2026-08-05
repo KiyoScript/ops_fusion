@@ -5,6 +5,9 @@ import { fetchJson } from "@/lib/api-client";
 import type { BookletType } from "@/generated/prisma/enums";
 import type { BookletDto, BookletSuggestionDto } from "../schemas/booklet";
 import type {
+  CollectFromCustomerInput,
+  CollectOptionsDto,
+  CollectResultDto,
   DailySalesSummaryDto,
   ReceiptListPageDto,
   ReceivePaymentInput,
@@ -103,7 +106,8 @@ export function useReceivePayment() {
     mutationFn: (input: ReceivePaymentInput) =>
       fetchJson<{
         id: string;
-        documentNo: string;
+        /** Null when a collection was recorded without printing a CR. */
+        documentNo: string | null;
         changeGiven: string;
         amountPaid: string;
         /** Unsettled remainder — straight to A/R. "0.00" on a cash sale. */
@@ -125,7 +129,7 @@ export function useVoidReceipt() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: VoidReceiptInput) =>
-      fetchJson<{ id: string; documentNo: string }>(
+      fetchJson<{ id: string; documentNo: string | null }>(
         "/api/receipts/void",
         json(input)
       ),
@@ -142,13 +146,45 @@ export function useReplaceReceipt() {
     mutationFn: (input: ReplaceReceiptInput) =>
       fetchJson<{
         id: string;
-        documentNo: string;
+        documentNo: string | null;
         changeGiven: string;
         replacedDocumentNo: string;
       }>("/api/receipts/void", json(input)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["receipts"] });
       // A replacement consumes a fresh booklet number.
+      qc.invalidateQueries({ queryKey: ["booklets"] });
+    },
+  });
+}
+
+// ——— customer-level collection (accounts receivable) ———
+
+/** Open invoices across every job order, plus credit held on account. */
+export function useCollectOptions(customerId: string | null) {
+  return useQuery({
+    queryKey: ["receivables", "collect", customerId],
+    queryFn: () =>
+      fetchJson<CollectOptionsDto>(`/api/receivables/${customerId}/collect`),
+    enabled: customerId !== null,
+  });
+}
+
+export function useCollectFromCustomer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      customerId,
+      ...body
+    }: CollectFromCustomerInput) =>
+      fetchJson<CollectResultDto>(
+        `/api/receivables/${customerId}/collect`,
+        json(body)
+      ),
+    onSuccess: () => {
+      // The debt, the day's log and the booklet all move together.
+      qc.invalidateQueries({ queryKey: ["receivables"] });
+      qc.invalidateQueries({ queryKey: ["receipts"] });
       qc.invalidateQueries({ queryKey: ["booklets"] });
     },
   });

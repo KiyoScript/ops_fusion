@@ -13,11 +13,26 @@ enum PaymentMethod {
 
 // Acknowledges CASH COLLECTED against a sale that already booked the revenue —
 // so a CR is never counted as revenue itself (see the note in sale.prisma).
+//
+// This is the MONEY EVENT, not the document. A customer settling a Charge
+// Invoice may decline the printed Collection Receipt — it is a *supplementary*
+// document (docs/sales.txt §6), and the principal one (the Charge Invoice) was
+// already issued at point of sale. The payment must be recorded regardless, or
+// the receivable never closes. So:
+//
+//   documentIssued = true  → a CR was printed; crNumber holds its serial
+//   documentIssued = false → money in, no document; crNumber is null and NO
+//                            booklet number is consumed
+//
+// Booklet accountability (all 50 leaves traceable) therefore reads this table
+// with `crNumber != null`. Postgres allows many NULLs under a unique index, so
+// undocumented payments coexist with numbered CRs in the same ledger.
 model CollectionReceipt {
-  id         String        @id @default(cuid())
-  crNumber   String        @unique
-  bookletId  String?
-  booklet    Booklet?      @relation(fields: [bookletId], references: [id])
+  id             String   @id @default(cuid())
+  crNumber       String?  @unique // null → no document printed
+  documentIssued Boolean  @default(false)
+  bookletId      String?
+  booklet        Booklet? @relation(fields: [bookletId], references: [id])
   customerId String
   customer   Customer      @relation(fields: [customerId], references: [id])
   // Which JO the collection is against (null → collected against invoices only).
@@ -60,6 +75,20 @@ model CollectionReceipt {
   // Split tender: one row per method. See receipt-payment.prisma.
   payments     ReceiptPayment[]
 
+  // — customer credit (advance-payment.prisma) —
+  //
+  // `amount` above is the TENDER TAKEN IN on this collection and nothing else,
+  // which is what the day's collections total counts. Credit moves separately,
+  // so the books balance as:
+  //
+  //   amount + creditApplied  =  sum(allocations) + creditCreated
+  //
+  // Overpay and the excess leaves as `creditsCreated`; pay with a credit on
+  // file and it arrives as `creditsApplied`. Neither is cash crossing the
+  // counter today, so neither may be counted as a collection twice.
+  creditsCreated AdvancePayment[]            @relation("ApFromCollection")
+  creditsApplied AdvancePaymentApplication[] @relation("ApAppliedToCollection")
+
   @@index([customerId])
   @@index([receivedAt])
   @@index([deletedAt])
@@ -69,9 +98,14 @@ model CollectionReceipt {
   @@index([voidedAt])
 }
 
-// "No floating CRs" (spec 2.4): every CR must allocate fully to specific sales
-// invoices — enforced in the service layer. That rule lands with the A/R module;
-// until then a CR may be issued without allocations.
+// "No floating CRs" (spec 2.4): every collection must allocate fully to
+// specific sales invoices — enforced in the service layer, since Postgres has
+// no cross-row check constraint.
+//
+// This is what actually closes a receivable: sum(amount) per sale is mirrored
+// onto Sale.settledAmount in the same transaction, and an invoice is settled
+// when `amount − amountPaid − settledAmount` reaches zero. Allocations are
+// written whether or not a CR document was printed — see documentIssued above.
 model CrAllocation {
   id     String            @id @default(cuid())
   crId   String

@@ -39,8 +39,10 @@ import {
   RECEIPT_KIND_HINT,
   RECEIPT_KIND_LABEL,
   VOID_TYPE_LABEL,
+  type OpenInvoiceDto,
   type ReceiptKind,
   type ReceiptRowDto,
+  type ReceivePaymentOptionsDto,
 } from "../schemas/receipt";
 import {
   usePaymentOptions,
@@ -130,30 +132,56 @@ export function ReceivePaymentDialog({
   const [replaceReason, setReplaceReason] = useState("");
   const [replaceOnHand, setReplaceOnHand] = useState(false);
 
-  const [kind, setKind] = useState<ReceiptKind>(RECEIPT_KIND.SI_VAT);
+  // Null until the server's recommendation lands, then the cashier's choice
+  // wins. Storing null rather than a guess is what lets the preselection
+  // follow the job order's actual state instead of a hardcoded SI_VAT.
+  const [pickedKind, setPickedKind] = useState<ReceiptKind | null>(null);
+  const [amountEdit, setAmountEdit] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([newLine()]);
   const [notes, setNotes] = useState("");
+  const [issueDocument, setIssueDocument] = useState(true);
 
-  // ——— the amount is FIXED, never typed ———
-  // It is the job order's own price: the outstanding balance normally, or the
-  // amount of the receipt being reissued when replacing one. Nothing at the
-  // counter should be able to change what the job costs.
-  const amount = replacing ? replacing.amount : (jo?.balance ?? "0.00");
-  const due = num(amount);
+  const kind =
+    pickedKind ?? jo?.recommended ?? RECEIPT_KIND.SI_VAT;
 
   const isVat = VAT_KINDS.includes(kind);
-  const vatableSales = isVat ? due / VAT_DIVISOR : due;
-  const vatAmount = isVat ? due - vatableSales : 0;
   const isCharge = kind === RECEIPT_KIND.SI_CHARGE;
   const isCollection = kind === RECEIPT_KIND.COLLECTION;
 
-  // Nothing left to collect — the dialog becomes a record of what was issued.
-  const settled = !replacing && jo !== undefined && cent(due) <= 0;
+  // ——— what this document may be raised for ———
+  // An invoice is capped by what is left to BILL; a collection by what is left
+  // to COLLECT. They are different numbers, and using one for both is what
+  // let a fully-invoiced job be invoiced a second time.
+  const cap = num(
+    replacing ? replacing.amount : isCollection ? (jo?.outstanding ?? "0.00") : (jo?.unbilled ?? "0.00")
+  );
+  // Editable, defaulting to the full cap: billing the whole remainder is the
+  // common case, and a downpayment is the cashier typing a smaller number.
+  const amount = replacing
+    ? replacing.amount
+    : (amountEdit ?? cap.toFixed(2));
+  const due = num(amount);
+
+  const availability = jo?.availability[kind];
+  const blockedReason = replacing ? null : (availability?.reason ?? null);
+
+  // Nothing left to bill AND nothing left to collect — the dialog becomes a
+  // record of what was issued.
+  const settled =
+    !replacing &&
+    jo !== undefined &&
+    cent(num(jo.unbilled)) <= 0 &&
+    cent(num(jo.outstanding)) <= 0;
+
+  const vatableSales = isVat ? due / VAT_DIVISOR : due;
+  const vatAmount = isVat ? due - vatableSales : 0;
 
   const clearForm = () => {
-    setKind(RECEIPT_KIND.SI_VAT);
+    setPickedKind(null);
+    setAmountEdit(null);
     setLines([newLine()]);
     setNotes("");
+    setIssueDocument(true);
     setReplacing(null);
     setReplaceReason("");
     setReplaceOnHand(false);
@@ -173,7 +201,8 @@ export function ReceivePaymentDialog({
     setReplacing(row);
     setReplaceReason("");
     setReplaceOnHand(false);
-    setKind(row.kind);
+    setPickedKind(row.kind);
+    setAmountEdit(null);
     setLines([newLine()]);
   };
 
@@ -183,7 +212,7 @@ export function ReceivePaymentDialog({
     .filter((l) => l.method === PaymentMethod.CASH)
     .reduce((t, l) => t + num(l.amount), 0);
   const change = Math.max(received - due, 0);
-  const balanceDue = Math.max(due - received, 0);
+  const shortfall = Math.max(due - received, 0);
   // Only cash comes back over the counter — an over-sent transfer is a refund,
   // which is a different document entirely.
   const overNonCash = cent(change) > cent(cashIn);
@@ -206,22 +235,42 @@ export function ReceivePaymentDialog({
 
   /** A Charge Invoice starts with nothing received — that is what credit is. */
   const pickKind = (k: ReceiptKind) => {
-    setKind(k);
+    setPickedKind(k);
+    // The cap changes with the kind (unbilled vs outstanding), so a typed
+    // amount from the previous choice would be measured against the wrong one.
+    setAmountEdit(null);
     if (k === RECEIPT_KIND.SI_CHARGE) setLines([]);
     else if (lines.length === 0) setLines([newLine()]);
   };
 
   const nextNumber = jo?.nextNumbers[kind] ?? null;
-  const blocked = !nextNumber;
+  // A collection with no printed receipt needs no booklet number at all.
+  const needsNumber = !isCollection || issueDocument;
 
   const problem = (): string | null => {
-    if (cent(due) <= 0) return "There is nothing left to receive on this job order.";
+    if (blockedReason) return blockedReason;
+    if (cent(due) <= 0) {
+      return isCollection
+        ? "There is nothing outstanding to collect on this job order."
+        : "There is nothing left to invoice on this job order.";
+    }
+    if (cent(due) > cent(cap)) {
+      return isCollection
+        ? `Collecting ${peso(due)} but only ${peso(cap)} is outstanding.`
+        : `Billing ${peso(due)} but only ${peso(cap)} is left to invoice.`;
+    }
     if (lines.some((l) => cent(num(l.amount)) <= 0))
       return "Every payment line needs an amount greater than zero.";
-    if (received === 0 && !isCharge)
-      return `Nothing was received. A sale on credit is issued as a ${RECEIPT_KIND_LABEL.SI_CHARGE}.`;
+    if (isCharge && received > 0)
+      return `A ${RECEIPT_KIND_LABEL.SI_CHARGE} records a sale on credit — nothing is received against it. Issue a ${RECEIPT_KIND_LABEL.SI_VAT} or ${RECEIPT_KIND_LABEL.SI_NON_VAT} for what was actually paid.`;
+    // Only a Charge Invoice may leave a balance open (docs/sales.txt §3.1.3).
+    // Anything else short-paid is the wrong document, not a partial one.
+    if (!isCharge && cent(shortfall) > 0)
+      return `${peso(received)} received against a ${peso(due)} ${RECEIPT_KIND_LABEL[kind]}. Issue it for ${peso(received)} instead, or put the balance on credit with a ${RECEIPT_KIND_LABEL.SI_CHARGE}.`;
     if (overNonCash)
       return `Only cash can be over-tendered — ${peso(change)} is above the amount due but only ${peso(cashIn)} came in as cash.`;
+    if (needsNumber && !nextNumber)
+      return `No active booklet for ${RECEIPT_KIND_LABEL[kind]}. Register and approve one under Sales Audit Maintenance.`;
     if (replacing && replaceReason.trim().length < 3)
       return "Write the reason for the replacement.";
     if (replacing && !replaceOnHand)
@@ -252,6 +301,9 @@ export function ReceivePaymentDialog({
       method: payments[0]?.method ?? PaymentMethod.CASH,
       methodDetail: payments[0]?.reference,
       notes: notes.trim() || undefined,
+      // Only meaningful on a collection; harmless elsewhere. Allocations are
+      // left to the server, which applies oldest-invoice-first.
+      issueDocument: isCollection ? issueDocument : true,
     };
 
     const describe = (balance: string, changeGiven: string) =>
@@ -284,9 +336,12 @@ export function ReceivePaymentDialog({
 
     receive.mutate(payload, {
       onSuccess: (r) => {
-        toast.success(`${RECEIPT_KIND_LABEL[kind]} ${r.documentNo} issued.`, {
-          description: describe(r.balanceDue, r.changeGiven),
-        });
+        toast.success(
+          r.documentNo
+            ? `${RECEIPT_KIND_LABEL[kind]} ${r.documentNo} issued.`
+            : `${peso(num(r.amountPaid))} recorded — no Collection Receipt printed.`,
+          { description: describe(r.balanceDue, r.changeGiven) }
+        );
         reset();
       },
       onError: (e: Error) => toast.error(e.message),
@@ -319,37 +374,7 @@ export function ReceivePaymentDialog({
           />
         ) : jo ? (
           <div className="grid gap-5">
-            {/* ——— who it's billed to: already on the JO, never retyped ——— */}
-            <div className="grid gap-1 rounded-md border bg-muted/40 p-3 text-sm">
-              <div className="font-medium">{jo.customer.name}</div>
-              <div className="text-muted-foreground">
-                {jo.customer.address || "No address on file"}
-              </div>
-              <div className="flex flex-wrap gap-x-4 text-muted-foreground">
-                <span>TIN: {jo.customer.tin || "—"}</span>
-                {jo.customer.vatRegistered && (
-                  <ColorBadge tone="blue" label="VAT-registered" />
-                )}
-              </div>
-              <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 border-t pt-2 text-xs">
-                <span>
-                  JO total{" "}
-                  <strong className="tabular-nums">{peso(num(jo.joTotal))}</strong>
-                </span>
-                <span>
-                  Received{" "}
-                  <strong className="tabular-nums">
-                    {peso(num(jo.totalReceived))}
-                  </strong>
-                </span>
-                <span>
-                  Balance{" "}
-                  <strong className="tabular-nums text-foreground">
-                    {peso(num(jo.balance))}
-                  </strong>
-                </span>
-              </div>
-            </div>
+            <CustomerCard jo={jo} />
 
             {/* ——— what has already been issued against this JO ——— */}
             {jo.issued.length > 0 && (
@@ -378,6 +403,7 @@ export function ReceivePaymentDialog({
                       setReplacing(null);
                       setReplaceReason("");
                       setReplaceOnHand(false);
+                      setPickedKind(null);
                     }}
                   >
                     Cancel replacement
@@ -406,17 +432,17 @@ export function ReceivePaymentDialog({
                   id="rp-replace-onhand"
                   checked={replaceOnHand}
                   onChange={setReplaceOnHand}
-                  documentNo={replacing.documentNo}
+                  documentNo={replacing.documentNo ?? ""}
                 />
               </div>
             )}
 
             {settled ? (
-              /* Nothing left to collect: no receipt type, no amount, no
-                 payment — showing them would only invite a double-issue. */
+              /* Nothing left to bill or collect: no receipt type, no amount,
+                 no payment — showing them would only invite a double-issue. */
               <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-                This job order is fully covered by the receipts above. To
-                correct one, use <strong>Replace</strong>; to undo it, use{" "}
+                This job order is invoiced in full and paid in full. To correct
+                a receipt, use <strong>Replace</strong>; to undo one, use{" "}
                 <strong>Cancel</strong> — either reopens the balance and brings
                 this form back.
               </p>
@@ -426,64 +452,72 @@ export function ReceivePaymentDialog({
                 <div className="grid gap-2">
                   <Label>Receipt type</Label>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {KIND_ORDER.map((k) => {
-                      const next = jo.nextNumbers[k];
-                      const active = kind === k;
-                      return (
-                        <button
-                          key={k}
-                          type="button"
-                          onClick={() => pickKind(k)}
-                          aria-pressed={active}
-                          disabled={replacing !== null && k !== replacing.kind}
-                          className={cn(
-                            "flex flex-col items-start gap-0.5 rounded-md border p-3 text-left transition-colors",
-                            active
-                              ? "border-primary bg-primary/5 ring-1 ring-primary"
-                              : "hover:bg-muted/50",
-                            !next && "opacity-60",
-                            replacing !== null &&
-                              k !== replacing.kind &&
-                              "cursor-not-allowed opacity-40"
-                          )}
-                        >
-                          <span className="text-sm font-medium">
-                            {RECEIPT_KIND_LABEL[k]}
-                          </span>
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                            {next ?? "no active booklet"}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {RECEIPT_KIND_HINT[k]}
-                          </span>
-                        </button>
-                      );
-                    })}
+                    {KIND_ORDER.map((k) => (
+                      <KindTile
+                        key={k}
+                        kind={k}
+                        active={kind === k}
+                        recommended={!replacing && jo.recommended === k}
+                        nextNumber={jo.nextNumbers[k]}
+                        availability={jo.availability[k]}
+                        lockedTo={replacing?.kind ?? null}
+                        onPick={() => pickKind(k)}
+                      />
+                    ))}
                   </div>
-                  {blocked && (
-                    <p className="text-sm text-destructive">
-                      No active booklet for {RECEIPT_KIND_LABEL[kind]}. Register
-                      and approve one under Sales Audit Maintenance before
-                      issuing.
-                    </p>
+                  {blockedReason && (
+                    <p className="text-sm text-destructive">{blockedReason}</p>
                   )}
                 </div>
 
-                {/* ——— the amount: fixed by the job order, shown not typed ——— */}
+                {/* ——— the amount ——— */}
                 <div className="grid gap-2 rounded-md border p-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                    <Label className="text-base">
-                      {isCollection ? "Outstanding" : "Amount to receive"}
+                    <Label htmlFor="rp-amount" className="text-base">
+                      {isCollection ? "Amount to collect" : "Amount to invoice"}
                     </Label>
-                    <span className="font-mono text-2xl font-semibold tabular-nums">
-                      {peso(due)}
-                    </span>
+                    {replacing ? (
+                      <span className="font-mono text-2xl font-semibold tabular-nums">
+                        {peso(due)}
+                      </span>
+                    ) : (
+                      <Input
+                        id="rp-amount"
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) =>
+                          setAmountEdit(sanitizeDecimal(e.target.value))
+                        }
+                        className="h-11 max-w-44 text-right font-mono text-xl font-semibold tabular-nums"
+                      />
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {replacing
-                      ? `The amount of ${replacing.documentNo}, the receipt being reissued.`
-                      : "The job order's outstanding balance — priced on the JO, not editable here."}
-                  </p>
+
+                  {replacing ? (
+                    <p className="text-xs text-muted-foreground">
+                      The amount of {replacing.documentNo}, the receipt being
+                      reissued.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {isCollection
+                          ? `${peso(cap)} outstanding on this job order.`
+                          : `${peso(cap)} of this job order is not yet invoiced. Bill less for a downpayment — the rest stays invoiceable.`}
+                      </p>
+                      {cent(due) !== cent(cap) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setAmountEdit(cap.toFixed(2))}
+                        >
+                          Use {peso(cap)}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
                   {isVat && (
                     <div className="grid gap-1 border-t pt-2 text-sm">
                       <div className="mb-0.5 flex items-center gap-2">
@@ -493,122 +527,164 @@ export function ReceivePaymentDialog({
                       <Row label="VAT (× 12%)" value={peso(vatAmount)} />
                     </div>
                   )}
-                  {isCollection && (
+
+                  {isCharge && (
                     <p className="border-t pt-2 text-xs text-muted-foreground">
-                      A Collection Receipt is issued for the amount actually
-                      received below — not for the full outstanding.
-                    </p>
-                  )}
-                </div>
-
-                {/* ——— what the customer handed over ——— */}
-                <div className="grid gap-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label>
-                      {lines.length > 1 ? "Payment lines" : "Payment"}
-                    </Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={addLine}
-                    >
-                      <PlusIcon />
-                      {lines.length === 0
-                        ? "Record a payment"
-                        : lines.length === 1
-                          ? "Split payment"
-                          : "Add line"}
-                    </Button>
-                  </div>
-
-                  {lines.length === 0 ? (
-                    <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                      Nothing received — the whole {peso(due)} goes on credit as
+                      Nothing is received now — the whole {peso(due)} becomes
                       Accounts Receivable, settled later by a Collection
                       Receipt.
+                      {jo.credit.enabled && jo.credit.termDays !== null && (
+                        <> Due in {jo.credit.termDays} days.</>
+                      )}
                     </p>
-                  ) : (
-                    <div className="grid gap-2">
-                      {lines.map((l, i) => (
-                        <div key={l.key} className="flex items-center gap-2">
-                          <Select
-                            value={l.method}
-                            onValueChange={(v) =>
-                              patchLine(l.key, { method: v as PaymentMethod })
-                            }
-                          >
-                            {/* h-9 w-full — the trigger defaults to w-fit/h-8
-                                and would otherwise sit shorter and narrower
-                                than the Inputs beside it. */}
-                            <SelectTrigger
-                              aria-label={`Payment method, line ${i + 1}`}
-                              className="h-9 w-full max-w-44 flex-1"
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {METHODS.map((m) => (
-                                <SelectItem key={m.value} value={m.value}>
-                                  {m.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-
-                          <Input
-                            inputMode="decimal"
-                            aria-label={`Amount received, line ${i + 1}`}
-                            value={l.amount}
-                            onChange={(e) =>
-                              patchLine(l.key, {
-                                amount: sanitizeDecimal(e.target.value),
-                              })
-                            }
-                            // The number they'll usually type, not a dead 0.00.
-                            placeholder={amountPlaceholder(lines, l, due)}
-                            className="flex-1 text-right font-mono tabular-nums"
-                          />
-
-                          <Input
-                            aria-label={`Reference, line ${i + 1}`}
-                            value={l.reference}
-                            onChange={(e) =>
-                              patchLine(l.key, { reference: e.target.value })
-                            }
-                            placeholder={
-                              l.method === PaymentMethod.CASH
-                                ? "—"
-                                : "Cheque no. / ref"
-                            }
-                            disabled={l.method === PaymentMethod.CASH}
-                            className="flex-1"
-                          />
-
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Remove line ${i + 1}`}
-                            onClick={() => removeLine(l.key)}
-                            disabled={lines.length === 1 && !isCharge}
-                          >
-                            <XIcon />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
                   )}
-
-                  {/* ——— change out, or balance left on credit ——— */}
-                  <Settlement
-                    received={received}
-                    change={change}
-                    balanceDue={balanceDue}
-                    overNonCash={overNonCash}
-                    cashIn={cashIn}
-                  />
                 </div>
+
+                {/* ——— which invoices a collection pays down ——— */}
+                {isCollection && jo.openInvoices.length > 0 && (
+                  <OpenInvoices invoices={jo.openInvoices} collecting={due} />
+                )}
+
+                {/* ——— the optional Collection Receipt ——— */}
+                {isCollection && (
+                  <label
+                    htmlFor="rp-issue-doc"
+                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm"
+                  >
+                    <input
+                      id="rp-issue-doc"
+                      type="checkbox"
+                      checked={issueDocument}
+                      onChange={(e) => setIssueDocument(e.target.checked)}
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
+                    />
+                    <span className="grid gap-0.5">
+                      <span className="font-medium">
+                        Print a Collection Receipt
+                        {issueDocument && nextNumber && (
+                          <span className="ml-2 font-mono text-xs text-muted-foreground">
+                            {nextNumber}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {issueDocument
+                          ? "Consumes the next CR number from the active booklet."
+                          : "The payment is still recorded and the balance still closes — no booklet number is used."}
+                      </span>
+                    </span>
+                  </label>
+                )}
+
+                {/* ——— what the customer handed over ——— */}
+                {!isCharge && (
+                  <div className="grid gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label>
+                        {lines.length > 1 ? "Payment lines" : "Payment"}
+                      </Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addLine}
+                      >
+                        <PlusIcon />
+                        {lines.length === 0
+                          ? "Record a payment"
+                          : lines.length === 1
+                            ? "Split payment"
+                            : "Add line"}
+                      </Button>
+                    </div>
+
+                    {lines.length === 0 ? (
+                      <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        Nothing recorded yet — add how the {peso(due)} was paid.
+                      </p>
+                    ) : (
+                      <div className="grid gap-2">
+                        {lines.map((l, i) => (
+                          <div key={l.key} className="flex items-center gap-2">
+                            <Select
+                              value={l.method}
+                              onValueChange={(v) =>
+                                patchLine(l.key, { method: v as PaymentMethod })
+                              }
+                            >
+                              {/* h-9 w-full — the trigger defaults to w-fit/h-8
+                                  and would otherwise sit shorter and narrower
+                                  than the Inputs beside it. */}
+                              <SelectTrigger
+                                aria-label={`Payment method, line ${i + 1}`}
+                                className="h-9 w-full max-w-44 flex-1"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {METHODS.map((m) => (
+                                  <SelectItem key={m.value} value={m.value}>
+                                    {m.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+
+                            <Input
+                              inputMode="decimal"
+                              aria-label={`Amount received, line ${i + 1}`}
+                              value={l.amount}
+                              onChange={(e) =>
+                                patchLine(l.key, {
+                                  amount: sanitizeDecimal(e.target.value),
+                                })
+                              }
+                              // The number they'll usually type, not a dead 0.00.
+                              placeholder={amountPlaceholder(lines, l, due)}
+                              className="flex-1 text-right font-mono tabular-nums"
+                            />
+
+                            <Input
+                              aria-label={`Reference, line ${i + 1}`}
+                              value={l.reference}
+                              onChange={(e) =>
+                                patchLine(l.key, { reference: e.target.value })
+                              }
+                              placeholder={
+                                l.method === PaymentMethod.CASH
+                                  ? "—"
+                                  : "Cheque no. / ref"
+                              }
+                              disabled={l.method === PaymentMethod.CASH}
+                              className="flex-1"
+                            />
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Remove line ${i + 1}`}
+                              onClick={() => removeLine(l.key)}
+                              disabled={lines.length === 1}
+                            >
+                              <XIcon />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <Settlement
+                      kind={kind}
+                      received={received}
+                      due={due}
+                      change={change}
+                      shortfall={shortfall}
+                      overNonCash={overNonCash}
+                      cashIn={cashIn}
+                    />
+                  </div>
+                )}
 
                 <div className="grid gap-1.5">
                   <Label htmlFor="rp-notes">Notes</Label>
@@ -630,14 +706,16 @@ export function ReceivePaymentDialog({
             {settled ? "Close" : "Cancel"}
           </Button>
           {!settled && (
-            <Button onClick={submit} disabled={busy || blocked || !jo || !!problem()}>
+            <Button onClick={submit} disabled={busy || !jo || !!problem()}>
               {busy
                 ? "Issuing…"
                 : replacing
                   ? `Replace with ${nextNumber ?? "receipt"}`
-                  : nextNumber
-                    ? `Issue ${nextNumber}`
-                    : "Issue receipt"}
+                  : !needsNumber
+                    ? `Record ${peso(due)}`
+                    : nextNumber
+                      ? `Issue ${nextNumber}`
+                      : "Issue receipt"}
             </Button>
           )}
         </DialogFooter>
@@ -650,6 +728,190 @@ export function ReceivePaymentDialog({
         onVoided={clearForm}
       />
     </Dialog>
+  );
+}
+
+/** Who it's billed to: already on the JO, never retyped. */
+function CustomerCard({ jo }: { jo: ReceivePaymentOptionsDto }) {
+  const overLimit =
+    jo.credit.enabled &&
+    jo.credit.available !== null &&
+    cent(num(jo.credit.available)) < 0;
+
+  return (
+    <div className="grid gap-1 rounded-md border bg-muted/40 p-3 text-sm">
+      <div className="font-medium">{jo.customer.name}</div>
+      <div className="text-muted-foreground">
+        {jo.customer.address || "No address on file"}
+      </div>
+      <div className="flex flex-wrap gap-x-4 text-muted-foreground">
+        <span>TIN: {jo.customer.tin || "—"}</span>
+        {jo.customer.vatRegistered && (
+          <ColorBadge tone="blue" label="VAT-registered" />
+        )}
+      </div>
+
+      <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 border-t pt-2 text-xs">
+        <span>
+          JO total{" "}
+          <strong className="tabular-nums">{peso(num(jo.joTotal))}</strong>
+        </span>
+        <span>
+          Received{" "}
+          <strong className="tabular-nums">{peso(num(jo.totalReceived))}</strong>
+        </span>
+        {/* The two numbers the whole dialog turns on — shown apart, because
+            they answer different questions. */}
+        <span>
+          To invoice{" "}
+          <strong className="tabular-nums text-foreground">
+            {peso(num(jo.unbilled))}
+          </strong>
+        </span>
+        <span>
+          Outstanding{" "}
+          <strong className="tabular-nums text-foreground">
+            {peso(num(jo.outstanding))}
+          </strong>
+        </span>
+      </div>
+
+      {jo.credit.enabled && (jo.credit.limit || jo.credit.termDays !== null) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-2 text-xs text-muted-foreground">
+          {jo.credit.termDays !== null && (
+            <span>Terms: net {jo.credit.termDays} days</span>
+          )}
+          {jo.credit.limit && (
+            <span>
+              Credit limit {peso(num(jo.credit.limit))} · owes{" "}
+              {peso(num(jo.credit.customerOutstanding))} across all jobs
+            </span>
+          )}
+          {overLimit && <ColorBadge tone="red" label="Over limit" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One receipt-type tile: what it is, its next serial, and why it's off. */
+function KindTile({
+  kind,
+  active,
+  recommended,
+  nextNumber,
+  availability,
+  lockedTo,
+  onPick,
+}: {
+  kind: ReceiptKind;
+  active: boolean;
+  recommended: boolean;
+  nextNumber: string | null;
+  availability: { enabled: boolean; reason: string | null };
+  /** While replacing, only the superseded receipt's own kind is selectable. */
+  lockedTo: ReceiptKind | null;
+  onPick: () => void;
+}) {
+  const lockedOut = lockedTo !== null && kind !== lockedTo;
+  const disabled = lockedOut || !availability.enabled;
+
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-pressed={active}
+      disabled={disabled}
+      className={cn(
+        "flex flex-col items-start gap-0.5 rounded-md border p-3 text-left transition-colors",
+        active
+          ? "border-primary bg-primary/5 ring-1 ring-primary"
+          : !disabled && "hover:bg-muted/50",
+        disabled && "cursor-not-allowed opacity-50"
+      )}
+    >
+      <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+        {RECEIPT_KIND_LABEL[kind]}
+        {recommended && <ColorBadge tone="green" label="Suggested" />}
+      </span>
+      <span className="font-mono text-xs tabular-nums text-muted-foreground">
+        {nextNumber ?? "no active booklet"}
+      </span>
+      {/* When a tile is off, say why right on it — a greyed box with no
+          explanation is the thing that sends people to ask someone. */}
+      <span className="text-xs text-muted-foreground">
+        {disabled && !lockedOut
+          ? availability.reason
+          : RECEIPT_KIND_HINT[kind]}
+      </span>
+    </button>
+  );
+}
+
+/** The invoices a collection will pay down, oldest first. */
+function OpenInvoices({
+  invoices,
+  collecting,
+}: {
+  invoices: OpenInvoiceDto[];
+  collecting: number;
+}) {
+  // Mirrors the server's oldest-first allocation so the cashier can see where
+  // the money is about to land before they commit it. Resolved in one pass
+  // BEFORE the render rather than accumulated inside it — a running total
+  // mutated during render is read at different values on different passes.
+  const { applied: appliedPer, unapplied } = invoices.reduce<{
+    applied: number[];
+    unapplied: number;
+  }>(
+    (acc, inv) => {
+      const take = Math.max(
+        Math.min(acc.unapplied, cent(num(inv.openBalance))),
+        0
+      );
+      acc.applied.push(take);
+      acc.unapplied -= take;
+      return acc;
+    },
+    { applied: [], unapplied: cent(collecting) }
+  );
+
+  return (
+    <div className="grid gap-2 rounded-md border p-3">
+      <span className="text-sm font-medium">Applied to</span>
+      <div className="grid gap-1.5">
+        {invoices.map((inv, i) => {
+          const applied = appliedPer[i];
+          return (
+            <div
+              key={inv.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-1.5 text-sm first:border-t-0 first:pt-0"
+            >
+              <span className="font-mono tabular-nums">{inv.documentNo}</span>
+              <span className="text-xs text-muted-foreground">
+                {inv.kindLabel}
+              </span>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                {peso(num(inv.openBalance))} open
+              </span>
+              {inv.daysOverdue !== null && inv.daysOverdue > 0 && (
+                <ColorBadge tone="red" label={`${inv.daysOverdue}d overdue`} />
+              )}
+              {applied > 0 && (
+                <span className="ml-auto font-mono font-medium tabular-nums text-emerald-700 dark:text-emerald-300">
+                  − {peso(applied / 100)}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {unapplied > 0 && (
+        <p className="text-xs text-destructive">
+          {peso(unapplied / 100)} has no open invoice to apply to.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -676,19 +938,24 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * The two numbers that fall out of what was handed over: change back over the
- * counter, or a balance left on credit. Only one of them is ever non-zero.
+ * What falls out of what was handed over: change back over the counter, or a
+ * shortfall — which on anything but a Charge Invoice is an ERROR, not a
+ * receivable. Only a Charge Invoice may open one (docs/sales.txt §3.1.3).
  */
 function Settlement({
+  kind,
   received,
+  due,
   change,
-  balanceDue,
+  shortfall,
   overNonCash,
   cashIn,
 }: {
+  kind: ReceiptKind;
   received: number;
+  due: number;
   change: number;
-  balanceDue: number;
+  shortfall: number;
   overNonCash: boolean;
   cashIn: number;
 }) {
@@ -703,22 +970,29 @@ function Settlement({
         </div>
       )}
 
-      {balanceDue > 0 && (
+      {shortfall > 0 && (
         <div className="grid gap-0.5 border-t pt-1.5">
-          <div className="flex items-center justify-between font-semibold text-amber-700 dark:text-amber-300">
-            <span>Balance</span>
-            <span className="font-mono tabular-nums">{peso(balanceDue)}</span>
+          <div className="flex items-center justify-between font-semibold text-destructive">
+            <span>Short by</span>
+            <span className="font-mono tabular-nums">{peso(shortfall)}</span>
           </div>
           <span className="text-xs text-muted-foreground">
-            Left on credit (utang) — Accounts Receivable, settled later by a
-            Collection Receipt.
+            A {RECEIPT_KIND_LABEL[kind]} is settled in full when it is issued.
+            Invoice {peso(received)} instead, or put the rest on credit with a{" "}
+            {RECEIPT_KIND_LABEL.SI_CHARGE}.
           </span>
         </div>
       )}
 
-      {change === 0 && balanceDue === 0 && received > 0 && (
+      {change === 0 && shortfall === 0 && received > 0 && (
         <span className="text-xs text-emerald-700 dark:text-emerald-300">
           ✓ Settled in full — no change, no balance.
+        </span>
+      )}
+
+      {received === 0 && due > 0 && (
+        <span className="text-xs text-muted-foreground">
+          Add how the {peso(due)} was paid.
         </span>
       )}
 
@@ -767,7 +1041,7 @@ function IssuedReceipts({
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">
-          {settled ? "Fully paid" : "Already issued on this job order"}
+          {settled ? "Fully invoiced and paid" : "Already issued on this job order"}
         </span>
         <ColorBadge
           tone={settled ? "green" : "blue"}
@@ -788,9 +1062,12 @@ function IssuedReceipts({
               className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-1.5 text-sm first:border-t-0 first:pt-0"
             >
               <span className={cn("font-mono tabular-nums", struck)}>
-                {r.documentNo}
+                {r.documentNo ?? "Payment"}
               </span>
               <span className="text-muted-foreground">{r.kindLabel}</span>
+              {!r.documentIssued && (
+                <ColorBadge tone="gray" label="no receipt printed" />
+              )}
               <span className={cn("font-mono tabular-nums", struck)}>
                 {peso(num(r.amount))}
               </span>
@@ -800,6 +1077,11 @@ function IssuedReceipts({
                   label={`${peso(num(r.balanceDue))} unpaid`}
                 />
               )}
+              {!voidType &&
+                cent(num(r.settledAmount)) > 0 &&
+                cent(num(r.balanceDue)) === 0 && (
+                  <ColorBadge tone="green" label="collected" />
+                )}
               <span className="text-xs text-muted-foreground">
                 {new Date(r.receivedAt).toLocaleDateString("en-PH", {
                   month: "short",
@@ -823,14 +1105,18 @@ function IssuedReceipts({
               ) : (
                 canVoid && (
                   <span className="ml-auto flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => onReplace(r)}
-                    >
-                      <RefreshCwIcon /> Replace
-                    </Button>
+                    {/* Nothing to supersede when no serial was ever issued —
+                        that payment can only be cancelled and re-recorded. */}
+                    {r.documentIssued && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => onReplace(r)}
+                      >
+                        <RefreshCwIcon /> Replace
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"

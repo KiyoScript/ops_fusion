@@ -12,6 +12,8 @@ export const MODULE_KEYS = [
   "inquiries",
   "quotations",
   "sales-audit",
+  "receivables",
+  "credit-control",
   "job-orders",
   "delivery-receipts",
   "inventory",
@@ -62,6 +64,32 @@ export const MODULES: ModuleDef[] = [
     routes: ["/sales-audit", "/maintenance/sales-audit"],
   },
   {
+    key: "receivables",
+    label: "Accounts Receivable",
+    description:
+      "Open charge invoices by customer, aging, collections, and statements of account.",
+    group: "Sales",
+    defaultEnabled: true,
+    // More specific than sales-audit's "/sales-audit" — moduleForPath resolves
+    // by LONGEST matching prefix, so this wins for its own subtree.
+    routes: ["/sales-audit/receivables"],
+  },
+  {
+    key: "credit-control",
+    label: "Credit Terms & Limits",
+    description:
+      "Per-customer payment terms and a credit ceiling that blocks new charge invoices once exceeded.",
+    group: "Sales",
+    // OFF by default, on purpose. docs/sales.txt sets no terms and no ceiling,
+    // so this is added behaviour rather than a legacy rule (AGENTS.md: never
+    // invent rules). Switched off, charge invoices behave exactly as before —
+    // always allowed, never falling due.
+    defaultEnabled: false,
+    // A pure behaviour flag: it owns no pages, it changes what the Receive
+    // Payment gate and the customer form allow.
+    routes: [],
+  },
+  {
     key: "job-orders",
     label: "Job Orders",
     description:
@@ -109,12 +137,25 @@ const pathMatchesPrefix = (pathname: string, prefix: string): boolean =>
   pathname === prefix || pathname.startsWith(prefix + "/");
 
 /** The module that owns a route, or null when the route is always available
- *  (Dashboard, Settings, auth, …). Used by the route guard. */
+ *  (Dashboard, Settings, auth, …). Used by the route guard.
+ *
+ *  Resolved by LONGEST matching prefix, not by declaration order: modules can
+ *  nest ("/sales-audit" owns the module, "/sales-audit/receivables" owns a
+ *  subtree of it), and the more specific owner has to win regardless of where
+ *  it sits in MODULES. First-match would silently hand the child's routes to
+ *  the parent and leave the child's switch doing nothing. */
 export function moduleForPath(pathname: string): ModuleKey | null {
+  let best: ModuleKey | null = null;
+  let bestLength = -1;
   for (const m of MODULES) {
-    if (m.routes.some((r) => pathMatchesPrefix(pathname, r))) return m.key;
+    for (const route of m.routes) {
+      if (route.length > bestLength && pathMatchesPrefix(pathname, route)) {
+        best = m.key;
+        bestLength = route.length;
+      }
+    }
   }
-  return null;
+  return best;
 }
 
 /** Merge coded defaults with DB overrides into the set of enabled keys. */

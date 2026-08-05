@@ -141,14 +141,17 @@ export function VoidReceiptDialog({
 
           {/* The part people get wrong. Say it before they click, not after. */}
           <p className="rounded-md border border-amber-500/40 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-            {receipt?.documentNo} keeps its number and stays attached to this
-            job order, marked {VOID_TYPE_LABEL[type].toLowerCase()}. It stops
-            counting towards sales and the job order&rsquo;s balance reopens,
-            so a new receipt can be issued against it.
+            {receipt?.documentNo
+              ? `${receipt.documentNo} keeps its number and stays attached to this job order, marked ${VOID_TYPE_LABEL[type].toLowerCase()}.`
+              : `This payment stays on the ledger, marked ${VOID_TYPE_LABEL[type].toLowerCase()}.`}{" "}
+            It stops counting towards sales and the job order&rsquo;s balance
+            reopens, so a new receipt can be issued against it.
           </p>
 
-          {/* §5.1 step 4 — the paper has to be in front of them. */}
-          {receipt && (
+          {/* §5.1 step 4 — the paper has to be in front of them. A payment
+              recorded without a receipt has no paper to hold up, so there is
+              nothing to confirm. */}
+          {receipt?.documentNo && (
             <OnHandCheck
               id="vr-onhand"
               checked={onHand}
@@ -166,7 +169,11 @@ export function VoidReceiptDialog({
             variant="destructive"
             onClick={submit}
             disabled={
-              voidReceipt.isPending || reason.trim().length < 3 || !onHand
+              voidReceipt.isPending ||
+              reason.trim().length < 3 ||
+              // No printed receipt, no paper to have on hand — requiring the
+              // tick would leave the button dead forever.
+              (Boolean(receipt?.documentNo) && !onHand)
             }
           >
             {voidReceipt.isPending

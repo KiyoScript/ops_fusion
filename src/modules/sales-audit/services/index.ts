@@ -1,5 +1,6 @@
 export { getBookletService, BookletService, formatDocumentNo } from "./booklet-service";
 export { getReceiptService, ReceiptService } from "./receipt-service";
+export { getReceivableService, ReceivableService } from "./receivable-service";
 export {
   splitVat,
   settleTenders,

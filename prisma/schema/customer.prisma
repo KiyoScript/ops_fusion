@@ -19,6 +19,22 @@ model Customer {
   tin           String?
   customerType  CustomerType @default(TYPE_C)
   vatRegistered Boolean      @default(false)
+
+  // — credit control —
+  //
+  // NOT a legacy rule: docs/sales.txt describes Charge Invoices and Collection
+  // Receipts but sets no terms or ceiling. Added deliberately with the A/R
+  // module and gated behind the `credit-control` flag (src/lib/modules.ts), so
+  // the shop can run exactly as before with it switched off.
+  //
+  // Null on both = no terms agreed and no ceiling: charge invoices are allowed
+  // and simply never fall due. That is the pre-existing behaviour, so existing
+  // customers keep working untouched after the migration.
+  /// Net days until a Charge Invoice falls due — 15 / 30 / 60. Null = no terms.
+  creditTermDays Int?
+  /// Ceiling on this customer's total open A/R. Null = no ceiling.
+  creditLimit    Decimal? @db.Decimal(12, 2)
+
   notes         String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt

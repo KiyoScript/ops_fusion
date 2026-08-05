@@ -357,6 +357,12 @@ function ReceiptRow({
               </span>
             )}
           </div>
+        ) : isVoid ? (
+          // A cancelled receipt is outside the auditor's sign-off: it counts
+          // for nothing in the day's takings, and getDailySummary already
+          // leaves it out of "to verify". Offering the button anyway would
+          // book a review that no total ever reflects.
+          <span className="text-sm text-muted-foreground">—</span>
         ) : canAudit ? (
           <div className="flex gap-1">
             <Button
