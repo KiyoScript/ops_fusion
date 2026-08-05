@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { FileTextIcon, HandCoinsIcon, SearchIcon, WalletIcon } from "lucide-react";
@@ -243,7 +244,12 @@ export function ReceivablesView({
                 <tr key={c.customerId} className="border-b last:border-b-0">
                   <td className="px-3 py-2 font-medium">
                     <span className="flex flex-wrap items-center gap-2">
-                      {c.customerName}
+                      <Link
+                        href={`/sales-audit/receivables/${c.customerId}`}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {c.customerName}
+                      </Link>
                       {c.overLimit && creditControlEnabled && (
                         <ColorBadge tone="red" label="Over limit" />
                       )}

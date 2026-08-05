@@ -22,6 +22,7 @@ import {
   type AgingBucket,
   type ReceivableCustomerDto,
   type ReceivableFilters,
+  type CustomerAccountDto,
   type CustomerCreditDto,
   type ReceivablesPageDto,
   type SetCreditInput,
@@ -275,6 +276,78 @@ export class ReceivableService {
       aging: formatAging(aging),
       creditTermDays: customer.creditTermDays,
       creditLimit: customer.creditLimit,
+    };
+  }
+
+  /** One customer's whole account — debts, credits, and payment history. */
+  async account(actor: Actor, customerId: string): Promise<CustomerAccountDto> {
+    assertCan(actor, "read", "Sale");
+
+    const customer = await this.customers.findById(customerId);
+    if (!customer) throw new NotFoundError("Customer not found.");
+
+    const [rows, credits, payments, creditControlEnabled] = await Promise.all([
+      this.receipts.listReceivables(customerId),
+      this.credits.listAll(customerId),
+      this.receipts.listPaymentsForCustomer(customerId),
+      this.creditControlEnabled(),
+    ]);
+
+    const open = rows.filter((r) => openBalanceOf(r) > 0);
+    const aging = emptyAging();
+    const invoices = open.map((r) => {
+      const owed = openBalanceOf(r);
+      const days = daysOverdueOf(r.dueDate);
+      const bucket = bucketFor(days);
+      aging[bucket] += owed;
+      return {
+        id: r.id,
+        documentNo: r.documentNo,
+        kindLabel: RECEIPT_KIND_LABEL[SALE_TYPE_KIND[r.type]],
+        saleDate: r.saleDate.toISOString(),
+        dueDate: r.dueDate?.toISOString() ?? null,
+        amount: r.amount,
+        openBalance: toAmount(owed),
+        daysOverdue: days,
+        joNumber: r.jobOrderNo,
+        bucket,
+      };
+    });
+
+    return {
+      customerId: customer.id,
+      customerName: customer.name,
+      customerAddress: customer.address,
+      customerTin: customer.tin,
+      invoices,
+      totalOutstanding: toAmount(open.reduce((t, r) => t + openBalanceOf(r), 0)),
+      aging: formatAging(aging),
+      credits: credits.map((c) => ({
+        ...c,
+        receivedAt: c.receivedAt.toISOString(),
+      })),
+      creditOnAccount: toAmount(
+        credits.reduce((t, c) => t + toCentavos(c.remaining), 0)
+      ),
+      payments: payments.map((p) => ({
+        id: p.id,
+        documentNo: p.crNumber,
+        documentIssued: p.documentIssued,
+        amount: p.amount,
+        method: p.method,
+        methodDetail: p.methodDetail,
+        receivedAt: p.receivedAt.toISOString(),
+        createdByName: p.createdByName,
+        voidType: p.voidType,
+        voidReason: p.voidReason,
+        jobOrderNo: p.jobOrderNo,
+        applied: p.allocations,
+        creditCreated: p.creditCreated,
+        creditApplied: p.creditApplied,
+      })),
+      creditTermDays: customer.creditTermDays,
+      creditLimit: customer.creditLimit,
+      creditControlEnabled,
     };
   }
 

@@ -228,6 +228,27 @@ export type ReceiptForVoidRecord = {
   createdById: string;
 };
 
+/** A payment a customer made, and what it went towards. */
+export type CustomerPaymentRecord = {
+  id: string;
+  crNumber: string | null;
+  documentIssued: boolean;
+  /** Tender taken in — not counting credit spent. See collection-receipt.prisma. */
+  amount: string;
+  method: PaymentMethod;
+  methodDetail: string | null;
+  receivedAt: Date;
+  createdByName: string;
+  voidType: ReceiptVoidType | null;
+  voidReason: string | null;
+  jobOrderNo: string | null;
+  allocations: { documentNo: string; amount: string }[];
+  /** Overpayment this parked on the account. */
+  creditCreated: string;
+  /** Credit on file this spent. */
+  creditApplied: string;
+};
+
 /** One customer's A/R position, for the ledger list and the credit check. */
 export type ReceivableRecord = {
   id: string;
@@ -284,6 +305,13 @@ export interface IReceiptRepository {
    * settledAmount > 0`, a three-column comparison Prisma cannot express.
    */
   listReceivables(customerId?: string): Promise<ReceivableRecord[]>;
+
+  /**
+   * Every payment a customer has made, newest first, with the invoices each
+   * one settled. Cancelled payments are included and marked — the same rule
+   * the day log follows: a payment that happened is never hidden.
+   */
+  listPaymentsForCustomer(customerId: string): Promise<CustomerPaymentRecord[]>;
 
   /** Record a collection against invoices and close down their balances. */
   allocate(
@@ -503,6 +531,59 @@ export class PrismaReceiptRepository implements IReceiptRepository {
         creditTermDays: r.customer.creditTermDays,
         creditLimit: r.customer.creditLimit?.toString() ?? null,
       },
+    }));
+  }
+
+  async listPaymentsForCustomer(
+    customerId: string
+  ): Promise<CustomerPaymentRecord[]> {
+    const rows = await prisma.collectionReceipt.findMany({
+      where: { customerId, deletedAt: null },
+      select: {
+        id: true,
+        crNumber: true,
+        documentIssued: true,
+        amount: true,
+        method: true,
+        methodDetail: true,
+        receivedAt: true,
+        voidType: true,
+        voidReason: true,
+        createdBy: { select: { name: true } },
+        jobOrder: { select: { joNumber: true } },
+        allocations: {
+          select: { amount: true, sale: { select: { documentNo: true } } },
+        },
+        creditsCreated: { where: { deletedAt: null }, select: { amount: true } },
+        creditsApplied: { select: { amount: true } },
+      },
+      orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+      take: 200,
+    });
+
+    const sum = (xs: { amount: unknown }[]) =>
+      xs.reduce((t, x) => t + Math.round(parseFloat(String(x.amount)) * 100), 0);
+    const money = (c: number) =>
+      `${Math.floor(c / 100)}.${String(c % 100).padStart(2, "0")}`;
+
+    return rows.map((r) => ({
+      id: r.id,
+      crNumber: r.crNumber,
+      documentIssued: r.documentIssued,
+      amount: r.amount.toString(),
+      method: r.method,
+      methodDetail: r.methodDetail,
+      receivedAt: r.receivedAt,
+      createdByName: r.createdBy.name,
+      voidType: r.voidType,
+      voidReason: r.voidReason,
+      jobOrderNo: r.jobOrder?.joNumber ?? null,
+      allocations: r.allocations.map((a) => ({
+        documentNo: a.sale.documentNo,
+        amount: a.amount.toString(),
+      })),
+      creditCreated: money(sum(r.creditsCreated)),
+      creditApplied: money(sum(r.creditsApplied)),
     }));
   }
 

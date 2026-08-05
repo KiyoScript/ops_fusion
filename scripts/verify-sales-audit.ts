@@ -1116,6 +1116,48 @@ async function main() {
   } catch (e) { viewerLedger = (e as Error).constructor.name; }
   check("a VIEWER may read the A/R ledger", viewerLedger === "", viewerLedger);
 
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nCustomer account — debts, credits and payment history");
+
+  const acctView = await ar.account(actor, customer.id);
+  check("the account names the customer", acctView.customerName === CUSTOMER, acctView.customerName);
+  check("open invoices match the ledger line",
+    acctView.totalOutstanding === line.outstanding,
+    `${acctView.totalOutstanding} vs ${line.outstanding}`);
+  check("aging sums to the outstanding",
+    Object.values(acctView.aging).reduce((t, a) => t + toCentavos(a), 0) ===
+      toCentavos(acctView.totalOutstanding));
+
+  check("payment history is listed", acctView.payments.length > 0, acctView.payments.length);
+  check("newest payment first", acctView.payments.every((p, i, all) =>
+    i === 0 || new Date(all[i - 1].receivedAt) >= new Date(p.receivedAt)));
+  check("each payment shows the invoices it settled",
+    acctView.payments.some((p) => p.applied.length > 0));
+  check("a payment across job orders lists several invoices",
+    acctView.payments.some((p) => p.applied.length > 1),
+    acctView.payments.map((p) => p.applied.length));
+  check("a cancelled payment is shown, marked, not hidden",
+    acctView.payments.some((p) => p.voidType === "CANCELLED"));
+  check("an unreceipted payment is shown with no serial",
+    acctView.payments.some((p) => p.documentNo === null && !p.documentIssued));
+
+  check("credits are listed with what is left on them", acctView.credits.length > 0, acctView.credits.length);
+  check("a fully-spent credit is kept in the history",
+    acctView.credits.some((c) => c.status === "FULLY_APPLIED"));
+  check("credit on account matches the ledger line",
+    acctView.creditOnAccount === line.creditOnAccount,
+    `${acctView.creditOnAccount} vs ${line.creditOnAccount}`);
+  check("a payment funded by credit says so",
+    acctView.payments.some((p) => toCentavos(p.creditApplied) > 0));
+  check("a payment that left credit says so",
+    acctView.payments.some((p) => toCentavos(p.creditCreated) > 0));
+
+  let missingAccount = "";
+  try {
+    await ar.account(actor, "no-such-customer");
+  } catch (e) { missingAccount = (e as Error).constructor.name; }
+  check("an unknown customer is a clean NotFound", missingAccount === "NotFoundError", missingAccount);
+
   console.log(fails === 0 ? "\nALL SALES-AUDIT CHECKS PASSED" : `\n${fails} FAILED`);
   process.exitCode = fails ? 1 : 0;
 }

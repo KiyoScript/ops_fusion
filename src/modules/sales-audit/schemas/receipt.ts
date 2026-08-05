@@ -507,6 +507,51 @@ export const setCreditInput = z.object({
 
 export type SetCreditInput = z.infer<typeof setCreditInput>;
 
+/** A payment on the customer's account, and what it went towards. */
+export type CustomerPaymentDto = {
+  id: string;
+  documentNo: string | null;
+  documentIssued: boolean;
+  /** Tender taken in. Credit moved separately — see collection-receipt.prisma. */
+  amount: string;
+  method: PaymentMethod;
+  methodDetail: string | null;
+  receivedAt: string;
+  createdByName: string;
+  voidType: ReceiptVoidType | null;
+  voidReason: string | null;
+  jobOrderNo: string | null;
+  /** Which invoices it settled, and for how much. */
+  applied: { documentNo: string; amount: string }[];
+  creditCreated: string;
+  creditApplied: string;
+};
+
+/**
+ * One customer's whole account: what they owe, what we hold for them, and
+ * everything they have paid. The A/R ledger answers "who owes us"; this
+ * answers "what has happened with this customer".
+ */
+export type CustomerAccountDto = {
+  customerId: string;
+  customerName: string;
+  customerAddress: string | null;
+  customerTin: string | null;
+  /** Open invoices, oldest first, each in its aging bucket. */
+  invoices: (OpenInvoiceDto & { joNumber: string | null; bucket: AgingBucket })[];
+  totalOutstanding: string;
+  aging: Record<AgingBucket, string>;
+  /** Every credit, spent or not, newest first. */
+  credits: CustomerCreditDto[];
+  creditOnAccount: string;
+  /** Payment history, newest first. Cancelled ones included and marked. */
+  payments: CustomerPaymentDto[];
+  creditTermDays: number | null;
+  creditLimit: string | null;
+  /** Mirrors the credit-control module flag. */
+  creditControlEnabled: boolean;
+};
+
 export const receivableFilters = z.object({
   q: z.string().trim().max(200).optional(),
   /** Show only customers with something in this bucket. */
