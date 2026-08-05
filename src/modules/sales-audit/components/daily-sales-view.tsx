@@ -180,7 +180,12 @@ export function DailySalesView({ canAudit }: { canAudit: boolean }) {
                 </TableRow>
               ) : (
                 rows.map((r) => (
-                  <ReceiptRow key={r.id} row={r} canAudit={canAudit} />
+                  <ReceiptRow
+                    key={r.id}
+                    row={r}
+                    canAudit={canAudit}
+                    onTrace={setQ}
+                  />
                 ))
               )}
             </TableBody>
@@ -191,12 +196,40 @@ export function DailySalesView({ canAudit }: { canAudit: boolean }) {
   );
 }
 
+/**
+ * One half of a replacement pair, clickable.
+ *
+ * An auditor reconciling a booklet needs to walk from the spoiled receipt to
+ * the one issued in its place and back. Clicking searches the day for that
+ * serial, which is the fastest way to put the two side by side.
+ */
+function TraceLink({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded font-mono text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+    >
+      {label}
+    </button>
+  );
+}
+
 function ReceiptRow({
   row,
   canAudit,
+  onTrace,
 }: {
   row: ReceiptRowDto;
   canAudit: boolean;
+  /** Jump the day's search to a paired serial — the audit trail, walkable. */
+  onTrace: (documentNo: string) => void;
 }) {
   const audit = useAuditReceipt();
   const isCollection = row.kind === RECEIPT_KIND.COLLECTION;
@@ -244,16 +277,26 @@ function ReceiptRow({
           {row.documentNo}
         </span>
         {isVoid && (
-          <div className="mt-0.5 grid gap-0.5">
+          <div className="mt-0.5 grid justify-items-start gap-0.5">
             <ColorBadge
               tone="red"
               label={VOID_TYPE_LABEL[row.voidType!].toUpperCase()}
             />
-            <span className="text-xs font-normal text-muted-foreground">
-              {row.replacedByDocumentNo
-                ? `replaced by ${row.replacedByDocumentNo}`
-                : row.voidReason}
-            </span>
+            {/* The successor AND the reason — §5.1 asks for both: step 3 wants
+                the two serials written on each other, step 2 wants the reason
+                on the face of the receipt. Showing only the link left an
+                auditor able to see what replaced it but never why. */}
+            {row.replacedByDocumentNo && (
+              <TraceLink
+                label={`→ replaced by ${row.replacedByDocumentNo}`}
+                onClick={() => onTrace(row.replacedByDocumentNo!)}
+              />
+            )}
+            {row.voidReason && (
+              <span className="max-w-52 text-xs font-normal text-muted-foreground">
+                {row.voidReason}
+              </span>
+            )}
             {row.voidedByName && (
               <span className="text-xs font-normal text-muted-foreground">
                 by {row.voidedByName}
@@ -261,9 +304,13 @@ function ReceiptRow({
             )}
           </div>
         )}
+        {/* The other half of the pair, on the receipt issued in its place. */}
         {row.replacesDocumentNo && (
-          <div className="mt-0.5 text-xs font-normal text-muted-foreground">
-            replaces {row.replacesDocumentNo}
+          <div className="mt-0.5 grid justify-items-start">
+            <TraceLink
+              label={`↩ replaces ${row.replacesDocumentNo}`}
+              onClick={() => onTrace(row.replacesDocumentNo!)}
+            />
           </div>
         )}
       </TableCell>

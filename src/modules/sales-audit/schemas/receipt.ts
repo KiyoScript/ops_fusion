@@ -538,6 +538,10 @@ export type CustomerPaymentDto = {
   createdByName: string;
   voidType: ReceiptVoidType | null;
   voidReason: string | null;
+  voidedByName: string | null;
+  /** The pair written on each other when a receipt is reissued — §5.1 step 3. */
+  replacedByDocumentNo: string | null;
+  replacesDocumentNo: string | null;
   jobOrderNo: string | null;
   /** Which invoices it settled, and for how much. */
   applied: { documentNo: string; amount: string }[];

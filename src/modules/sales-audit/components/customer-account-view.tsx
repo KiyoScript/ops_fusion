@@ -305,14 +305,34 @@ export function CustomerAccountView({
                         <ColorBadge tone="gray" label="no receipt printed" />
                       )}
                       {isVoid && p.voidType && (
-                        <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="grid justify-items-start gap-0.5">
                           <ColorBadge
                             tone="red"
                             label={VOID_TYPE_LABEL[p.voidType].toUpperCase()}
                           />
-                          <span className="text-xs text-muted-foreground">
-                            {p.voidReason}
-                          </span>
+                          {/* Successor AND reason: §5.1 wants the two serials
+                              written on each other (step 3) and the reason on
+                              the face of the receipt (step 2). */}
+                          {p.replacedByDocumentNo && (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              → replaced by {p.replacedByDocumentNo}
+                            </span>
+                          )}
+                          {p.voidReason && (
+                            <span className="text-xs text-muted-foreground">
+                              {p.voidReason}
+                            </span>
+                          )}
+                          {p.voidedByName && (
+                            <span className="text-xs text-muted-foreground">
+                              by {p.voidedByName}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {p.replacesDocumentNo && (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          ↩ replaces {p.replacesDocumentNo}
                         </span>
                       )}
                     </span>

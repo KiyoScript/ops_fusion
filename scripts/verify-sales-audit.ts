@@ -45,6 +45,34 @@ const base = {
 const BORROWED_TYPES = ["SI_VAT", "SI_NON_VAT", "SI_CHARGE", "JO_SLIP", "CR"] as const;
 let borrowed: { id: string; status: "ACTIVE" }[] = [];
 
+// This script switches credit control ON to exercise it. That is a setting the
+// shop may have deliberately chosen, so its prior value is captured and put
+// back — `undefined` means "not captured yet", `null` means "no override was
+// stored", which is itself the state to restore.
+let priorCreditFlag: { enabled: boolean } | null | undefined;
+
+async function borrowCreditFlag() {
+  priorCreditFlag = await prisma.moduleFlag.findUnique({
+    where: { key: "credit-control" },
+    select: { enabled: true },
+  });
+}
+
+async function restoreCreditFlag() {
+  if (priorCreditFlag === undefined) return;
+  if (priorCreditFlag === null) {
+    await prisma.moduleFlag.deleteMany({ where: { key: "credit-control" } });
+  } else {
+    await prisma.moduleFlag.upsert({
+      where: { key: "credit-control" },
+      create: { key: "credit-control", enabled: priorCreditFlag.enabled },
+      update: { enabled: priorCreditFlag.enabled },
+    });
+    console.log(`  (restored credit-control = ${priorCreditFlag.enabled})`);
+  }
+  priorCreditFlag = undefined;
+}
+
 async function borrowBooklets() {
   borrowed = await prisma.booklet.findMany({
     where: { type: { in: [...BORROWED_TYPES] }, status: "ACTIVE" },
@@ -106,8 +134,8 @@ async function cleanup() {
   await prisma.jobOrder.deleteMany({ where: { joNumber: { startsWith: PREFIX } } });
   await prisma.customer.deleteMany({ where: { name: CUSTOMER } });
   await prisma.booklet.deleteMany({ where: { label: { startsWith: PREFIX } } });
-  // Leave the flipper as we found it — this script switches credit control on.
-  await prisma.moduleFlag.deleteMany({ where: { key: "credit-control" } });
+  // The credit-control flag is NOT cleared here — deleting it would discard a
+  // setting the shop chose. restoreCreditFlag() puts back whatever was there.
 }
 
 async function main() {
@@ -124,6 +152,7 @@ async function main() {
   const ar = getReceivableService();
   await cleanup();
   await borrowBooklets();
+  await borrowCreditFlag();
 
   /** A job order priced at exactly `amount`, for one scenario. */
   const makeJo = async (n: number, amount: string) =>
@@ -803,6 +832,34 @@ async function main() {
   check("the reason is kept", oldRow.voidReason?.includes("Wrong amount") ?? false, oldRow.voidReason);
   check("the old points at the new", oldRow.replacedBy?.documentNo === replaced.documentNo, oldRow.replacedBy?.documentNo);
   check("the new points back at the old", newRow.replaces?.documentNo === wrong.documentNo, newRow.replaces?.documentNo);
+
+  // ——— what the AUDITOR sees on the day log ———
+  // §5.1 wants both halves: the two serials written on each other (step 3) and
+  // the reason on the face of the receipt (step 2). A replaced receipt that
+  // shows its successor but not why it was spoiled fails the audit.
+  const trail = await receipts.listDay(actor, { take: 200 });
+  const spoiled = trail.rows.find((r) => r.documentNo === wrong.documentNo)!;
+  const successor = trail.rows.find((r) => r.documentNo === replaced.documentNo)!;
+  check("the day log shows the spoiled receipt", spoiled !== undefined);
+  check("…marked REPLACED", spoiled.voidType === "REPLACED", spoiled.voidType);
+  check("…naming the receipt issued in its place",
+    spoiled.replacedByDocumentNo === replaced.documentNo, spoiled.replacedByDocumentNo);
+  check("…AND keeping the reason (not dropped for the link)",
+    spoiled.voidReason?.includes("Wrong amount") ?? false, spoiled.voidReason);
+  check("…and who approved it", spoiled.voidedByName === admin.name, spoiled.voidedByName);
+  check("the replacement points back at what it superseded",
+    successor.replacesDocumentNo === wrong.documentNo, successor.replacesDocumentNo);
+
+  // Looking one up must surface BOTH, or the pairing is invisible in a search.
+  const paired = await receipts.listDay(actor, { take: 200, q: wrong.documentNo! });
+  check("searching a serial returns its replacement too",
+    paired.rows.some((r) => r.documentNo === wrong.documentNo) &&
+      paired.rows.some((r) => r.documentNo === replaced.documentNo),
+    paired.rows.map((r) => r.documentNo));
+  const pairedBack = await receipts.listDay(actor, { take: 200, q: replaced.documentNo! });
+  check("…and searching the replacement returns the original",
+    pairedBack.rows.some((r) => r.documentNo === wrong.documentNo),
+    pairedBack.rows.map((r) => r.documentNo));
   // The superseded receipt must not count against its own successor's cap.
   check("a replacement is not blocked by the receipt it supersedes", newRow.amount.toString() === "260", newRow.amount.toString());
 
@@ -1218,5 +1275,6 @@ main()
     // a failed assertion must never leave the counter unable to issue.
     await cleanup().catch((e) => console.error("cleanup failed", e));
     await restoreBooklets().catch((e) => console.error("restore failed", e));
+    await restoreCreditFlag().catch((e) => console.error("flag restore failed", e));
     await prisma.$disconnect();
   });

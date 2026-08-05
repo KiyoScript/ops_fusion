@@ -241,6 +241,10 @@ export type CustomerPaymentRecord = {
   createdByName: string;
   voidType: ReceiptVoidType | null;
   voidReason: string | null;
+  voidedByName: string | null;
+  /** The pair written on each other when a receipt is reissued — §5.1 step 3. */
+  replacedByDocumentNo: string | null;
+  replacesDocumentNo: string | null;
   jobOrderNo: string | null;
   allocations: { documentNo: string; amount: string }[];
   /** Overpayment this parked on the account. */
@@ -403,13 +407,21 @@ export class PrismaReceiptRepository implements IReceiptRepository {
       receivedAt: { gte: from, lt: to },
     };
     if (q) {
+      // Searching a serial also returns the receipt it replaced and the one
+      // issued in its place. §5.1 step 3 pairs the two, and an auditor
+      // reconciling a booklet needs to see them together — looking one up and
+      // getting a single row hides exactly the relationship being checked.
       saleWhere.OR = [
         { documentNo: { contains: q, mode: "insensitive" } },
+        { replacedBy: { documentNo: { contains: q, mode: "insensitive" } } },
+        { replaces: { documentNo: { contains: q, mode: "insensitive" } } },
         { customer: { name: { contains: q, mode: "insensitive" } } },
         { jobOrder: { joNumber: { contains: q, mode: "insensitive" } } },
       ];
       crWhere.OR = [
         { crNumber: { contains: q, mode: "insensitive" } },
+        { replacedBy: { crNumber: { contains: q, mode: "insensitive" } } },
+        { replaces: { crNumber: { contains: q, mode: "insensitive" } } },
         { customer: { name: { contains: q, mode: "insensitive" } } },
         { jobOrder: { joNumber: { contains: q, mode: "insensitive" } } },
       ];
@@ -557,6 +569,9 @@ export class PrismaReceiptRepository implements IReceiptRepository {
         receivedAt: true,
         voidType: true,
         voidReason: true,
+        voidedBy: { select: { name: true } },
+        replacedBy: { select: { crNumber: true } },
+        replaces: { select: { crNumber: true } },
         createdBy: { select: { name: true } },
         jobOrder: { select: { joNumber: true } },
         allocations: {
@@ -585,6 +600,9 @@ export class PrismaReceiptRepository implements IReceiptRepository {
       createdByName: r.createdBy.name,
       voidType: r.voidType,
       voidReason: r.voidReason,
+      voidedByName: r.voidedBy?.name ?? null,
+      replacedByDocumentNo: r.replacedBy?.crNumber ?? null,
+      replacesDocumentNo: r.replaces?.crNumber ?? null,
       jobOrderNo: r.jobOrder?.joNumber ?? null,
       allocations: r.allocations.map((a) => ({
         documentNo: a.sale.documentNo,
