@@ -26,6 +26,7 @@ type FormState = {
   contactNumber: string;
   email: string;
   address: string;
+  shippingAddress: string;
   tin: string;
   vatRegistered: boolean;
   status: "ACTIVE" | "INACTIVE";
@@ -40,6 +41,7 @@ export function CustomerEditForm({ customer }: { customer: CustomerEditDto }) {
     contactNumber: customer.contactNumber ?? "",
     email: customer.email ?? "",
     address: customer.address ?? "",
+    shippingAddress: customer.shippingAddress ?? "",
     tin: customer.tin ?? "",
     vatRegistered: customer.vatRegistered,
     status: customer.status,
@@ -61,6 +63,7 @@ export function CustomerEditForm({ customer }: { customer: CustomerEditDto }) {
         contactNumber: form.contactNumber.trim() || undefined,
         email: form.email.trim() || undefined,
         address: form.address.trim() || undefined,
+        shippingAddress: form.shippingAddress.trim() || undefined,
         tin: form.tin.trim() || undefined,
         vatRegistered: form.vatRegistered,
         status: form.status,
@@ -102,9 +105,15 @@ export function CustomerEditForm({ customer }: { customer: CustomerEditDto }) {
           </div>
         </div>
 
-        <div className="grid gap-1.5">
-          <Label htmlFor="cf-address">Address</Label>
-          <Textarea id="cf-address" rows={2} value={form.address} onChange={(e) => set("address", e.target.value)} />
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label htmlFor="cf-address">Billing address</Label>
+            <Textarea id="cf-address" rows={2} value={form.address} onChange={(e) => set("address", e.target.value)} placeholder="What receipts are billed to" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="cf-shipping">Shipping address</Label>
+            <Textarea id="cf-shipping" rows={2} value={form.shippingAddress} onChange={(e) => set("shippingAddress", e.target.value)} placeholder="Where goods are delivered" />
+          </div>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">

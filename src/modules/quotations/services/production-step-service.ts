@@ -90,6 +90,32 @@ export class ProductionStepService {
     done: boolean
   ): Promise<void> {
     assertCan(actor, "update", "JobOrderItem");
+
+    // Steps are SEQUENTIAL — a step can only be completed once every earlier
+    // step is done, and can only be re-opened while every later step is still
+    // open. Prevents "last step done while middle steps pending".
+    const ctx = await this.steps.getStepOrderContext(stepId);
+    if (!ctx) throw new NotFoundError("Production step not found.");
+    if (done) {
+      const earlierPending = ctx.siblings.some(
+        (s) => s.sortOrder < ctx.sortOrder && !s.done
+      );
+      if (earlierPending) {
+        throw new ValidationError(
+          "Finish the earlier steps first — production steps are done in order."
+        );
+      }
+    } else {
+      const laterDone = ctx.siblings.some(
+        (s) => s.sortOrder > ctx.sortOrder && s.done
+      );
+      if (laterDone) {
+        throw new ValidationError(
+          "Undo the later steps first — production steps are done in order."
+        );
+      }
+    }
+
     const { jobOrderItemId } = await this.steps.setStepDone(
       stepId,
       done,

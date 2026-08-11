@@ -22,7 +22,7 @@ const peso = (v: string | null) => {
   const n = parseFloat(v);
   return isNaN(n) ? v : `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
 };
-const d = (s: string) => format(new Date(s), "M/d/yyyy");
+const d = (s: string) => format(new Date(s), "M/d/yyyy h:mma");
 const pretty = (s: string) => s.replace(/_/g, " ").toLowerCase();
 
 export function CustomerStatusBadge({ status }: { status: string }) {
@@ -132,7 +132,8 @@ export function CustomerDetailView({
               <Field label="Company" value={c.company} />
               <Field label="Credit terms" value={c.creditTermDays ? `${c.creditTermDays} days` : "No terms"} />
               <Field label="Credit limit" value={peso(c.creditLimit)} />
-              <div className="col-span-2 sm:col-span-3"><Field label="Address" value={c.address} /></div>
+              <div className="col-span-2 sm:col-span-3"><Field label="Billing address" value={c.address} /></div>
+              <div className="col-span-2 sm:col-span-3"><Field label="Shipping address" value={c.shippingAddress} /></div>
             </CardContent>
           </Card>
           {c.notes && <p className="rounded-lg bg-muted/50 p-3 text-sm whitespace-pre-line">{c.notes}</p>}
@@ -146,7 +147,7 @@ export function CustomerDetailView({
             <Stat label="Inquiries" value={c.counts.inquiries} />
           </div>
           <p className="text-xs text-muted-foreground">
-            Added by {c.createdByName} · {format(new Date(c.createdAt), "MMM d, yyyy")}
+            Added by {c.createdByName} · {format(new Date(c.createdAt), "MMM d, yyyy · h:mm a")}
           </p>
         </TabsContent>
 

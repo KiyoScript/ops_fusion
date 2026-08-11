@@ -34,7 +34,7 @@ import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { ReceivePaymentDialog } from "@/modules/sales-audit/components/receive-payment-dialog";
 import { useJoItemsInfinite } from "../hooks/use-job-orders";
-import type { JobOrderItemRowDto } from "../schemas/job-order";
+import type { JobOrderItemRowDto, JoPaymentDto } from "../schemas/job-order";
 import { BoardMetrics } from "./board-metrics";
 import { ImportDialog } from "./import-dialog";
 import { ItemEditDialog } from "./item-edit-dialog";
@@ -132,7 +132,7 @@ export function JobOrdersView({
               <TableRow>
                 <TableHead>Code</TableHead>
                 <TableHead className="min-w-64">Name</TableHead>
-                <TableHead className="min-w-56">Status</TableHead>
+                <TableHead>Payment</TableHead>
                 <TableHead>Team Status</TableHead>
                 <TableHead>Assigned To</TableHead>
                 <TableHead>Action</TableHead>
@@ -220,14 +220,8 @@ export function JobOrdersView({
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="max-w-72 align-top">
-                      {row.statusHistory ? (
-                        <span className="line-clamp-5 whitespace-pre-line text-xs leading-relaxed">
-                          {row.statusHistory}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                    <TableCell className="align-top">
+                      <PaymentCell payment={row.payment} />
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="grid justify-items-start gap-1">
@@ -326,4 +320,31 @@ function formatMoney(value: string): string {
   return isNaN(n)
     ? value
     : `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+}
+
+/** Payment standing for a JO (paid / partial / unpaid) — lets staff see if a
+ *  JO is settled without opening the Receive Payment dialog. */
+function PaymentCell({ payment }: { payment?: JoPaymentDto }) {
+  if (!payment) return <span className="text-muted-foreground">—</span>;
+  if (payment.status === "PAID") {
+    return <ColorBadge tone="green" label="✓ Paid" />;
+  }
+  if (payment.status === "PARTIAL") {
+    return (
+      <div className="grid justify-items-start gap-0.5">
+        <ColorBadge tone="amber" label="Partial" />
+        <span className="text-xs whitespace-nowrap text-muted-foreground">
+          {formatMoney(payment.balance)} left
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="grid justify-items-start gap-0.5">
+      <ColorBadge tone="red" label="Unpaid" />
+      <span className="text-xs whitespace-nowrap text-muted-foreground">
+        {formatMoney(payment.total)} due
+      </span>
+    </div>
+  );
 }

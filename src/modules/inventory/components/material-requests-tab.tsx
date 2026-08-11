@@ -101,7 +101,7 @@ export function MaterialRequestsTab({
                     <TableCell><MrStatusBadge status={r.status} /></TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">{r.lineCount} / {r.totalQtyNeeded}</TableCell>
                     <TableCell className="text-right tabular-nums">{peso(r.costOfMaterials)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{r.requestedByName}<br />{format(new Date(r.requestedAt), "M/d/yyyy")}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{r.requestedByName}<br />{format(new Date(r.requestedAt), "M/d/yyyy h:mma")}</TableCell>
                   </TableRow>
                 ))
               )}

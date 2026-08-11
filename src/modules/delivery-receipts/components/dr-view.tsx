@@ -137,7 +137,7 @@ export function DrView({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{peso(r.amount)}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {format(new Date(r.issuedAt), "M/d/yyyy")}
+                      {format(new Date(r.issuedAt), "M/d/yyyy h:mma")}
                     </TableCell>
                   </TableRow>
                 ))

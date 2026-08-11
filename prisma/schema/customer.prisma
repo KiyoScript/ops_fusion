@@ -17,16 +17,19 @@ enum CustomerStatus {
 }
 
 model Customer {
-  id            String         @id @default(cuid())
-  name          String
-  contactNumber String?
-  company       String?
-  email         String?
-  address       String?
-  tin           String?
-  customerType  CustomerType   @default(TYPE_C)
-  status        CustomerStatus @default(ACTIVE)
-  vatRegistered Boolean        @default(false)
+  id              String         @id @default(cuid())
+  name            String
+  contactNumber   String?
+  company         String?
+  email           String?
+  // `address` is the BILLING address (what receipts are made out to — used by
+  // Sales & Audit). shippingAddress is where goods are delivered (DR).
+  address         String?
+  shippingAddress String?
+  tin             String?
+  customerType    CustomerType   @default(TYPE_C)
+  status          CustomerStatus @default(ACTIVE)
+  vatRegistered   Boolean        @default(false)
 
   // — credit control —
   //

@@ -23,7 +23,8 @@ export const customerUpdateInput = z.object({
   company: z.string().trim().max(200).optional(),
   contactNumber: z.string().trim().max(60).optional(),
   email: z.string().trim().max(200).optional(),
-  address: z.string().trim().max(500).optional(),
+  address: z.string().trim().max(500).optional(), // billing
+  shippingAddress: z.string().trim().max(500).optional(),
   tin: z.string().trim().max(40).optional(),
   vatRegistered: z.coerce.boolean().default(false),
   status: z.enum(CustomerStatus).default(CustomerStatus.ACTIVE),
@@ -38,6 +39,7 @@ export type CustomerEditDto = {
   contactNumber: string | null;
   email: string | null;
   address: string | null;
+  shippingAddress: string | null;
   tin: string | null;
   vatRegistered: boolean;
   status: CustomerStatus;
@@ -83,6 +85,7 @@ export type CustomerDetailDto = {
   contactNumber: string | null;
   email: string | null;
   address: string | null;
+  shippingAddress: string | null;
   tin: string | null;
   status: CustomerStatus;
   vatRegistered: boolean;

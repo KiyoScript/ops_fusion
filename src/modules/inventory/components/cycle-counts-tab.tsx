@@ -98,7 +98,7 @@ export function CycleCountsTab({ canCreate, canApprove }: { canCreate: boolean; 
                       {r.netVariance > 0 ? `+${r.netVariance}` : r.netVariance}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {r.countedByName}<br />{format(new Date(r.countedAt), "M/d/yyyy")}
+                      {r.countedByName}<br />{format(new Date(r.countedAt), "M/d/yyyy h:mma")}
                     </TableCell>
                   </TableRow>
                 ))

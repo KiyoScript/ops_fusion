@@ -95,10 +95,10 @@ export function AdjustmentsTab({ canCreate, canApprove }: { canCreate: boolean; 
                       {r.netQty > 0 ? `+${r.netQty}` : r.netQty}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {r.requestedByName}<br />{format(new Date(r.requestedAt), "M/d/yyyy")}
+                      {r.requestedByName}<br />{format(new Date(r.requestedAt), "M/d/yyyy h:mma")}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {r.decidedByName ? <>{r.decidedByName}<br />{r.decidedAt && format(new Date(r.decidedAt), "M/d/yyyy")}</> : "—"}
+                      {r.decidedByName ? <>{r.decidedByName}<br />{r.decidedAt && format(new Date(r.decidedAt), "M/d/yyyy h:mma")}</> : "—"}
                     </TableCell>
                   </TableRow>
                 ))

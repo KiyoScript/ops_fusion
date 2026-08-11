@@ -155,7 +155,7 @@ export function InquiriesView({
                   return (
                     <TableRow key={row.id}>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
-                        {format(new Date(row.createdAt), "MMM d, yyyy")}
+                        {format(new Date(row.createdAt), "MMM d, yyyy · h:mm a")}
                       </TableCell>
                       <TableCell className="max-w-56">
                         <p className="truncate font-medium">{row.customerName}</p>

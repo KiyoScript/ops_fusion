@@ -102,7 +102,7 @@ export function CustomersView() {
                       {r.creditLimit && <span className="tabular-nums"> · ₱{parseFloat(r.creditLimit).toLocaleString("en-PH")}</span>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">{r.quotationCount} / {r.jobOrderCount}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{format(new Date(r.createdAt), "M/d/yyyy")}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap text-muted-foreground">{format(new Date(r.createdAt), "M/d/yyyy h:mma")}</TableCell>
                   </TableRow>
                 ))
               )}

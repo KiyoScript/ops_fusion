@@ -99,7 +99,7 @@ export function MaterialDetailDialog({
                 <Stat label="Pack size" value={m.packSize ? `${m.packSize} pcs/bundle` : "by piece"} />
                 <Stat label="Price / bundle" value={m.unitPrice ? peso(m.unitPrice) : "—"} />
                 <Stat label="Supplier" value={m.supplier?.name ?? "—"} />
-                <Stat label="Added" value={format(new Date(m.createdAt), "M/d/yyyy")} />
+                <Stat label="Added" value={format(new Date(m.createdAt), "M/d/yyyy h:mma")} />
               </div>
 
               {m.notes && (
@@ -140,7 +140,7 @@ export function MaterialDetailDialog({
                             </TableCell>
                             <TableCell className="text-right font-medium tabular-nums">{mv.balance}</TableCell>
                             <TableCell className="max-w-48 text-sm text-muted-foreground wrap-break-word">{mv.note ?? ""}</TableCell>
-                            <TableCell className="text-sm text-muted-foreground">{format(new Date(mv.occurredAt), "M/d/yyyy")}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{format(new Date(mv.occurredAt), "M/d/yyyy h:mma")}</TableCell>
                             <TableCell className="text-sm text-muted-foreground">{mv.createdByName}</TableCell>
                           </TableRow>
                         ))

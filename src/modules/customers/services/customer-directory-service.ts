@@ -40,8 +40,8 @@ export class CustomerDirectoryService {
     if (!c) throw new NotFoundError("Customer not found.");
     return {
       id: c.id, name: c.name, company: c.company, contactNumber: c.contactNumber,
-      email: c.email, address: c.address, tin: c.tin, vatRegistered: c.vatRegistered,
-      status: c.status, notes: c.notes,
+      email: c.email, address: c.address, shippingAddress: c.shippingAddress,
+      tin: c.tin, vatRegistered: c.vatRegistered, status: c.status, notes: c.notes,
     };
   }
 
@@ -86,6 +86,7 @@ function mapDetail(c: CustomerDetailRecord): CustomerDetailDto {
     contactNumber: c.contactNumber,
     email: c.email,
     address: c.address,
+    shippingAddress: c.shippingAddress,
     tin: c.tin,
     status: c.status,
     vatRegistered: c.vatRegistered,

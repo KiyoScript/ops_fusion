@@ -41,6 +41,12 @@ export interface IProductionStepRepository {
     done: boolean,
     userId: string
   ): Promise<{ jobOrderItemId: string }>;
+  /** The step's position + its siblings' done state, for the sequential guard. */
+  getStepOrderContext(stepId: string): Promise<{
+    jobOrderItemId: string;
+    sortOrder: number;
+    siblings: { sortOrder: number; done: boolean }[];
+  } | null>;
 }
 
 export type ItemStepRecord = {
@@ -181,5 +187,27 @@ export class PrismaProductionStepRepository
       select: { jobOrderItemId: true },
     });
     return updated;
+  }
+
+  async getStepOrderContext(stepId: string): Promise<{
+    jobOrderItemId: string;
+    sortOrder: number;
+    siblings: { sortOrder: number; done: boolean }[];
+  } | null> {
+    const step = await prisma.jobOrderItemStep.findUnique({
+      where: { id: stepId },
+      select: { jobOrderItemId: true, sortOrder: true },
+    });
+    if (!step) return null;
+    const siblings = await prisma.jobOrderItemStep.findMany({
+      where: { jobOrderItemId: step.jobOrderItemId },
+      select: { sortOrder: true, doneAt: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    return {
+      jobOrderItemId: step.jobOrderItemId,
+      sortOrder: step.sortOrder,
+      siblings: siblings.map((s) => ({ sortOrder: s.sortOrder, done: s.doneAt !== null })),
+    };
   }
 }

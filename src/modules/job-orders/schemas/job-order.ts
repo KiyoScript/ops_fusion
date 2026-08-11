@@ -247,6 +247,15 @@ export type JobOrderListPageDto = {
   nextCursor: string | null;
 };
 
+/** Per-JO payment standing (from Sales & Audit receipts), shown on the board
+ *  so staff can see paid/unpaid without opening the Pay dialog. */
+export type JoPaymentDto = {
+  status: "PAID" | "PARTIAL" | "UNPAID";
+  paid: string; // total received across the JO's non-voided receipts
+  total: string; // the JO total
+  balance: string; // max(total − paid, 0)
+};
+
 /** One board row = one line item (legacy JOWebApp table). */
 export type JobOrderItemRowDto = JobOrderItemDto & {
   jobOrderId: string;
@@ -255,6 +264,8 @@ export type JobOrderItemRowDto = JobOrderItemDto & {
   joIsPO: boolean;
   joIsNonJo: boolean;
   joIsApproved: boolean;
+  /** Attached by the board list only (not the calendar). */
+  payment?: JoPaymentDto;
 };
 
 export type AttachmentDto = {

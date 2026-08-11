@@ -110,6 +110,14 @@ export function ItemStepsChecklist({
       <ul className="grid gap-1">
         {steps.map((step, i) => {
           const isDone = step.doneAt !== null;
+          // Sequential guard: a step completes only once every earlier step is
+          // done, and re-opens only while every later step is still open.
+          const priorAllDone = steps.slice(0, i).every((s) => s.doneAt !== null);
+          const laterAllUndone = steps.slice(i + 1).every((s) => s.doneAt === null);
+          const blocked = isDone ? !laterAllUndone : !priorAllDone;
+          const blockMsg = isDone
+            ? "Undo the later steps first — steps are done in order."
+            : "Finish the earlier steps first — steps are done in order.";
           // Elapsed time since the PREVIOUS completed step (workflow order) —
           // same "+2h 15m" language the status timeline uses.
           const prevDoneAt = steps
@@ -136,12 +144,18 @@ export function ItemStepsChecklist({
               <button
                 type="button"
                 disabled={!canEdit || toggle.isPending}
-                onClick={() =>
-                  toggle.mutate({ stepId: step.id, done: !isDone })
-                }
+                title={blocked ? blockMsg : undefined}
+                onClick={() => {
+                  if (blocked) {
+                    toast.error(blockMsg);
+                    return;
+                  }
+                  toggle.mutate({ stepId: step.id, done: !isDone });
+                }}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-md border p-2 text-left text-sm",
                   isDone ? "bg-muted/40" : "hover:bg-accent",
+                  blocked && !isDone && "opacity-60",
                   !canEdit && "cursor-default"
                 )}
               >

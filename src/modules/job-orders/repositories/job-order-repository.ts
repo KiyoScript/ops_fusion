@@ -350,6 +350,11 @@ export interface IJobOrderRepository {
   listItemsPage(
     filter: ListFilter
   ): Promise<{ rows: JobOrderItemBoardRecord[]; nextCursor: string | null }>;
+  /** Received-vs-total per JO (from non-voided Sales receipts), for the board's
+   *  payment column. Keyed by jobOrderId; JOs with no receipts read 0 received. */
+  getJoPaymentStatus(
+    jobOrderIds: string[]
+  ): Promise<Map<string, { received: number; total: number }>>;
   updateItem(
     itemId: string,
     data: Partial<ItemUpdateData> & Partial<ItemProductionUpdateData>,
@@ -623,6 +628,45 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       rows: page,
       nextCursor: hasMore ? page[page.length - 1]!.id : null,
     };
+  }
+
+  async getJoPaymentStatus(
+    jobOrderIds: string[]
+  ): Promise<Map<string, { received: number; total: number }>> {
+    const map = new Map<string, { received: number; total: number }>();
+    if (jobOrderIds.length === 0) return map;
+
+    const [jos, sales] = await Promise.all([
+      prisma.jobOrder.findMany({
+        where: { id: { in: jobOrderIds } },
+        select: { id: true, total: true },
+      }),
+      // Non-voided receipts against these JOs. Received = cash collected on the
+      // receipt (amountPaid) + later collections applied to a charge invoice
+      // (settledAmount).
+      prisma.sale.findMany({
+        where: { jobOrderId: { in: jobOrderIds }, voidedAt: null },
+        select: { jobOrderId: true, amountPaid: true, settledAmount: true },
+      }),
+    ]);
+
+    const receivedByJo = new Map<string, number>();
+    for (const s of sales) {
+      if (!s.jobOrderId) continue;
+      receivedByJo.set(
+        s.jobOrderId,
+        (receivedByJo.get(s.jobOrderId) ?? 0) +
+          parseFloat(s.amountPaid.toString()) +
+          parseFloat(s.settledAmount.toString())
+      );
+    }
+    for (const jo of jos) {
+      map.set(jo.id, {
+        received: receivedByJo.get(jo.id) ?? 0,
+        total: parseFloat(jo.total.toString()),
+      });
+    }
+    return map;
   }
 
   async updateItem(

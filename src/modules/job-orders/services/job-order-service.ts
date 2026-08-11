@@ -31,6 +31,7 @@ import type {
   JobOrderItemInput,
   JobOrderItemRowDto,
   JobOrderItemsPageDto,
+  JoPaymentDto,
   JobOrderListFilters,
   JobOrderListPageDto,
   JobOrderListRowDto,
@@ -262,7 +263,18 @@ export class JobOrderService {
     filters: JobOrderListFilters
   ): Promise<JobOrderItemsPageDto> {
     const { rows, nextCursor } = await this.jobOrders.listItemsPage(filters);
-    return { rows: rows.map(mapItemRow), nextCursor };
+    const dtos = rows.map(mapItemRow);
+    // Attach each JO's payment standing (received vs total) so the board shows
+    // paid / partial / unpaid without opening the Receive Payment dialog.
+    const jobOrderIds = [...new Set(dtos.map((d) => d.jobOrderId))];
+    const payments = await this.jobOrders.getJoPaymentStatus(jobOrderIds);
+    return {
+      rows: dtos.map((d) => {
+        const p = payments.get(d.jobOrderId);
+        return p ? { ...d, payment: toPaymentDto(p.received, p.total) } : d;
+      }),
+      nextCursor,
+    };
   }
 
   /** Legacy updateJORow: edit an item's fields and (optionally) its status
@@ -1052,6 +1064,21 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
     isDone: done,
     isWaitingPickup: waiting,
     isOverdue: overdue,
+  };
+}
+
+function toPaymentDto(received: number, total: number): JoPaymentDto {
+  const status: JoPaymentDto["status"] =
+    total > 0 && received >= total - 0.005
+      ? "PAID"
+      : received > 0
+        ? "PARTIAL"
+        : "UNPAID";
+  return {
+    status,
+    paid: received.toFixed(2),
+    total: total.toFixed(2),
+    balance: Math.max(total - received, 0).toFixed(2),
   };
 }
 

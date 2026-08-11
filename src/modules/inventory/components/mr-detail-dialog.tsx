@@ -111,10 +111,10 @@ export function MrDetailDialog({
                 <div><span className="text-muted-foreground">On</span><br />{format(new Date(mr.requestedAt), "M/d/yyyy h:mma")}</div>
                 <div><span className="text-muted-foreground">Cost of materials</span><br /><span className="font-medium tabular-nums">{peso(mr.costOfMaterials)}</span></div>
                 {mr.decidedByName && (
-                  <div><span className="text-muted-foreground">Decided by</span><br />{mr.decidedByName}{mr.decidedAt ? ` · ${format(new Date(mr.decidedAt), "M/d/yyyy")}` : ""}</div>
+                  <div><span className="text-muted-foreground">Decided by</span><br />{mr.decidedByName}{mr.decidedAt ? ` · ${format(new Date(mr.decidedAt), "M/d/yyyy h:mma")}` : ""}</div>
                 )}
                 {mr.releasedByName && (
-                  <div><span className="text-muted-foreground">Last released by</span><br />{mr.releasedByName}{mr.lastReleasedAt ? ` · ${format(new Date(mr.lastReleasedAt), "M/d/yyyy")}` : ""}</div>
+                  <div><span className="text-muted-foreground">Last released by</span><br />{mr.releasedByName}{mr.lastReleasedAt ? ` · ${format(new Date(mr.lastReleasedAt), "M/d/yyyy h:mma")}` : ""}</div>
                 )}
               </div>
               {mr.decisionNote && <p className="text-sm text-muted-foreground">Note: {mr.decisionNote}</p>}
