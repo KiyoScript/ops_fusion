@@ -39,7 +39,8 @@ export function getQuotationService(): QuotationService {
 export function getInquiryService(): InquiryService {
   inquiryService ??= new InquiryService(
     new PrismaInquiryRepository(),
-    new PrismaActivityLogRepository()
+    new PrismaActivityLogRepository(),
+    new PrismaCustomerRepository()
   );
   return inquiryService;
 }

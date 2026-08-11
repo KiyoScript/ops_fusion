@@ -255,14 +255,8 @@ export function ItemEditDialog({
             />
           </div>
 
-          <label className="flex w-fit items-center gap-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              className="size-4 accent-primary"
-              {...form.register("isRush")}
-            />
-            🔥 Rush item
-          </label>
+          {/* Rush is carried over from the quotation (which holds the rush
+              fee) — not toggled here; it shows in the job description. */}
 
           {row && (
             <div className="rounded-lg border p-3">

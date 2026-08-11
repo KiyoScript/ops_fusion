@@ -2,6 +2,7 @@ import { NotFoundError, ValidationError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
+import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import type {
   IInquiryRepository,
   InquiryRecord,
@@ -20,8 +21,27 @@ import type {
 export class InquiryService {
   constructor(
     private readonly inquiries: IInquiryRepository,
-    private readonly activity: IActivityLogRepository
+    private readonly activity: IActivityLogRepository,
+    private readonly customers: ICustomerRepository
   ) {}
+
+  /** Resolve the typed name to a customer master record — matching an existing
+   *  customer (case-insensitive) or quick-creating a new one — then enrich the
+   *  master's contact/email where it's still blank (never overwriting). Returns
+   *  the customer's id + canonical name to store on the inquiry. */
+  private async resolveCustomer(
+    name: string,
+    contactNumber: string | null,
+    email: string | null,
+    creatorId: string
+  ): Promise<{ id: string; name: string }> {
+    const customer = await this.customers.findOrCreateByName(name, creatorId);
+    await this.customers.fillContactDetails(customer.id, {
+      contactNumber: contactNumber || undefined,
+      email: email || undefined,
+    });
+    return customer;
+  }
 
   async list(
     _actor: Actor,
@@ -39,8 +59,15 @@ export class InquiryService {
 
   async create(actor: Actor, input: InquiryCreateInput): Promise<{ id: string }> {
     assertCan(actor, "create", "Inquiry");
+    const customer = await this.resolveCustomer(
+      input.customerName,
+      input.contactNumber || null,
+      input.email || null,
+      actor.id
+    );
     const created = await this.inquiries.create({
-      customerName: input.customerName,
+      customerId: customer.id,
+      customerName: customer.name,
       contactNumber: input.contactNumber || null,
       email: input.email || null,
       medium: input.medium,
@@ -65,8 +92,15 @@ export class InquiryService {
     portalUserId: string,
     input: PortalRequestInput
   ): Promise<{ id: string }> {
+    const customer = await this.resolveCustomer(
+      input.customerName,
+      input.contactNumber || null,
+      input.email || null,
+      portalUserId
+    );
     const created = await this.inquiries.create({
-      customerName: input.customerName,
+      customerId: customer.id,
+      customerName: customer.name,
       contactNumber: input.contactNumber || null,
       email: input.email || null,
       medium: "PORTAL",
@@ -88,8 +122,15 @@ export class InquiryService {
     assertCan(actor, "update", "Inquiry");
     const record = await this.inquiries.findById(input.id);
     if (!record) throw new NotFoundError("Inquiry not found.");
+    const customer = await this.resolveCustomer(
+      input.customerName,
+      input.contactNumber || null,
+      input.email || null,
+      actor.id
+    );
     await this.inquiries.update(input.id, {
-      customerName: input.customerName,
+      customerId: customer.id,
+      customerName: customer.name,
       contactNumber: input.contactNumber || null,
       email: input.email || null,
       medium: input.medium,

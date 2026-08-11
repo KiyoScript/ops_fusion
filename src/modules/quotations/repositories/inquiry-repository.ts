@@ -22,6 +22,8 @@ const rowSelect = {
 export type InquiryRecord = Prisma.InquiryGetPayload<{ select: typeof rowSelect }>;
 
 export type InquiryWriteData = {
+  // Set by the service after resolving the customer master (find-or-create).
+  customerId?: string | null;
   customerName: string;
   contactNumber?: string | null;
   email?: string | null;

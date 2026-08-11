@@ -28,18 +28,18 @@ enum PaymentMethod {
 // with `crNumber != null`. Postgres allows many NULLs under a unique index, so
 // undocumented payments coexist with numbered CRs in the same ledger.
 model CollectionReceipt {
-  id             String   @id @default(cuid())
-  crNumber       String?  @unique // null → no document printed
-  documentIssued Boolean  @default(false)
+  id             String        @id @default(cuid())
+  crNumber       String?       @unique // null → no document printed
+  documentIssued Boolean       @default(false)
   bookletId      String?
-  booklet        Booklet? @relation(fields: [bookletId], references: [id])
-  customerId String
-  customer   Customer      @relation(fields: [customerId], references: [id])
+  booklet        Booklet?      @relation(fields: [bookletId], references: [id])
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id])
   // Which JO the collection is against (null → collected against invoices only).
-  jobOrderId String?
-  jobOrder   JobOrder?     @relation(fields: [jobOrderId], references: [id])
-  amount     Decimal       @db.Decimal(12, 2)
-  method     PaymentMethod
+  jobOrderId     String?
+  jobOrder       JobOrder?     @relation(fields: [jobOrderId], references: [id])
+  amount         Decimal       @db.Decimal(12, 2)
+  method         PaymentMethod
 
   // — the counter, same maths as a Sale —
   cashTendered Decimal? @db.Decimal(12, 2)

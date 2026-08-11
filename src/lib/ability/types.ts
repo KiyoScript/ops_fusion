@@ -45,6 +45,8 @@ export type AppSubject =
   | "StockAdjustment" // manual stock corrections (request → approve → post)
   | "CycleCount" // physical counts → variance → post
   | "MaterialRequest" // issue stock to a JO (submit → approve → release)
+  // ——— Shared masters ———
+  | "Customer" // the shared customer master (directory + edit)
   // ——— System administration ———
   | "ModuleFlag" // enable/disable feature modules — admin only (manage-all)
   | never;

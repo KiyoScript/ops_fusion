@@ -190,7 +190,7 @@ export function JobOrderForm({
                     ? "Reference #"
                     : "JO Number"}
               </Label>
-              {mode === "create" ? (
+              {mode === "create" && (
                 // Quotation-first: only walk-in Non-JO counter jobs are
                 // encoded directly — JOs/POs arrive by converting a quotation.
                 <span
@@ -198,33 +198,6 @@ export function JobOrderForm({
                   title="Walk-in counter job — xerox, photocopies, supplies. Production JOs and POs are created by converting a quotation."
                 >
                   Non-JO · walk-in
-                </span>
-              ) : (
-                <span className="flex items-center gap-4">
-                  <label
-                    className="flex items-center gap-1.5 text-sm"
-                    title="Work against a customer's Purchase Order"
-                  >
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      disabled
-                      {...form.register("isPO")}
-                    />
-                    PO
-                  </label>
-                  <label
-                    className="flex items-center gap-1.5 text-sm"
-                    title="Walk-in counter job — xerox, photocopies, supplies"
-                  >
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      disabled
-                      {...form.register("isNonJo")}
-                    />
-                    Non-JO
-                  </label>
                 </span>
               )}
             </div>
@@ -488,16 +461,11 @@ export function JobOrderForm({
                   </p>
                 )}
 
-              <div className="flex flex-wrap items-center gap-6">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    {...form.register(`items.${index}.isRush`)}
-                  />
-                  Rush
-                </label>
-                {mode === "create" && (
+              {/* Rush is not set here — it's carried over from the quotation
+                  (which holds the rush fee); it's reflected in the job
+                  description. Only the LFP flag is set for direct entry. */}
+              {mode === "create" && (
+                <div className="flex flex-wrap items-center gap-6">
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -506,8 +474,8 @@ export function JobOrderForm({
                     />
                     LFP (large format)
                   </label>
-                )}
-              </div>
+                </div>
+              )}
 
               {mode === "create" && watchedItems?.[index]?.isLFP && (
                 <div className="grid gap-4 sm:grid-cols-3">
