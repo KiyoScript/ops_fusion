@@ -22,6 +22,7 @@ export async function resolveWizardProduct(
       unit: true,
       basePrice: true,
       description: true,
+      isLFP: true,
       priceRules: {
         where: { isActive: true },
         orderBy: [{ sortOrder: "asc" }, { minQty: "asc" }],
@@ -64,6 +65,7 @@ export async function resolveWizardProduct(
     unit: row.unit,
     basePrice: row.basePrice.toString(),
     description: row.description,
+    isLFP: row.isLFP,
     rules: [
       ...row.priceRules
         .filter((r) => r.type !== "ADDON" || !globalKeys.has(feeKey(r.label)))

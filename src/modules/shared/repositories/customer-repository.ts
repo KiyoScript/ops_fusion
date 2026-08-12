@@ -9,6 +9,8 @@ export type CustomerSuggestion = CustomerOption & {
   contactNumber: string | null;
   company: string | null;
   email: string | null;
+  department: string | null;
+  position: string | null;
 };
 
 /** Billing identity plus credit standing — what a receipt is made out to. */
@@ -51,10 +53,17 @@ export interface ICustomerRepository {
 
 export class PrismaCustomerRepository implements ICustomerRepository {
   async search(query: string, take = 10): Promise<CustomerSuggestion[]> {
+    // Match the person's name OR their company / department / position, so
+    // typing a company name surfaces its contact persons to pick from.
     return prisma.customer.findMany({
       where: {
         deletedAt: null,
-        name: { contains: query, mode: "insensitive" },
+        OR: [
+          { name: { contains: query, mode: "insensitive" } },
+          { company: { contains: query, mode: "insensitive" } },
+          { department: { contains: query, mode: "insensitive" } },
+          { position: { contains: query, mode: "insensitive" } },
+        ],
       },
       select: {
         id: true,
@@ -62,8 +71,11 @@ export class PrismaCustomerRepository implements ICustomerRepository {
         contactNumber: true,
         company: true,
         email: true,
+        department: true,
+        position: true,
       },
-      orderBy: { name: "asc" },
+      // Group a company's contacts together, then by contact name.
+      orderBy: [{ company: "asc" }, { name: "asc" }],
       take,
     });
   }

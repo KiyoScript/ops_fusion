@@ -114,7 +114,7 @@ export function ArchiveView() {
                     </TableCell>
                     <TableCell className="max-w-72 align-top">
                       {row.statusHistory ? (
-                        <span className="line-clamp-5 whitespace-pre-line text-xs leading-relaxed">
+                        <span className="whitespace-pre-line text-xs leading-relaxed">
                           {row.statusHistory}
                         </span>
                       ) : (

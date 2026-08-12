@@ -244,20 +244,6 @@ async function main() {
     },
   });
   console.log("Seeded portal system user.");
-
-  // Default GLOBAL production workflow (create-if-empty). rankFromEnd 1 = last.
-  if ((await prisma.globalProductionStep.count()) === 0) {
-    await prisma.globalProductionStep.createMany({
-      data: [
-        { name: "Layout / Graphics", rankFromEnd: 5 },
-        { name: "Client Approval", rankFromEnd: 4 },
-        { name: "Printing", rankFromEnd: 3 },
-        { name: "Capture", rankFromEnd: 2 },
-        { name: "DR", rankFromEnd: 1 },
-      ],
-    });
-    console.log("Seeded 5 default global production steps.");
-  }
 }
 
 main()

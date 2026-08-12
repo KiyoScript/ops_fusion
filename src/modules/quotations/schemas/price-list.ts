@@ -52,6 +52,7 @@ export const productSaveInput = z.object({
   unit: z.string().trim().min(1, "Unit is required").max(40),
   basePrice: moneyString,
   description: z.string().trim().max(500).optional(),
+  isLFP: z.boolean().optional(),
   rules: z.array(priceListRuleInput),
 });
 

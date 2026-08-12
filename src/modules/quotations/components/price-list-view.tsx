@@ -26,7 +26,6 @@ import {
 import { PriceListImportDialog } from "./price-list-import-dialog";
 import { WorkbookImportDialog } from "./workbook-import-dialog";
 import { ProductEditDialog } from "./product-edit-dialog";
-import { ProductionStepsDialog } from "./production-steps-dialog";
 
 const COLS = 7;
 
@@ -189,7 +188,6 @@ function ProductRow({
       <TableCell>
         {canMaintain && (
           <div className="flex items-center justify-end">
-            <ProductionStepsDialog product={product} />
             <ProductEditDialog product={product} />
           </div>
         )}

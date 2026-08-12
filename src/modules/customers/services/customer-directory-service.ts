@@ -29,6 +29,10 @@ export class CustomerDirectoryService {
     return { rows: rows.map(mapListRow), nextCursor };
   }
 
+  getMetrics(_actor: Actor) {
+    return this.customers.getMetrics();
+  }
+
   async get(_actor: Actor, id: string): Promise<CustomerDetailDto> {
     const c = await this.customers.findDetail(id);
     if (!c) throw new NotFoundError("Customer not found.");
@@ -39,9 +43,11 @@ export class CustomerDirectoryService {
     const c = await this.customers.findForEdit(id);
     if (!c) throw new NotFoundError("Customer not found.");
     return {
-      id: c.id, name: c.name, company: c.company, contactNumber: c.contactNumber,
-      email: c.email, address: c.address, shippingAddress: c.shippingAddress,
-      tin: c.tin, vatRegistered: c.vatRegistered, status: c.status, notes: c.notes,
+      id: c.id, name: c.name, company: c.company, companyId: c.companyId,
+      department: c.department, position: c.position,
+      contactNumber: c.contactNumber, email: c.email, address: c.address,
+      shippingAddress: c.shippingAddress, tin: c.tin, vatStatus: c.vatStatus,
+      creditTermDays: c.creditTermDays, status: c.status, notes: c.notes,
     };
   }
 
@@ -49,7 +55,7 @@ export class CustomerDirectoryService {
     assertCan(actor, "update", "Customer");
     const existing = await this.customers.findForEdit(input.id);
     if (!existing) throw new NotFoundError("Customer not found.");
-    await this.customers.update(input);
+    await this.customers.update(input, existing.companyId !== null);
     await this.activity.log({
       userId: actor.id,
       entityType: "Customer",
@@ -65,11 +71,12 @@ function mapListRow(c: CustomerListRecord): CustomerListRowDto {
     id: c.id,
     name: c.name,
     company: c.company,
+    companyId: c.companyId,
     contactNumber: c.contactNumber,
     email: c.email,
     tin: c.tin,
     status: c.status,
-    vatRegistered: c.vatRegistered,
+    vatStatus: c.vatStatus,
     creditTermDays: c.creditTermDays,
     creditLimit: c.creditLimit?.toString() ?? null,
     quotationCount: c._count.quotations,
@@ -83,13 +90,16 @@ function mapDetail(c: CustomerDetailRecord): CustomerDetailDto {
     id: c.id,
     name: c.name,
     company: c.company,
+    companyId: c.companyId,
+    department: c.department,
+    position: c.position,
     contactNumber: c.contactNumber,
     email: c.email,
     address: c.address,
     shippingAddress: c.shippingAddress,
     tin: c.tin,
     status: c.status,
-    vatRegistered: c.vatRegistered,
+    vatStatus: c.vatStatus,
     creditTermDays: c.creditTermDays,
     creditLimit: c.creditLimit?.toString() ?? null,
     notes: c.notes,
@@ -105,16 +115,26 @@ function mapDetail(c: CustomerDetailRecord): CustomerDetailDto {
       advancePayments: c._count.advancePayments,
       inquiries: c._count.inquiries,
     },
+    attachments: c.attachments.map((a) => ({
+      id: a.id, kind: a.kind, fileName: a.fileName, size: a.size,
+      createdAt: a.createdAt.toISOString(), uploadedByName: a.uploadedBy.name,
+    })),
     quotations: c.quotations.map((q) => ({
       id: q.id, number: q.quoteNumber, status: q.status,
       total: q.total.toString(), createdAt: q.createdAt.toISOString(),
+      summary: q.items.map((i) => i.description).join(" · "),
+      itemCount: q.items.length,
     })),
     jobOrders: c.jobOrders.map((j) => ({
       id: j.id, number: j.joNumber, status: j.status,
       total: j.total.toString(), createdAt: j.createdAt.toISOString(),
+      summary: j.items.map((i) => i.description).join(" · "),
+      itemCount: j.items.length,
     })),
     deliveries: c.deliveryReceipts.map((dr) => ({
       id: dr.id, number: dr.drNumber, status: dr.status, issuedAt: dr.issuedAt.toISOString(),
+      summary: dr.lines.map((l) => `${l.qty}× ${l.jobOrderItem.description}`).join(" · "),
+      itemCount: dr.lines.length,
     })),
     sales: c.sales.map((s) => ({
       id: s.id, documentNo: s.documentNo, paymentStatus: s.paymentStatus,

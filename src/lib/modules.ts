@@ -121,7 +121,7 @@ export const MODULES: ModuleDef[] = [
     description: "The shared customer master.",
     group: "Masters",
     defaultEnabled: true,
-    routes: ["/customers"],
+    routes: ["/customers", "/maintenance/customers"],
   },
   {
     key: "products",

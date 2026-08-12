@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryState } from "nuqs";
 import { format } from "date-fns";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,17 +25,24 @@ import {
 import { EmptyState, ErrorState, TableSkeletonRows } from "@/components/data-states";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { useCustomers } from "../hooks/use-customers";
+import { CustomerStatusBadge, VatBadge } from "./badges";
 
 const COLS = 7;
 const ALL = "ALL";
 
-export function CustomersView() {
+export function CustomersView({ individualsOnly = false }: { individualsOnly?: boolean }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>(ALL);
+  const [vat, setVat] = useQueryState("vat", { defaultValue: ALL });
   const debouncedQ = useDebounce(q);
 
-  const query = useCustomers({ q: debouncedQ, status: status === ALL ? undefined : status });
+  const query = useCustomers({
+    q: debouncedQ,
+    status: status === ALL ? undefined : status,
+    vatStatus: vat === ALL ? undefined : vat,
+    individualsOnly,
+  });
   const rows = query.data?.pages.flatMap((p) => p.rows) ?? [];
 
   return (
@@ -54,6 +61,15 @@ export function CustomersView() {
             <SelectItem value={ALL}>All statuses</SelectItem>
             <SelectItem value="ACTIVE">Active</SelectItem>
             <SelectItem value="INACTIVE">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={vat} onValueChange={(v) => setVat(v ?? ALL)}>
+          <SelectTrigger aria-label="Filter by tax status"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All tax statuses</SelectItem>
+            <SelectItem value="VAT">VAT</SelectItem>
+            <SelectItem value="NON_VAT">Non-VAT</SelectItem>
+            <SelectItem value="NO_TIN">No TIN</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -91,11 +107,9 @@ export function CustomersView() {
                       {r.email && <div className="text-xs wrap-break-word">{r.email}</div>}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground tabular-nums">{r.tin ?? "—"}</TableCell>
-                    <TableCell>
-                      {r.status === "INACTIVE"
-                        ? <Badge variant="outline" className="font-normal">Inactive</Badge>
-                        : <Badge variant="secondary" className="font-normal">Active</Badge>}
-                      {r.vatRegistered && <Badge variant="outline" className="ml-1 font-normal">VAT</Badge>}
+                    <TableCell className="space-x-1 whitespace-nowrap">
+                      <CustomerStatusBadge status={r.status} />
+                      {r.vatStatus && <VatBadge status={r.vatStatus} />}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {r.creditTermDays ? `${r.creditTermDays}d` : "—"}

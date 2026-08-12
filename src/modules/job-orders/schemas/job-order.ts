@@ -264,6 +264,8 @@ export type JobOrderItemRowDto = JobOrderItemDto & {
   joIsPO: boolean;
   joIsNonJo: boolean;
   joIsApproved: boolean;
+  /** Per-JO Capture toggle — adds the Capture production step to every item. */
+  joNeedsCapture: boolean;
   /** Attached by the board list only (not the calendar). */
   payment?: JoPaymentDto;
 };

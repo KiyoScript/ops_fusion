@@ -1,4 +1,3 @@
-import { NotFoundError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
 import type { DbTx } from "@/modules/shared/repositories/types";
@@ -6,76 +5,38 @@ import type { IActivityLogRepository } from "@/modules/shared/repositories/activ
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type { IProductionWorkflowRepository } from "../repositories/production-workflow-repository";
 import { PrismaProductionWorkflowRepository } from "../repositories/production-workflow-repository";
-import type {
-  GlobalStepCreateInput,
-  GlobalStepDto,
-  GlobalStepUpdateInput,
-} from "../schemas/production-workflow";
 
-/** The single global production workflow (ruling 2026-07-24 — replaces the
- *  per-product ProductionStep templates). Maintained in JO Maintenance. */
+/** The standardized production workflow (ruling 2026-08-12 — a fixed standard:
+ *  LFP items get Layout → Plotting → Printing; all applicable items get Capture
+ *  (per-JO toggle) → DR). Replaces the editable GlobalProductionStep list. */
 export class ProductionWorkflowService {
   constructor(
     private readonly repo: IProductionWorkflowRepository,
     private readonly activity: IActivityLogRepository
   ) {}
 
-  async list(_actor: Actor, includeInactive = false): Promise<GlobalStepDto[]> {
-    return this.repo.list(includeInactive);
-  }
-
-  /** Backfill the global workflow onto a new JO's items that have no steps yet
-   *  (per-product templates take precedence). Internal — called right after a
-   *  JO is created (quote conversion or direct entry). Returns items seeded. */
-  async applyGlobalToJobOrder(jobOrderId: string, tx?: DbTx): Promise<number> {
+  /** Seed the standardized production workflow onto a new JO's items that have
+   *  no steps yet. Internal — called right after a JO is created (quote
+   *  conversion or direct entry). Returns the number of items seeded. */
+  async applyStandardWorkflow(jobOrderId: string, tx?: DbTx): Promise<number> {
     return this.repo.seedForJobOrder(jobOrderId, tx);
   }
 
-  async create(actor: Actor, input: GlobalStepCreateInput): Promise<GlobalStepDto> {
-    assertCan(actor, "maintain", "Maintenance");
-    const created = await this.repo.create({
-      name: input.name,
-      rankFromEnd: input.rankFromEnd,
-    });
+  /** Flip the per-JO Capture toggle and add/remove the Capture step on each
+   *  item (inserted before DR; removed only when not yet done). */
+  async setNeedsCapture(
+    actor: Actor,
+    jobOrderId: string,
+    value: boolean
+  ): Promise<void> {
+    assertCan(actor, "update", "JobOrder");
+    await this.repo.setNeedsCapture(jobOrderId, value);
     await this.activity.log({
       userId: actor.id,
-      entityType: "GlobalProductionStep",
-      entityId: created.id,
-      action: "create",
-      payload: { name: created.name, rankFromEnd: created.rankFromEnd },
-    });
-    return created;
-  }
-
-  async update(actor: Actor, input: GlobalStepUpdateInput): Promise<void> {
-    assertCan(actor, "maintain", "Maintenance");
-    const existing = await this.repo.findById(input.id);
-    if (!existing) throw new NotFoundError("Production step not found.");
-    await this.repo.update(input.id, {
-      name: input.name,
-      rankFromEnd: input.rankFromEnd,
-      isActive: input.isActive,
-    });
-    await this.activity.log({
-      userId: actor.id,
-      entityType: "GlobalProductionStep",
-      entityId: input.id,
+      entityType: "JobOrder",
+      entityId: jobOrderId,
       action: "update",
-      payload: { name: input.name ?? existing.name },
-    });
-  }
-
-  async remove(actor: Actor, id: string): Promise<void> {
-    assertCan(actor, "maintain", "Maintenance");
-    const existing = await this.repo.findById(id);
-    if (!existing) throw new NotFoundError("Production step not found.");
-    await this.repo.delete(id);
-    await this.activity.log({
-      userId: actor.id,
-      entityType: "GlobalProductionStep",
-      entityId: id,
-      action: "delete",
-      payload: { name: existing.name },
+      payload: { needsCapture: value },
     });
   }
 }

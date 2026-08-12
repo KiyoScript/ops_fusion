@@ -4,7 +4,95 @@ import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/authz";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getCustomerDirectoryService } from "@/modules/customers/services/customer-directory-service";
+import { getCompanyService } from "@/modules/customers/services/company-service";
 import { customerUpdateInput } from "@/modules/customers/schemas/customer";
+import { addCustomerInput, companyUpdateInput } from "@/modules/customers/schemas/company";
+import type { AttachmentKind } from "@/generated/prisma/enums";
+
+const ATTACHMENT_KINDS = ["CREDIT_REQUEST", "BIR_2303", "OTHER"] as const;
+
+export async function uploadCustomerAttachmentAction(
+  formData: FormData
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const actor = await requireActor();
+    const file = formData.get("file");
+    const kindRaw = String(formData.get("kind") || "OTHER");
+    const companyId = formData.get("companyId") ? String(formData.get("companyId")) : undefined;
+    const customerId = formData.get("customerId") ? String(formData.get("customerId")) : undefined;
+    if (!(file instanceof File) || file.size === 0) {
+      return fail(new ValidationError("Choose a file to upload."));
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return fail(new ValidationError("File is too large (max 10 MB)."));
+    }
+    if (!companyId && !customerId) return fail(new ValidationError("Missing upload target."));
+    const kind = (ATTACHMENT_KINDS.includes(kindRaw as (typeof ATTACHMENT_KINDS)[number])
+      ? kindRaw
+      : "OTHER") as AttachmentKind;
+    const data = new Uint8Array(await file.arrayBuffer());
+    const created = await getCompanyService().addAttachment(
+      actor,
+      { companyId, customerId },
+      { kind, fileName: file.name, mimeType: file.type || "application/octet-stream", size: file.size, data }
+    );
+    revalidatePath(companyId ? `/customers/companies/${companyId}` : `/customers/${customerId}`);
+    return ok(created);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function deleteCustomerAttachmentAction(input: {
+  id: string;
+  companyId?: string;
+  customerId?: string;
+}): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    if (!input?.id) return fail(new ValidationError("Missing attachment id."));
+    await getCompanyService().removeAttachment(actor, input.id);
+    revalidatePath(input.companyId ? `/customers/companies/${input.companyId}` : `/customers/${input.customerId}`);
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function addCustomerAction(
+  input: unknown
+): Promise<ActionResult<{ customerId: string; companyId: string | null }>> {
+  try {
+    const actor = await requireActor();
+    const parsed = addCustomerInput.safeParse(input);
+    if (!parsed.success) {
+      return fail(new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input."));
+    }
+    const result = await getCompanyService().addCustomer(actor, parsed.data);
+    revalidatePath("/customers");
+    return ok(result);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function updateCompanyAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const parsed = companyUpdateInput.safeParse(input);
+    if (!parsed.success) {
+      return fail(new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input."));
+    }
+    await getCompanyService().update(actor, parsed.data);
+    revalidatePath("/customers");
+    revalidatePath(`/customers/companies/${parsed.data.id}`);
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
 
 export async function updateCustomerAction(
   input: unknown

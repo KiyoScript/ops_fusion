@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { CustomerStatus } from "@/generated/prisma/enums";
+import { CustomerStatus, VatStatus } from "@/generated/prisma/enums";
+import type { CompanyAttachmentDto } from "./company";
 
 // ══════════════════════════════════════════════════════════════════════════
 // Customer master directory. Customers are created upstream (the quotation
@@ -10,6 +11,9 @@ import { CustomerStatus } from "@/generated/prisma/enums";
 export const customerListFilters = z.object({
   q: z.string().trim().max(200).optional(),
   status: z.enum(CustomerStatus).optional(),
+  vatStatus: z.enum(VatStatus).optional(),
+  /** Only non-company individuals (companyId null) — the Individuals tab. */
+  individualsOnly: z.coerce.boolean().optional(),
   cursor: z.string().optional(),
   take: z.coerce.number().int().min(1).max(100).default(30),
 });
@@ -33,8 +37,14 @@ export const customerUpdateInput = z.object({
   email: z.string().trim().max(200).optional(),
   address: z.string().trim().max(500).optional(), // billing
   shippingAddress: z.string().trim().max(500).optional(),
+  // Contact-person fields (company contacts). Ignored for individuals.
+  department: z.string().trim().max(120).optional(),
+  position: z.string().trim().max(120).optional(),
+  // Billing — for individuals these edit here; for company contacts the
+  // company owns them (kept in sync), so the service ignores them.
   tin: z.string().trim().max(40).optional(),
-  vatRegistered: z.coerce.boolean().default(false),
+  vatStatus: z.enum(VatStatus).optional(),
+  creditTermDays: z.coerce.number().int().min(0).max(365).optional(),
   status: z.enum(CustomerStatus).default(CustomerStatus.ACTIVE),
   notes: z.string().trim().max(2000).optional(),
 });
@@ -44,12 +54,16 @@ export type CustomerEditDto = {
   id: string;
   name: string;
   company: string | null;
+  companyId: string | null;
+  department: string | null;
+  position: string | null;
   contactNumber: string | null;
   email: string | null;
   address: string | null;
   shippingAddress: string | null;
   tin: string | null;
-  vatRegistered: boolean;
+  vatStatus: VatStatus | null;
+  creditTermDays: number | null;
   status: CustomerStatus;
   notes: string | null;
 };
@@ -60,11 +74,12 @@ export type CustomerListRowDto = {
   id: string;
   name: string;
   company: string | null;
+  companyId: string | null;
   contactNumber: string | null;
   email: string | null;
   tin: string | null;
   status: CustomerStatus;
-  vatRegistered: boolean;
+  vatStatus: VatStatus | null;
   creditTermDays: number | null;
   creditLimit: string | null;
   quotationCount: number;
@@ -77,11 +92,25 @@ export type CustomerListPageDto = {
   nextCursor: string | null;
 };
 
+// At-a-glance directory metrics for the Customers dashboard.
+export type CustomerMetricsDto = {
+  companies: number;
+  individuals: number;
+  contacts: number;
+  totalCustomers: number;
+  vat: number;
+  nonVat: number;
+  noTin: number;
+  withTerms: number;
+  active: number;
+  inactive: number;
+};
+
 // ——— Detail (customer 360) ———
 
-export type QuoteRefDto = { id: string; number: string; status: string; total: string; createdAt: string };
-export type JoRefDto = { id: string; number: string; status: string; total: string; createdAt: string };
-export type DrRefDto = { id: string; number: string; status: string; issuedAt: string };
+export type QuoteRefDto = { id: string; number: string; status: string; total: string; createdAt: string; summary: string; itemCount: number };
+export type JoRefDto = { id: string; number: string; status: string; total: string; createdAt: string; summary: string; itemCount: number };
+export type DrRefDto = { id: string; number: string; status: string; issuedAt: string; summary: string; itemCount: number };
 export type SaleRefDto = { id: string; documentNo: string; paymentStatus: string; amount: string; saleDate: string };
 export type CrRefDto = { id: string; number: string | null; amount: string; receivedAt: string };
 export type ApRefDto = { id: string; amount: string; status: string; receivedAt: string };
@@ -90,13 +119,16 @@ export type CustomerDetailDto = {
   id: string;
   name: string;
   company: string | null;
+  companyId: string | null;
+  department: string | null;
+  position: string | null;
   contactNumber: string | null;
   email: string | null;
   address: string | null;
   shippingAddress: string | null;
   tin: string | null;
   status: CustomerStatus;
-  vatRegistered: boolean;
+  vatStatus: VatStatus | null;
   creditTermDays: number | null;
   creditLimit: string | null;
   notes: string | null;
@@ -112,6 +144,7 @@ export type CustomerDetailDto = {
     advancePayments: number;
     inquiries: number;
   };
+  attachments: CompanyAttachmentDto[];
   quotations: QuoteRefDto[];
   jobOrders: JoRefDto[];
   deliveries: DrRefDto[];

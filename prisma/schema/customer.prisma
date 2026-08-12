@@ -16,11 +16,23 @@ enum CustomerStatus {
   INACTIVE
 }
 
+// Tax standing — replaces the vatRegistered boolean. NO_TIN = walk-in / no BIR
+// registration; used when the customer/company has no TIN at all.
+enum VatStatus {
+  VAT
+  NON_VAT
+  NO_TIN
+}
+
 model Customer {
   id              String         @id @default(cuid())
   name            String
   contactNumber   String?
-  company         String?
+  company         String? // denormalized company name (kept in sync for existing readers)
+  companyId       String?
+  companyRef      Company? @relation("CompanyContacts", fields: [companyId], references: [id])
+  department      String? // contact-person's department (company contacts)
+  position        String? // contact-person's position (company contacts)
   email           String?
   // `address` is the BILLING address (what receipts are made out to — used by
   // Sales & Audit). shippingAddress is where goods are delivered (DR).
@@ -29,7 +41,8 @@ model Customer {
   tin             String?
   customerType    CustomerType   @default(TYPE_C)
   status          CustomerStatus @default(ACTIVE)
-  vatRegistered   Boolean        @default(false)
+  vatRegistered   Boolean        @default(false) // deprecated → vatStatus
+  vatStatus       VatStatus?
 
   // — credit control —
   //
@@ -60,10 +73,12 @@ model Customer {
   collectionReceipts CollectionReceipt[]
   advancePayments    AdvancePayment[]
   deliveryReceipts   DeliveryReceipt[]
+  attachments        CustomerAttachment[]
 
   @@index([name])
   @@index([customerType])
   @@index([status])
   @@index([deletedAt])
   @@index([createdById])
+  @@index([companyId])
 }

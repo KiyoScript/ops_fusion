@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -15,13 +17,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { SuggestInput } from "@/components/suggest-input";
 import { ItemStepsChecklist } from "./item-steps-checklist";
 import { numericField } from "@/lib/form-numeric";
 import { useLookupOptions } from "@/modules/shared/hooks/use-lookups";
 import { useEmployeeOptions } from "@/modules/shared/hooks/use-employees";
-import { updateItemAction } from "@/app/(app)/job-orders/actions";
+import { setJoCaptureAction, updateItemAction } from "@/app/(app)/job-orders/actions";
 import {
   itemEditInput,
   type ItemEditInput,
@@ -53,9 +54,38 @@ export function ItemEditDialog({
   canEdit?: boolean;
 }) {
   const invalidate = useInvalidateJobOrders();
+  const queryClient = useQueryClient();
   const statusLookups = useLookupOptions("JO_STATUS");
   const employees = useEmployeeOptions();
   const deadlineMoves = useJoDeadlineHistory(row?.jobOrderId ?? null);
+
+  // Per-JO Capture toggle (adds/removes the Capture step on every item of the
+  // JO). Local state re-synced whenever a different row opens (render-time, no
+  // effect). Optimistic: reverts on failure.
+  const [needsCapture, setNeedsCapture] = useState(false);
+  const [captureRowId, setCaptureRowId] = useState<string | null>(null);
+  const [captureBusy, startCapture] = useTransition();
+  if (row && row.id !== captureRowId) {
+    setCaptureRowId(row.id);
+    setNeedsCapture(row.joNeedsCapture);
+  }
+  const toggleCapture = (value: boolean) => {
+    if (!row) return;
+    setNeedsCapture(value);
+    startCapture(async () => {
+      const result = await setJoCaptureAction({
+        jobOrderId: row.jobOrderId,
+        needsCapture: value,
+      });
+      if (!result.ok) {
+        setNeedsCapture(!value);
+        toast.error(result.error);
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["item-steps"] });
+      invalidate();
+    });
+  };
 
   const form = useForm<ItemEditInput>({
     resolver: zodResolver(itemEditInput),
@@ -135,33 +165,19 @@ export function ItemEditDialog({
         <form onSubmit={onSubmit} className="grid gap-4" noValidate>
           <div className="grid gap-2">
             <Label htmlFor="ie-desc">Job description</Label>
-            {row?.fromQuote ? (
-              <>
-                <Textarea
-                  key="desc-locked"
-                  id="ie-desc"
-                  rows={2}
-                  readOnly
-                  value={liveJobDescription}
-                  className="bg-muted/50 text-muted-foreground"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Composed from the approved quotation — updates with quantity.
-                  Use Notes for additional requirements.
-                </p>
-              </>
-            ) : (
-              <>
-                <Textarea
-                  key="desc-editable"
-                  id="ie-desc"
-                  rows={2}
-                  aria-invalid={!!errors.description}
-                  {...form.register("description")}
-                />
-                <FieldError message={errors.description?.message} />
-              </>
-            )}
+            {/* Read-only everywhere: the description is fixed at JO creation and
+                never edited here. Shown in full — never truncated. */}
+            <div
+              id="ie-desc"
+              className="min-h-16 rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-line wrap-break-word"
+            >
+              {(row?.fromQuote ? liveJobDescription : row?.description) || "—"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {row?.fromQuote
+                ? "Composed from the approved quotation — updates with quantity. Use Notes for changes."
+                : "Set when the job order was created — not editable here. Use Notes for changes."}
+            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
@@ -257,6 +273,26 @@ export function ItemEditDialog({
 
           {/* Rush is carried over from the quotation (which holds the rush
               fee) — not toggled here; it shows in the job description. */}
+
+          {row && canEdit && (
+            <div className="flex items-start gap-3 rounded-lg border p-3">
+              <Switch
+                id="ie-capture"
+                checked={needsCapture}
+                onCheckedChange={toggleCapture}
+                disabled={captureBusy}
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="ie-capture" className="font-normal">
+                  Needs capture service
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Adds a Capture step (before DR) to every item in this job
+                  order. Turn off to remove it where not yet done.
+                </p>
+              </div>
+            </div>
+          )}
 
           {row && (
             <div className="rounded-lg border p-3">

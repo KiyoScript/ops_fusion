@@ -22,6 +22,7 @@ export type ProductOptionDto = {
   unit: string;
   basePrice: string;
   description: string | null;
+  isLFP: boolean; // large-format product — line items inherit it
   rules: ProductRuleDto[];
   productionSteps: string[]; // ordered step names (per-product workflow)
 };
@@ -40,6 +41,7 @@ export async function GET() {
         unit: true,
         basePrice: true,
         description: true,
+        isLFP: true,
         priceRules: {
           where: { isActive: true },
           orderBy: [{ sortOrder: "asc" }, { minQty: "asc" }],
@@ -69,6 +71,7 @@ export async function GET() {
       unit: row.unit,
       basePrice: row.basePrice.toString(),
       description: row.description,
+      isLFP: row.isLFP,
       rules: row.priceRules.map((rule) => ({
         type: rule.type,
         label: rule.label,

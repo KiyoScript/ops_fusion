@@ -14,9 +14,9 @@ import type { DbTx } from "@/modules/shared/repositories/types";
 import type { Prisma } from "@/generated/prisma/client";
 import type { IJobOrderRepository } from "@/modules/job-orders/repositories/job-order-repository";
 import { allocateJoNumber } from "@/modules/job-orders/services/job-order-service";
+import { getProductionWorkflowService } from "@/modules/job-orders/services/production-workflow-service";
 import { sendMail, staffNotifyAddress } from "@/lib/mailer";
 import type { IInquiryRepository } from "../repositories/inquiry-repository";
-import type { IProductionStepRepository } from "../repositories/production-step-repository";
 import type {
   IQuotationRepository,
   ItemCreateData,
@@ -91,8 +91,7 @@ export class QuotationService {
     private readonly customers: ICustomerRepository,
     private readonly activity: IActivityLogRepository,
     private readonly jobOrders: IJobOrderRepository,
-    private readonly inquiries: IInquiryRepository,
-    private readonly productionSteps: IProductionStepRepository
+    private readonly inquiries: IInquiryRepository
   ) {}
 
   /** Blueprint document-number format: PREFIX-ORM-YYMM-#####
@@ -426,6 +425,16 @@ export class QuotationService {
       if (isPO && (await this.jobOrders.existsJoNumber(joNumber, undefined, tx))) {
         throw new ConflictError(`JO number "${joNumber}" already exists.`);
       }
+      // LFP is a product attribute — resolve it so the JO items (and the
+      // header) inherit it from the catalog, which drives the production-step
+      // template (LFP jobs get Layout → Plotting → Printing).
+      const lfpMap = await this.jobOrders.getProductLFPMap(
+        detail.items
+          .map((i) => i.productId)
+          .filter((id): id is string => !!id)
+      );
+      const itemIsLFP = (productId: string | null | undefined) =>
+        productId ? (lfpMap.get(productId) ?? false) : false;
       const created = await this.jobOrders.createWithItems(
         {
           joNumber,
@@ -434,7 +443,7 @@ export class QuotationService {
           quotationId: detail.id,
           customerId: detail.customer.id,
           status: JobOrderStatus.DRAFT,
-          isLFP: false,
+          isLFP: detail.items.some((i) => itemIsLFP(i.productId)),
           subtotal: detail.subtotal.toString(),
           total: detail.total.toString(),
           notes: conversionNotes(detail),
@@ -443,6 +452,7 @@ export class QuotationService {
             // Carry the catalog link so the JO item inherits the product's
             // production-step template.
             productId: item.productId ?? null,
+            isLFP: itemIsLFP(item.productId),
             description: item.description,
             qty: item.qty,
             unitPrice: item.unitPrice.toString(),
@@ -468,10 +478,9 @@ export class QuotationService {
         },
         tx
       );
-      // Copy each item's production-step template onto the JO item so the job
-      // starts with its workflow checklist — per-product template if the product
-      // has one, ELSE the GLOBAL workflow (fallback lives in seedStepsForJobOrder).
-      await this.productionSteps.seedStepsForJobOrder(created.id, tx);
+      // Seed the standardized production workflow onto the JO items so the job
+      // starts with its checklist (LFP steps by item + Capture toggle + DR).
+      await getProductionWorkflowService().applyStandardWorkflow(created.id, tx);
       await this.quotations.setStatus(
         id,
         { status: QuotationStatus.CONVERTED },

@@ -220,7 +220,7 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
                             onClick={() => setEditingItem(pin)}
                             title={`${pin.customerName} — ${pin.description}`}
                             className={cn(
-                              "w-full truncate rounded-md px-1.5 py-0.5 text-left text-xs font-medium",
+                              "w-full rounded-md px-1.5 py-0.5 text-left text-xs font-medium wrap-break-word",
                               pin.isOverdue
                                 ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
                                 : pin.isRush
@@ -229,8 +229,13 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
                               canMove && "cursor-grab active:cursor-grabbing"
                             )}
                           >
-                            {pin.isRush ? "🔥 " : ""}
-                            {pin.joNumber} · {pin.customerName}
+                            <span className="block font-semibold">
+                              {pin.isRush ? "🔥 " : ""}{pin.joNumber}
+                            </span>
+                            <span className="block font-normal">{pin.customerName}</span>
+                            {pin.description && (
+                              <span className="block font-normal opacity-80">{pin.description}</span>
+                            )}
                           </button>
                         ))
                       )}

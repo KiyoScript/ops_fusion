@@ -6,6 +6,7 @@ import { NotFoundError } from "@/lib/errors";
 import { PageHeader } from "@/components/page-header";
 import { BackButton } from "@/components/back-button";
 import { getCustomerDirectoryService } from "@/modules/customers/services/customer-directory-service";
+import { getCreditTermService } from "@/modules/customers/services/credit-term-service";
 import { CustomerEditForm } from "@/modules/customers/components/customer-edit-form";
 import type { CustomerEditDto } from "@/modules/customers/schemas/customer";
 
@@ -30,12 +31,13 @@ export default async function CustomerEditPage({
     if (err instanceof NotFoundError) notFound();
     throw err;
   }
+  const creditTerms = await getCreditTermService().listActiveDays();
 
   return (
     <>
       <BackButton fallbackHref={`/customers/${customerId}`} label="Customer" />
       <PageHeader title={`Edit ${customer.name}`} description="Update the customer master record." />
-      <CustomerEditForm customer={customer} />
+      <CustomerEditForm customer={customer} creditTerms={creditTerms} />
     </>
   );
 }

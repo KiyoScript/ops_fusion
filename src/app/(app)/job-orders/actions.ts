@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/authz";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getJobOrderService } from "@/modules/job-orders/services";
+import { getProductionWorkflowService } from "@/modules/job-orders/services/production-workflow-service";
 import {
   itemEditInput,
   itemStatusUpdateInput,
@@ -28,6 +29,30 @@ export async function createJobOrderAction(
     const result = await getJobOrderService().create(actor, parsed.data);
     revalidatePath("/job-orders");
     return ok(result);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+const captureToggleInput = z.object({
+  jobOrderId: z.string().min(1),
+  needsCapture: z.boolean(),
+});
+
+export async function setJoCaptureAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const parsed = captureToggleInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+    await getProductionWorkflowService().setNeedsCapture(
+      actor,
+      parsed.data.jobOrderId,
+      parsed.data.needsCapture
+    );
+    revalidatePath("/job-orders");
+    return ok(null);
   } catch (err) {
     return fail(err);
   }

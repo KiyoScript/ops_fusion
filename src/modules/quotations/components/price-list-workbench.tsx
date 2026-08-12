@@ -48,7 +48,6 @@ import {
 import { PriceListImportDialog } from "./price-list-import-dialog";
 import { WorkbookImportDialog } from "./workbook-import-dialog";
 import { ProductEditDialog } from "./product-edit-dialog";
-import { ProductionStepsDialog } from "./production-steps-dialog";
 
 // Spreadsheet-style maintenance: a tab per product (like the workbook's
 // sheets), and the selected product's price rules edited inline in a grid.
@@ -174,7 +173,21 @@ export function PriceListWorkbench({
                           : "hover:bg-accent"
                       )}
                     >
-                      <span className="truncate">{p.name}</span>
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate">{p.name}</span>
+                        {p.isLFP && (
+                          <span
+                            className={cn(
+                              "shrink-0 rounded px-1 py-px text-[10px] font-semibold",
+                              p.id === active?.id
+                                ? "bg-primary-foreground/20 text-primary-foreground"
+                                : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+                            )}
+                          >
+                            LFP
+                          </span>
+                        )}
+                      </span>
                       <span
                         className={cn(
                           "shrink-0 text-xs tabular-nums",
@@ -549,7 +562,14 @@ function ProductSheet({
       <CardContent className="grid gap-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold">{product.name}</h2>
+            <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
+              {product.name}
+              {product.isLFP && (
+                <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                  LFP
+                </span>
+              )}
+            </h2>
             <p className="text-xs text-muted-foreground">
               {product.category} · priced per {product.unit}
             </p>
@@ -567,7 +587,6 @@ function ProductSheet({
             </div>
             {canMaintain && (
               <div className="flex items-center gap-1">
-                <ProductionStepsDialog product={product} />
                 <ProductEditDialog product={product} />
                 <Button onClick={save} disabled={saving} size="sm">
                   <SaveIcon /> {saving ? "Saving…" : "Save"}

@@ -435,6 +435,15 @@ export class JobOrderService {
         ? typedNumber
         : await this.generateJoNumber(tx);
       const items = buildItems(joNumber, input.items, 0);
+      // LFP is a product attribute — override each product-linked item's LFP
+      // from the catalog so it drives the production-step template. Custom
+      // (product-less) lines keep whatever the form set.
+      const lfpMap = await this.jobOrders.getProductLFPMap(
+        items.map((i) => i.productId).filter((id): id is string => !!id)
+      );
+      for (const it of items) {
+        if (it.productId) it.isLFP = lfpMap.get(it.productId) ?? false;
+      }
       const header = deriveHeader(items);
       const customer = await this.customers.findOrCreateByName(
         input.customerName,
@@ -463,9 +472,9 @@ export class JobOrderService {
         },
         tx
       );
-      // Direct-entry JOs have no per-product template, so seed the GLOBAL
-      // production workflow onto the new items (ruling 2026-07-24).
-      await getProductionWorkflowService().applyGlobalToJobOrder(created.id, tx);
+      // Seed the standardized production workflow onto the new items (steps
+      // follow each item's LFP flag + the JO's Capture toggle).
+      await getProductionWorkflowService().applyStandardWorkflow(created.id, tx);
       await this.jobOrders.addJoStatusHistory(
         {
           jobOrderId: created.id,
@@ -1091,6 +1100,7 @@ function mapItemRow(record: JobOrderItemBoardRecord): JobOrderItemRowDto {
     joIsPO: record.jobOrder.isPO,
     joIsNonJo: record.jobOrder.isNonJo,
     joIsApproved: record.jobOrder.isApprovedByCustomer,
+    joNeedsCapture: record.jobOrder.needsCapture,
   };
 }
 

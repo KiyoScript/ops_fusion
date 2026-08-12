@@ -9,6 +9,7 @@ import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -63,6 +64,7 @@ export function ProductEditDialog({ product }: { product?: ProductOptionDto }) {
           unit: product.unit,
           basePrice: parseFloat(product.basePrice) > 0 ? product.basePrice : "",
           description: product.description ?? "",
+          isLFP: product.isLFP,
           rules: product.rules.map((rule) => ({
             type: rule.type,
             label: rule.label,
@@ -80,6 +82,7 @@ export function ProductEditDialog({ product }: { product?: ProductOptionDto }) {
           unit: "pcs",
           basePrice: "",
           description: "",
+          isLFP: false,
           rules: [],
         },
   });
@@ -172,6 +175,29 @@ export function ProductEditDialog({ product }: { product?: ProductOptionDto }) {
           <div className="grid gap-1">
             <Label htmlFor="pe-desc">Description / remarks</Label>
             <Input id="pe-desc" {...form.register("description")} />
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border border-border/60 p-3">
+            <Controller
+              control={form.control}
+              name="isLFP"
+              render={({ field }) => (
+                <Switch
+                  id="pe-lfp"
+                  checked={field.value ?? false}
+                  onCheckedChange={field.onChange}
+                />
+              )}
+            />
+            <div className="grid gap-0.5">
+              <Label htmlFor="pe-lfp" className="font-normal">
+                Large-format (LFP) product
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Line items using this product inherit LFP, and its job orders
+                get the Layout · Plotting · Printing production steps.
+              </p>
+            </div>
           </div>
 
           <div className="grid gap-2">

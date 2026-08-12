@@ -17,13 +17,6 @@ import {
   employeeUpdateInput,
   type EmployeeDto,
 } from "@/modules/shared/schemas/employee";
-import { getProductionWorkflowService } from "@/modules/job-orders/services/production-workflow-service";
-import {
-  globalStepCreateInput,
-  globalStepDeleteInput,
-  globalStepUpdateInput,
-  type GlobalStepDto,
-} from "@/modules/job-orders/schemas/production-workflow";
 import { z } from "zod";
 
 const PAGE = "/maintenance/job-orders";
@@ -122,49 +115,3 @@ export async function deleteEmployeeAction(
   }
 }
 
-// ——— global production workflow ———
-
-export async function createGlobalStepAction(
-  input: unknown
-): Promise<ActionResult<GlobalStepDto>> {
-  try {
-    const actor = await requireActor();
-    const parsed = globalStepCreateInput.safeParse(input);
-    if (!parsed.success) return fail(firstIssue(parsed.error));
-    const created = await getProductionWorkflowService().create(actor, parsed.data);
-    revalidatePath(PAGE);
-    return ok(created);
-  } catch (err) {
-    return fail(err);
-  }
-}
-
-export async function updateGlobalStepAction(
-  input: unknown
-): Promise<ActionResult<null>> {
-  try {
-    const actor = await requireActor();
-    const parsed = globalStepUpdateInput.safeParse(input);
-    if (!parsed.success) return fail(firstIssue(parsed.error));
-    await getProductionWorkflowService().update(actor, parsed.data);
-    revalidatePath(PAGE);
-    return ok(null);
-  } catch (err) {
-    return fail(err);
-  }
-}
-
-export async function deleteGlobalStepAction(
-  input: unknown
-): Promise<ActionResult<null>> {
-  try {
-    const actor = await requireActor();
-    const parsed = globalStepDeleteInput.safeParse(input);
-    if (!parsed.success) return fail(firstIssue(parsed.error));
-    await getProductionWorkflowService().remove(actor, parsed.data.id);
-    revalidatePath(PAGE);
-    return ok(null);
-  } catch (err) {
-    return fail(err);
-  }
-}

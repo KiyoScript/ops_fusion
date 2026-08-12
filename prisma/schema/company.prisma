@@ -1,0 +1,76 @@
+// ============================================================
+// SHARED MASTERS — COMPANY (billing entity) + attachments + credit terms
+// ============================================================
+
+// A company is the BILLED entity. It groups many contact-person Customers and
+// carries the billing details (TIN, VAT status, credit terms, uploaded docs).
+// Individual (non-company) customers keep their billing on the Customer row.
+model Company {
+  id             String     @id @default(cuid())
+  name           String
+  tin            String?
+  vatStatus      VatStatus?
+  /// Net days until a Charge Invoice falls due — from the CreditTerm list.
+  creditTermDays Int?
+  /// Ceiling on the company's total open A/R. Null = no ceiling.
+  creditLimit    Decimal?   @db.Decimal(12, 2)
+  address        String? // billing address
+  email          String? // official company email
+  contactNumber  String?
+  notes          String?
+  isActive       Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+  createdById    String
+  createdBy      User       @relation("CompanyCreatedBy", fields: [createdById], references: [id])
+
+  contacts    Customer[]           @relation("CompanyContacts")
+  attachments CustomerAttachment[]
+
+  @@index([name])
+  @@index([deletedAt])
+  @@index([createdById])
+}
+
+// What an uploaded profile file is. CREDIT_REQUEST + BIR_2303 are the two the
+// shop needs; OTHER is a catch-all.
+enum AttachmentKind {
+  CREDIT_REQUEST
+  BIR_2303
+  OTHER
+}
+
+// Profile document (Credit Request, BIR 2303, …). Stored in the DB (small
+// files, atomic with the profile). Hangs off a Company (company contacts) OR a
+// Customer (individuals) — exactly one is set.
+model CustomerAttachment {
+  id           String         @id @default(cuid())
+  companyId    String?
+  company      Company?       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId   String?
+  customer     Customer?      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  kind         AttachmentKind @default(OTHER)
+  fileName     String
+  mimeType     String
+  size         Int
+  data         Bytes
+  uploadedById String
+  uploadedBy   User           @relation("CustomerAttachmentUploadedBy", fields: [uploadedById], references: [id])
+  createdAt    DateTime       @default(now())
+
+  @@index([companyId])
+  @@index([customerId])
+  @@index([uploadedById])
+}
+
+// Maintained credit-term options (30 / 60 / 90 days). `days` feeds the
+// customer/company credit-terms dropdown.
+model CreditTerm {
+  id        String   @id @default(cuid())
+  days      Int      @unique
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

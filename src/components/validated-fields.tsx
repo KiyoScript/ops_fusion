@@ -103,6 +103,43 @@ export function ContactField({
   );
 }
 
+/** Group a TIN's digits as the BIR format: XXX-XXX-XXX-XXX (9-digit base +
+ *  a branch code, up to 5 digits). Idempotent — safe on already-formatted
+ *  input. Digits only; caps at 14 digits (000-000-000-00000). */
+export function formatTin(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 14);
+  const groups: string[] = [];
+  if (d.length > 0) groups.push(d.slice(0, 3));
+  if (d.length > 3) groups.push(d.slice(3, 6));
+  if (d.length > 6) groups.push(d.slice(6, 9));
+  if (d.length > 9) groups.push(d.slice(9));
+  return groups.join("-");
+}
+
+/** TIN input that auto-inserts dashes as you type (XXX-XXX-XXX-XXX). Stores
+ *  the formatted string. */
+export function TinField({
+  value,
+  onChange,
+  ...props
+}: BaseProps & {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      maxLength={17} // 14 digits + 3 dashes
+      placeholder={props.placeholder ?? "000-000-000-000"}
+      value={formatTin(value)}
+      onChange={(e) => onChange(formatTin(e.target.value))}
+    />
+  );
+}
+
 /** True for a valid PH mobile: 09XXXXXXXXX or +639XXXXXXXXX. */
 export function isValidPhContact(value: string): boolean {
   const v = value.replace(/[^\d+]/g, "");

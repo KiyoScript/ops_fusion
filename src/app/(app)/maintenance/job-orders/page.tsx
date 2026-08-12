@@ -4,7 +4,6 @@ import { requireActor } from "@/lib/authz";
 import { defineAbilityFor } from "@/lib/ability";
 import { getLookupService } from "@/modules/shared/services/lookup-service";
 import { getEmployeeService } from "@/modules/shared/services/employee-service";
-import { getProductionWorkflowService } from "@/modules/job-orders/services/production-workflow-service";
 import { PageHeader } from "@/components/page-header";
 import { JoMaintenanceTabs } from "@/modules/job-orders/components/jo-maintenance-tabs";
 
@@ -16,26 +15,18 @@ export default async function JoMaintenancePage() {
     redirect("/job-orders");
   }
 
-  const lookups = getLookupService();
-  const [statuses, categories, employees, globalSteps] = await Promise.all([
-    lookups.list(actor, "JO_STATUS", true),
-    lookups.list(actor, "JO_CATEGORY", true),
+  const [statuses, employees] = await Promise.all([
+    getLookupService().list(actor, "JO_STATUS", true),
     getEmployeeService().list(actor, true),
-    getProductionWorkflowService().list(actor, true),
   ]);
 
   return (
     <>
       <PageHeader
         title="Job Order Maintenance"
-        description="The reference lists behind the JO dropdowns — the new home of the legacy Status Department, Employee, and OPS Services sheets."
+        description="The reference lists behind the JO dropdowns — production statuses (legacy Status Department) and the employee roster."
       />
-      <JoMaintenanceTabs
-        statuses={statuses}
-        categories={categories}
-        employees={employees}
-        globalSteps={globalSteps}
-      />
+      <JoMaintenanceTabs statuses={statuses} employees={employees} />
     </>
   );
 }

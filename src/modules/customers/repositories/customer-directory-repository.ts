@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import type {
   CustomerListFilters,
+  CustomerMetricsDto,
   CustomerUpdateInput,
 } from "../schemas/customer";
 
@@ -9,12 +10,16 @@ const editSelect = {
   id: true,
   name: true,
   company: true,
+  companyId: true,
+  department: true,
+  position: true,
   contactNumber: true,
   email: true,
   address: true,
   shippingAddress: true,
   tin: true,
-  vatRegistered: true,
+  vatStatus: true,
+  creditTermDays: true,
   status: true,
   notes: true,
 } satisfies Prisma.CustomerSelect;
@@ -25,11 +30,12 @@ const listSelect = {
   id: true,
   name: true,
   company: true,
+  companyId: true,
   contactNumber: true,
   email: true,
   tin: true,
   status: true,
-  vatRegistered: true,
+  vatStatus: true,
   creditTermDays: true,
   creditLimit: true,
   createdAt: true,
@@ -40,19 +46,29 @@ const detailSelect = {
   id: true,
   name: true,
   company: true,
+  companyId: true,
+  department: true,
+  position: true,
   contactNumber: true,
   email: true,
   address: true,
   shippingAddress: true,
   tin: true,
   status: true,
-  vatRegistered: true,
+  vatStatus: true,
   creditTermDays: true,
   creditLimit: true,
   notes: true,
   createdAt: true,
   updatedAt: true,
   createdBy: { select: { name: true } },
+  attachments: {
+    select: {
+      id: true, kind: true, fileName: true, size: true, createdAt: true,
+      uploadedBy: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  },
   _count: {
     select: {
       quotations: true,
@@ -65,34 +81,43 @@ const detailSelect = {
     },
   },
   quotations: {
-    select: { id: true, quoteNumber: true, status: true, total: true, createdAt: true },
+    select: {
+      id: true, quoteNumber: true, status: true, total: true, createdAt: true,
+      items: { select: { description: true } },
+    },
     orderBy: { createdAt: "desc" },
-    take: 15,
+    take: 50,
   },
   jobOrders: {
-    select: { id: true, joNumber: true, status: true, total: true, createdAt: true },
+    select: {
+      id: true, joNumber: true, status: true, total: true, createdAt: true,
+      items: { select: { description: true } },
+    },
     orderBy: { createdAt: "desc" },
-    take: 15,
+    take: 50,
   },
   deliveryReceipts: {
-    select: { id: true, drNumber: true, status: true, issuedAt: true },
+    select: {
+      id: true, drNumber: true, status: true, issuedAt: true,
+      lines: { select: { qty: true, jobOrderItem: { select: { description: true } } } },
+    },
     orderBy: { issuedAt: "desc" },
-    take: 15,
+    take: 50,
   },
   sales: {
     select: { id: true, documentNo: true, paymentStatus: true, amount: true, saleDate: true },
     orderBy: { saleDate: "desc" },
-    take: 15,
+    take: 50,
   },
   collectionReceipts: {
     select: { id: true, crNumber: true, amount: true, receivedAt: true },
     orderBy: { receivedAt: "desc" },
-    take: 15,
+    take: 50,
   },
   advancePayments: {
     select: { id: true, amount: true, status: true, receivedAt: true },
     orderBy: { receivedAt: "desc" },
-    take: 15,
+    take: 50,
   },
 } satisfies Prisma.CustomerSelect;
 
@@ -105,7 +130,8 @@ export interface ICustomerDirectoryRepository {
   ): Promise<{ rows: CustomerListRecord[]; nextCursor: string | null }>;
   findDetail(id: string): Promise<CustomerDetailRecord | null>;
   findForEdit(id: string): Promise<CustomerEditRecord | null>;
-  update(input: CustomerUpdateInput): Promise<void>;
+  update(input: CustomerUpdateInput, isCompanyContact: boolean): Promise<void>;
+  getMetrics(): Promise<CustomerMetricsDto>;
 }
 
 export class PrismaCustomerDirectoryRepository
@@ -116,6 +142,8 @@ export class PrismaCustomerDirectoryRepository
   ): Promise<{ rows: CustomerListRecord[]; nextCursor: string | null }> {
     const where: Prisma.CustomerWhereInput = { deletedAt: null };
     if (filter.status) where.status = filter.status;
+    if (filter.vatStatus) where.vatStatus = filter.vatStatus;
+    if (filter.individualsOnly) where.companyId = null;
     if (filter.q) {
       where.OR = [
         { name: { contains: filter.q, mode: "insensitive" } },
@@ -151,21 +179,52 @@ export class PrismaCustomerDirectoryRepository
     });
   }
 
-  async update(input: CustomerUpdateInput): Promise<void> {
+  async update(input: CustomerUpdateInput, isCompanyContact: boolean): Promise<void> {
     await prisma.customer.update({
       where: { id: input.id },
       data: {
         name: input.name,
-        company: input.company || null,
         contactNumber: input.contactNumber || null,
         email: input.email || null,
         address: input.address || null,
         shippingAddress: input.shippingAddress || null,
-        tin: input.tin || null,
-        vatRegistered: input.vatRegistered,
+        department: input.department || null,
+        position: input.position || null,
         status: input.status,
         notes: input.notes || null,
+        // Billing is company-owned for contacts (kept in sync from the
+        // company); only individuals edit it on their own record.
+        ...(isCompanyContact
+          ? {}
+          : {
+              company: input.company || null,
+              tin: input.tin || null,
+              vatStatus: input.vatStatus ?? null,
+              vatRegistered: input.vatStatus === "VAT",
+              creditTermDays: input.creditTermDays ?? null,
+            }),
       },
     });
+  }
+
+  async getMetrics(): Promise<CustomerMetricsDto> {
+    const active = { deletedAt: null } as const;
+    const [companies, individuals, contacts, vat, nonVat, noTin, withTerms, activeCount] =
+      await Promise.all([
+        prisma.company.count({ where: { deletedAt: null } }),
+        prisma.customer.count({ where: { ...active, companyId: null } }),
+        prisma.customer.count({ where: { ...active, NOT: { companyId: null } } }),
+        prisma.customer.count({ where: { ...active, vatStatus: "VAT" } }),
+        prisma.customer.count({ where: { ...active, vatStatus: "NON_VAT" } }),
+        prisma.customer.count({ where: { ...active, vatStatus: "NO_TIN" } }),
+        prisma.customer.count({ where: { ...active, NOT: { creditTermDays: null } } }),
+        prisma.customer.count({ where: { ...active, status: "ACTIVE" } }),
+      ]);
+    const totalCustomers = individuals + contacts;
+    return {
+      companies, individuals, contacts, totalCustomers,
+      vat, nonVat, noTin, withTerms,
+      active: activeCount, inactive: totalCustomers - activeCount,
+    };
   }
 }

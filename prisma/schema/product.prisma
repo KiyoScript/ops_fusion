@@ -11,6 +11,10 @@ model Product {
   unit        String    @default("pcs")
   basePrice   Decimal   @default(0) @db.Decimal(12, 2)
   description String?
+  // Large-format printing flag (successor of the legacy LFP service category).
+  // The product decides LFP-ness; JO/quote line items inherit it, and it drives
+  // the production-step template (LFP jobs get Layout → Plotting → Printing).
+  isLFP       Boolean   @default(false)
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

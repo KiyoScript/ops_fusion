@@ -22,6 +22,7 @@ export type ProductFields = {
   unit: string;
   basePrice: string;
   description?: string | null;
+  isLFP?: boolean;
 };
 
 export interface IPriceListRepository {

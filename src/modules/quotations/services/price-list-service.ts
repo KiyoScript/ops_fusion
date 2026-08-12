@@ -43,6 +43,7 @@ export class PriceListService {
       unit: input.unit,
       basePrice: input.basePrice || firstVariantPrice(rules) || "0",
       description: input.description || null,
+      isLFP: input.isLFP ?? false,
     };
 
     return this.priceList.withTransaction(async (tx) => {

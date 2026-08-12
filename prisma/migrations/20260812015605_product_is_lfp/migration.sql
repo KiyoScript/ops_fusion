@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Product" ADD COLUMN     "isLFP" BOOLEAN NOT NULL DEFAULT false;

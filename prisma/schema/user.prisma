@@ -49,6 +49,10 @@ model User {
   employeesCreated    Employee[]                  @relation("EmployeeCreatedBy")
   attachmentsUploaded JobOrderAttachment[]        @relation("AttachmentUploadedBy")
 
+  // Customers & Companies
+  companiesCreated            Company[]            @relation("CompanyCreatedBy")
+  customerAttachmentsUploaded CustomerAttachment[] @relation("CustomerAttachmentUploadedBy")
+
   // Inventory & Materials
   suppliersCreated          Supplier[]         @relation("SupplierCreatedBy")
   materialsCreated          Material[]         @relation("MaterialCreatedBy")

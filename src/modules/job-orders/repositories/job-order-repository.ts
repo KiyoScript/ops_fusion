@@ -81,6 +81,7 @@ const itemBoardInclude = {
       isPO: true,
       isNonJo: true,
       isApprovedByCustomer: true,
+      needsCapture: true,
       customer: { select: { name: true } },
     },
   },
@@ -355,6 +356,8 @@ export interface IJobOrderRepository {
   getJoPaymentStatus(
     jobOrderIds: string[]
   ): Promise<Map<string, { received: number; total: number }>>;
+  /** LFP flag of the given catalog products — line items inherit it. */
+  getProductLFPMap(productIds: string[]): Promise<Map<string, boolean>>;
   updateItem(
     itemId: string,
     data: Partial<ItemUpdateData> & Partial<ItemProductionUpdateData>,
@@ -666,6 +669,18 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
         total: parseFloat(jo.total.toString()),
       });
     }
+    return map;
+  }
+
+  async getProductLFPMap(productIds: string[]): Promise<Map<string, boolean>> {
+    const map = new Map<string, boolean>();
+    const ids = [...new Set(productIds)];
+    if (ids.length === 0) return map;
+    const rows = await prisma.product.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, isLFP: true },
+    });
+    for (const r of rows) map.set(r.id, r.isLFP);
     return map;
   }
 

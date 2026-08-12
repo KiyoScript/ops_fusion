@@ -7,6 +7,6 @@ import { isOperator, type Policy } from "../types";
 export const customerPolicy: Policy = ({ role, can }) => {
   can("read", "Customer");
   if (isOperator(role)) {
-    can("update", "Customer");
+    can(["create", "update"], "Customer");
   }
 };

@@ -26,12 +26,11 @@ export function getQuotationService(): QuotationService {
     new PrismaQuotationRepository(),
     new PrismaCustomerRepository(),
     new PrismaActivityLogRepository(),
-    // JO repo powers quote → JO conversion (numbering + creation);
-    // inquiry repo links Inquiry → Quotation on create; production-step repo
-    // seeds each JO item's workflow from its product template on convert.
+    // JO repo powers quote → JO conversion (numbering + creation); inquiry
+    // repo links Inquiry → Quotation on create. The standardized production
+    // workflow is seeded via the job-orders workflow service on convert.
     new PrismaJobOrderRepository(),
-    new PrismaInquiryRepository(),
-    new PrismaProductionStepRepository()
+    new PrismaInquiryRepository()
   );
   return quotationService;
 }

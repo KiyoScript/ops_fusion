@@ -98,7 +98,8 @@ export function CustomerCombobox({
           className="absolute z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-lg bg-popover p-1 text-sm shadow-md ring-1 ring-foreground/10"
         >
           {options.map((option, index) => {
-            const detail = [option.company, option.contactNumber]
+            const role = [option.position, option.department].filter(Boolean).join(", ");
+            const detail = [option.company, role, option.contactNumber]
               .filter(Boolean)
               .join(" · ");
             return (

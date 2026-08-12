@@ -31,6 +31,9 @@ model JobOrder {
   planDateStart        DateTime? // legacy JOWebApp plan window (cols C/D)
   planDateEnd          DateTime?
   isLFP                Boolean           @default(false) // LFP JOs print 3 copies (spec 1.2 step 3)
+  // Whether this JO needs the optional "Capture" production step (photo of the
+  // finished output). Per-JO toggle — adds Capture before DR in the workflow.
+  needsCapture         Boolean           @default(false)
   // JO/PO typing (fusion-only): PO and non-JO records carry a manually typed
   // number; when both are false the number is auto-generated
   // (JO-ORM-YYMM-##### format — the shared PREFIX-BRANCH-YYMM-#### convention).

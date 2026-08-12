@@ -12,6 +12,7 @@ import type {
   ProductionStepRecord,
 } from "../repositories/production-step-repository";
 import type { ProductionStepsSaveInput } from "../schemas/price-list";
+import { standardWorkflowSteps } from "@/modules/job-orders/production-steps";
 
 // Per-product production workflow — the ordered steps a JO item of the
 // product moves through. Edited in Quotation Maintenance; the template is
@@ -47,9 +48,9 @@ export class ProductionStepService {
     return this.steps.listItemSteps(jobOrderItemId);
   }
 
-  /** Backfill: copy the product's CURRENT workflow onto one JO item that has
-   *  none yet (items created/converted before the template was defined).
-   *  Explicit user action — never applied silently to jobs in production. */
+  /** Backfill: seed the standardized workflow onto one JO item that has none
+   *  yet (items created before the workflow ran). Explicit user action —
+   *  never applied silently to jobs in production. */
   async applyTemplateToItem(
     actor: Actor,
     jobOrderItemId: string
@@ -60,17 +61,12 @@ export class ProductionStepService {
     if (item.existingSteps > 0) {
       throw new ConflictError("This item already has production steps.");
     }
-    // The item's product template if it has one; otherwise the GLOBAL workflow
-    // (so items with no product-specific flow still get the shop's default).
-    let steps = item.productId
-      ? await this.steps.listForProduct(item.productId)
-      : [];
-    if (steps.length === 0) steps = await this.steps.listGlobalSteps();
-    if (steps.length === 0) {
-      throw new ValidationError(
-        "No workflow to apply — set the product's steps or the global workflow in JO Maintenance → Production workflow first."
-      );
-    }
+    // Standard workflow: LFP steps by the item's flag + Capture (per the JO
+    // toggle) + DR.
+    const steps: ProductionStepRecord[] = standardWorkflowSteps(
+      item.isLFP,
+      item.needsCapture
+    ).map((name, i) => ({ id: "", name, sortOrder: i }));
     await this.steps.seedItemSteps(jobOrderItemId, steps);
     await this.activity.log({
       userId: actor.id,
