@@ -27,7 +27,7 @@ export async function savePriceListProductAction(
     if (!parsed.success) return fail(firstIssue(parsed.error));
 
     const result = await getPriceListService().saveProduct(actor, parsed.data);
-    revalidatePath("/maintenance/quotations");
+    revalidatePath("/products");
     return ok(result);
   } catch (err) {
     return fail(err);
@@ -42,7 +42,7 @@ export async function archivePriceListProductAction(
     if (!id) return fail(new ValidationError("Missing product id."));
 
     await getPriceListService().archiveProduct(actor, id);
-    revalidatePath("/maintenance/quotations");
+    revalidatePath("/products");
     return ok(null);
   } catch (err) {
     return fail(err);
@@ -58,7 +58,7 @@ export async function saveProductionStepsAction(
     if (!parsed.success) return fail(firstIssue(parsed.error));
 
     await getProductionStepService().save(actor, parsed.data);
-    revalidatePath("/maintenance/quotations");
+    revalidatePath("/products");
     return ok(null);
   } catch (err) {
     return fail(err);
@@ -74,7 +74,7 @@ export async function saveGlobalAddonsAction(
     if (!parsed.success) return fail(firstIssue(parsed.error));
 
     await getPriceListService().saveGlobalAddons(actor, parsed.data);
-    revalidatePath("/maintenance/quotations");
+    revalidatePath("/products");
     return ok(null);
   } catch (err) {
     return fail(err);
@@ -87,7 +87,7 @@ export async function removeAllProductsAction(): Promise<
   try {
     const actor = await requireActor();
     const result = await getPriceListService().removeAllProducts(actor);
-    revalidatePath("/maintenance/quotations");
+    revalidatePath("/products");
     return ok(result);
   } catch (err) {
     return fail(err);
