@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ClipboardListIcon, FileTextIcon, ReceiptTextIcon } from "lucide-react";
+import { ClipboardListIcon, ReceiptTextIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -58,22 +58,6 @@ export function JoEditDialog({
                   onClick={() => setPayingJoId(jo.id)}
                 >
                   <ReceiptTextIcon /> Receive Payment
-                </Button>
-              )}
-              {jo && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  nativeButton={false}
-                  render={
-                    <a
-                      href={`/api/job-orders/${jo.id}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    />
-                  }
-                >
-                  <FileTextIcon /> PDF
                 </Button>
               )}
               {jo && (

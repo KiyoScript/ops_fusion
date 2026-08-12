@@ -137,7 +137,9 @@ export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="inq-contact">Contact number</Label>
+              <Label htmlFor="inq-contact">
+                Contact number <span className="text-destructive">*</span>
+              </Label>
               <Controller
                 control={form.control}
                 name="contactNumber"
@@ -146,9 +148,15 @@ export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
                     id="inq-contact"
                     value={field.value ?? ""}
                     onChange={field.onChange}
+                    aria-invalid={!!errors.contactNumber}
                   />
                 )}
               />
+              {errors.contactNumber && (
+                <p className="text-sm text-destructive">
+                  {errors.contactNumber.message}
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="inq-email">Email</Label>

@@ -142,15 +142,6 @@ export function JobOrderForm({
         ? `${values.joNumber?.trim() || "Job order"} created.`
         : "Job order updated."
     );
-    if (mode === "create") {
-      // open the printable right away (says "THIS IS FOR APPROVAL" until the
-      // customer approves)
-      window.open(
-        `/api/job-orders/${(result.data as { id: string }).id}/pdf`,
-        "_blank",
-        "noopener"
-      );
-    }
     if (onSuccess) {
       onSuccess();
       router.refresh();

@@ -81,7 +81,9 @@ export function QuoteRequestForm() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
-          <Label htmlFor="qr-contact">Contact number</Label>
+          <Label htmlFor="qr-contact">
+            Contact number <span className="text-destructive">*</span>
+          </Label>
           <Controller
             control={form.control}
             name="contactNumber"
@@ -90,9 +92,15 @@ export function QuoteRequestForm() {
                 id="qr-contact"
                 value={field.value ?? ""}
                 onChange={field.onChange}
+                aria-invalid={!!errors.contactNumber}
               />
             )}
           />
+          {errors.contactNumber && (
+            <p className="text-sm text-destructive">
+              {errors.contactNumber.message}
+            </p>
+          )}
         </div>
         <div className="grid gap-2">
           <Label htmlFor="qr-email">Email</Label>
@@ -145,7 +153,7 @@ export function QuoteRequestForm() {
         {isSubmitting ? "Sending…" : "Request a quote"}
       </Button>
       <p className="text-center text-xs text-muted-foreground">
-        We reply within business hours. Leave a contact number or email so we
+        We reply within business hours. Your contact number is required so we
         can reach you.
       </p>
     </form>

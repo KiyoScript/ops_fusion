@@ -145,7 +145,6 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       // Gated twice: the role must be able to maintain AND the owning module
       // must be enabled — never show a door the user can't open.
       { title: "JO Maintenance", href: "/maintenance/job-orders", icon: Wrench, requires: ["maintain", "Maintenance"], module: "job-orders" },
-      { title: "Quotation Maintenance", href: "/maintenance/quotations", icon: Wrench, requires: ["maintain", "Maintenance"], module: "quotations" },
       { title: "Sales Audit Maintenance", href: "/maintenance/sales-audit", icon: Wrench, requires: ["maintain", "Maintenance"], module: "sales-audit" },
       { title: "Inventory Maintenance", href: "/maintenance/inventory", icon: Wrench, requires: ["maintain", "Supplier"], module: "inventory" },
     ],

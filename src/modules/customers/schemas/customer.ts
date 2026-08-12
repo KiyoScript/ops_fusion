@@ -21,7 +21,15 @@ export const customerUpdateInput = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1, "Name is required.").max(200),
   company: z.string().trim().max(200).optional(),
-  contactNumber: z.string().trim().max(60).optional(),
+  // Mobile number is MANDATORY (PH format). 09XXXXXXXXX or +639XXXXXXXXX.
+  contactNumber: z
+    .string()
+    .trim()
+    .min(1, "Mobile number is required.")
+    .regex(
+      /^(09\d{9}|\+639\d{9})$/,
+      "Enter an 11-digit mobile starting with 09 (or +63 format)."
+    ),
   email: z.string().trim().max(200).optional(),
   address: z.string().trim().max(500).optional(), // billing
   shippingAddress: z.string().trim().max(500).optional(),

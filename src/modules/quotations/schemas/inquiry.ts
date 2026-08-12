@@ -15,17 +15,17 @@ export const INQUIRY_MEDIUMS = [
 
 export const INQUIRY_STATUSES = ["OPEN", "QUOTED", "CLOSED"] as const;
 
-// PH mobile number: 09XXXXXXXXX or +639XXXXXXXXX (blank allowed). The UI
-// strips formatting, but validate here too for the portal/API path.
+// PH mobile number: 09XXXXXXXXX or +639XXXXXXXXX. MANDATORY on inquiries —
+// staff must be able to reach the customer. The UI strips formatting, but
+// validate here too (the portal/API path has no UI guard).
 const phContact = z
   .string()
   .trim()
+  .min(1, "Mobile number is required.")
   .regex(
     /^(09\d{9}|\+639\d{9})$/,
-    "Enter an 11-digit number starting with 09, or +63 format."
-  )
-  .or(z.literal(""))
-  .optional();
+    "Enter an 11-digit mobile starting with 09 (or +63 format)."
+  );
 
 const inquiryFields = z.object({
   customerName: z

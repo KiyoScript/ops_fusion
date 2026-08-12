@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ContactField, isValidPhContact } from "@/components/validated-fields";
 import { updateCustomerAction } from "@/app/(app)/customers/actions";
 import type { CustomerEditDto } from "../schemas/customer";
 
@@ -48,19 +49,30 @@ export function CustomerEditForm({ customer }: { customer: CustomerEditDto }) {
     notes: customer.notes ?? "",
   });
   const [pending, startTransition] = useTransition();
+  const [attempted, setAttempted] = useState(false);
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
   const detailHref = `/customers/${customer.id}`;
+  const contactValid = isValidPhContact(form.contactNumber);
 
   const submit = () => {
+    setAttempted(true);
     if (!form.name.trim()) { toast.error("Name is required."); return; }
+    if (!contactValid) {
+      toast.error(
+        form.contactNumber.trim()
+          ? "Enter a valid PH mobile (09XXXXXXXXX or +639XXXXXXXXX)."
+          : "Mobile number is required."
+      );
+      return;
+    }
     startTransition(async () => {
       const result = await updateCustomerAction({
         id: customer.id,
         name: form.name.trim(),
         company: form.company.trim() || undefined,
-        contactNumber: form.contactNumber.trim() || undefined,
+        contactNumber: form.contactNumber.trim(),
         email: form.email.trim() || undefined,
         address: form.address.trim() || undefined,
         shippingAddress: form.shippingAddress.trim() || undefined,
@@ -92,8 +104,22 @@ export function CustomerEditForm({ customer }: { customer: CustomerEditDto }) {
 
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="grid gap-1.5">
-            <Label htmlFor="cf-contact">Contact number</Label>
-            <Input id="cf-contact" value={form.contactNumber} onChange={(e) => set("contactNumber", e.target.value)} />
+            <Label htmlFor="cf-contact">
+              Contact number <span className="text-destructive">*</span>
+            </Label>
+            <ContactField
+              id="cf-contact"
+              value={form.contactNumber}
+              onChange={(v) => set("contactNumber", v)}
+              aria-invalid={attempted && !contactValid}
+            />
+            {attempted && !contactValid && (
+              <p className="text-sm text-destructive">
+                {form.contactNumber.trim()
+                  ? "Enter a valid PH mobile (09XXXXXXXXX or +639XXXXXXXXX)."
+                  : "Mobile number is required."}
+              </p>
+            )}
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="cf-email">Email</Label>

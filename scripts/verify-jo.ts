@@ -522,24 +522,11 @@ async function main() {
   const apRows = await jos.listItems(actor, { q: "VERIFY-AP-1", view: "all", take: 5 });
   check("board row carries approved flag", apRows.rows[0]!.joIsApproved === true);
 
-  const { renderJoPdf } = await import("../src/modules/job-orders/services/jo-pdf");
-  const { PDFDocument } = await import("pdf-lib");
-  const approvedPdfBytes = await renderJoPdf(apDetail);
-  check("PDF renders (%PDF header)", Buffer.from(approvedPdfBytes.slice(0, 5)).toString() === "%PDF-");
-  check("approved PDF parses (>=1 page)", (await PDFDocument.load(approvedPdfBytes)).getPageCount() >= 1);
-
+  // (The customer-approval JO PDF was removed — the Quotation PDF is the one
+  //  used for customer sign-off. The internal Production PDF stays.)
   await jos.revokeCustomerApproval(actor, apJo.id);
   apDetail = await jos.get(actor, apJo.id);
   check("revoke clears flag, keeps attachments", !apDetail.isApprovedByCustomer && apDetail.attachments.length === 1);
-  const unapprovedPdfBytes = await renderJoPdf(apDetail);
-  check("unapproved PDF parses (>=1 page)", (await PDFDocument.load(unapprovedPdfBytes)).getPageCount() >= 1);
-  // text is font-encoded in the stream, so compare structurally: the approval
-  // branch (stamp vs FOR-APPROVAL banner + signature block) must change output
-  check(
-    "approved vs unapproved printables differ (banner/signature branch)",
-    unapprovedPdfBytes.length !== approvedPdfBytes.length,
-    [approvedPdfBytes.length, unapprovedPdfBytes.length]
-  );
 
   let apForb = "";
   try {
