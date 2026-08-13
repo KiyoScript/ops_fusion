@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { CheckIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, InboxIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,13 +19,18 @@ import {
   updateQuotationAction,
 } from "@/app/(app)/quotations/actions";
 import {
+  logInquiryDraftAction,
+  updateInquiryDraftAction,
+} from "@/app/(app)/inquiries/actions";
+import {
   quotationCreateInput,
   type QuotationCreateInput,
 } from "../schemas/quotation";
 import { computeTotals } from "../services/totals";
 import { useInvalidateQuotations } from "../hooks/use-quotations";
+import { useInvalidateInquiries } from "../hooks/use-inquiries";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
-import { ContactField } from "@/components/validated-fields";
+import { ContactField, isValidPhContact } from "@/components/validated-fields";
 import {
   mergeGlobalAddons,
   useGlobalAddons,
@@ -60,6 +66,16 @@ const QUOTE_TYPES = [
   { value: "NON_JO", label: "Non-JO Quotation", hint: "Billed direct — no production JO" },
 ] as const;
 
+// How the customer reached out — only used when logging this as an inquiry
+// (not a quotation). PORTAL is public-submission-only, so it's excluded here.
+const INQUIRY_MEDIUMS = [
+  { value: "WALK_IN", label: "Walk-in" },
+  { value: "MESSENGER", label: "Messenger" },
+  { value: "CALL", label: "Call" },
+  { value: "EMAIL", label: "Email" },
+  { value: "VIBER", label: "Viber" },
+] as const;
+
 const EMPTY_ITEM: QuotationCreateInput["items"][number] = {
   productId: "",
   description: "",
@@ -73,15 +89,25 @@ export function QuotationForm({
   quotationId,
   initialValues,
   inquiryId,
+  initialMedium,
 }: {
-  mode: "create" | "edit";
+  // "edit-inquiry" = the full form editing an inquiry's draft (saves the
+  // inquiry, does NOT create a quotation).
+  mode: "create" | "edit" | "edit-inquiry";
   quotationId?: string;
   initialValues?: QuotationCreateInput;
-  /** Set when drafting from an inquiry — the create links Inquiry → quote. */
+  /** Set when drafting from / editing an inquiry. */
   inquiryId?: string;
+  /** Current medium when editing an inquiry (edit-inquiry mode). */
+  initialMedium?: string;
 }) {
   const router = useRouter();
   const invalidateQuotations = useInvalidateQuotations();
+  const invalidateInquiries = useInvalidateInquiries();
+  // Medium — for "Log inquiry instead" (create) and the edit-inquiry form.
+  const [medium, setMedium] = useState<string>(initialMedium ?? "WALK_IN");
+  const [loggingInquiry, setLoggingInquiry] = useState(false);
+  const [savingInquiry, setSavingInquiry] = useState(false);
   const form = useForm<QuotationCreateInput>({
     resolver: zodResolver(quotationCreateInput),
     defaultValues: {
@@ -240,8 +266,101 @@ export function QuotationForm({
     router.refresh();
   });
 
+  // "Log inquiry instead": save the same header as a lead (no pricing needed).
+  // Services = the line-item descriptions; medium is the inquiry-only field.
+  const logInquiry = async () => {
+    const v = form.getValues();
+    if (!v.customerName?.trim()) {
+      toast.error("Enter the customer to log an inquiry.");
+      return;
+    }
+    if (!isValidPhContact(v.contactNumber ?? "")) {
+      toast.error("A valid mobile number is required to log an inquiry.");
+      return;
+    }
+    const services = (v.items ?? [])
+      .map((i) => i?.description?.trim())
+      .filter(Boolean)
+      .join(" · ");
+    if (!services) {
+      toast.error("Add at least one item — what is the customer asking for?");
+      return;
+    }
+    setLoggingInquiry(true);
+    // Store the WHOLE form as the inquiry's draft snapshot (items, specs, prices,
+    // tax, terms) — restored verbatim on convert. It's an inquiry, not a quote.
+    const res = await logInquiryDraftAction({
+      customerName: v.customerName.trim(),
+      contactNumber: (v.contactNumber ?? "").trim(),
+      medium,
+      servicesRequested: services,
+      notes: v.notes?.trim() || undefined,
+      draft: v,
+    });
+    setLoggingInquiry(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success("Inquiry logged — draft saved, nothing lost.");
+    invalidateInquiries();
+    router.push("/inquiries");
+    router.refresh();
+  };
+
+  // Save an inquiry edited in the full form (edit-inquiry mode) — persists the
+  // draft snapshot + simple fields; stays an inquiry (no quote created).
+  const saveInquiry = async () => {
+    const v = form.getValues();
+    if (!v.customerName?.trim()) {
+      toast.error("Enter the customer.");
+      return;
+    }
+    if (!isValidPhContact(v.contactNumber ?? "")) {
+      toast.error("A valid mobile number is required.");
+      return;
+    }
+    const services = (v.items ?? [])
+      .map((i) => i?.description?.trim())
+      .filter(Boolean)
+      .join(" · ");
+    if (!services) {
+      toast.error("Add at least one item — what is the customer asking for?");
+      return;
+    }
+    setSavingInquiry(true);
+    const res = await updateInquiryDraftAction({
+      id: inquiryId,
+      customerName: v.customerName.trim(),
+      contactNumber: (v.contactNumber ?? "").trim(),
+      medium,
+      servicesRequested: services,
+      notes: v.notes?.trim() || undefined,
+      draft: v,
+    });
+    setSavingInquiry(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success("Inquiry updated.");
+    invalidateInquiries();
+    router.push("/inquiries");
+    router.refresh();
+  };
+
   return (
-    <form onSubmit={onSubmit} className="grid gap-4 lg:grid-cols-[24rem_1fr]">
+    <form
+      onSubmit={
+        mode === "edit-inquiry"
+          ? (e) => {
+              e.preventDefault();
+              saveInquiry();
+            }
+          : onSubmit
+      }
+      className="grid gap-4 lg:grid-cols-[24rem_1fr]"
+    >
       <Card className="h-fit">
         <CardHeader>
           <CardTitle>Quotation details</CardTitle>
@@ -367,6 +486,38 @@ export function QuotationForm({
               </p>
             )}
           </div>
+
+          {mode === "edit-inquiry" && (
+            <div className="grid gap-2">
+              <Label>Medium</Label>
+              <div
+                role="radiogroup"
+                aria-label="Inquiry medium"
+                className="flex flex-wrap gap-2"
+              >
+                {INQUIRY_MEDIUMS.map((m) => {
+                  const selected = medium === m.value;
+                  return (
+                    <button
+                      key={m.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setMedium(m.value)}
+                      className={cn(
+                        "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                        selected
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "hover:bg-accent"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <Separator />
 
@@ -698,22 +849,78 @@ export function QuotationForm({
           </CardContent>
         </Card>
 
-        <div className="flex items-center gap-2">
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? "Saving…"
-              : mode === "create"
-                ? "Create quotation"
-                : "Save changes"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.back()}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
+        <div className="grid gap-3">
+          <div className="flex items-center gap-2">
+            {mode === "edit-inquiry" ? (
+              <Button type="button" onClick={saveInquiry} disabled={savingInquiry}>
+                {savingInquiry ? "Saving…" : "Save inquiry"}
+              </Button>
+            ) : (
+              <Button type="submit" disabled={isSubmitting || loggingInquiry}>
+                {isSubmitting
+                  ? "Saving…"
+                  : mode === "create"
+                    ? "Create quotation"
+                    : "Save changes"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.back()}
+              disabled={isSubmitting || loggingInquiry || savingInquiry}
+            >
+              Cancel
+            </Button>
+          </div>
+
+          {/* Only on a FRESH quote. When drafting FROM an inquiry (inquiryId set)
+              you're converting it — logging again would duplicate the inquiry,
+              so hide this; "Create quotation" links the existing inquiry. */}
+          {mode === "create" && !inquiryId && (
+            <div className="grid gap-2 rounded-lg border border-dashed p-3">
+              <p className="text-sm font-medium">
+                Not ready to quote — just an inquiry?
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Log it as a lead instead. Uses the customer, contact, and item
+                descriptions above — no pricing needed.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  How they reached you:
+                </span>
+                {INQUIRY_MEDIUMS.map((m) => {
+                  const selected = medium === m.value;
+                  return (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => setMedium(m.value)}
+                      className={cn(
+                        "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                        selected
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "hover:bg-accent"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-fit"
+                onClick={logInquiry}
+                disabled={loggingInquiry || isSubmitting}
+              >
+                <InboxIcon />
+                {loggingInquiry ? "Logging…" : "Log inquiry instead"}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </form>

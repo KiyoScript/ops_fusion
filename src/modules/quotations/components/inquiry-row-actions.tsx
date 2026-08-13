@@ -1,9 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { MoreHorizontalIcon, RotateCcwIcon, XCircleIcon } from "lucide-react";
+import {
+  MoreHorizontalIcon,
+  PencilIcon,
+  RotateCcwIcon,
+  XCircleIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,7 +32,6 @@ import {
   reopenInquiryAction,
 } from "@/app/(app)/inquiries/actions";
 import type { InquiryRowDto } from "../schemas/inquiry";
-import { InquiryDialog } from "./inquiry-dialog";
 import { useInvalidateInquiries } from "../hooks/use-inquiries";
 
 /** Row actions for an inquiry with no quotation yet: edit (OPEN),
@@ -67,7 +72,17 @@ export function InquiryRowActions({ inquiry }: { inquiry: InquiryRowDto }) {
 
   return (
     <div className="flex items-center justify-end gap-1">
-      {inquiry.status === "OPEN" && <InquiryDialog inquiry={inquiry} />}
+      {inquiry.status === "OPEN" && (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Edit inquiry"
+          nativeButton={false}
+          render={<Link href={`/inquiries/${inquiry.id}/edit`} />}
+        >
+          <PencilIcon />
+        </Button>
+      )}
 
       <DropdownMenu>
         <DropdownMenuTrigger

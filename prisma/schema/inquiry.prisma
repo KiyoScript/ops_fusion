@@ -32,6 +32,10 @@ model Inquiry {
   status            InquiryStatus @default(OPEN)
   closedReason      String? // why it was closed without a quote
   servicesRequested String
+  // Full quotation-form snapshot (items, specs, prices, tax, terms) when the
+  // inquiry was logged FROM the quote form — stored opaquely and restored
+  // verbatim on convert so nothing is lost. Null for quick / portal inquiries.
+  draft             Json?
   notes             String?
   quotationId       String?       @unique
   quotation         Quotation?    @relation(fields: [quotationId], references: [id])

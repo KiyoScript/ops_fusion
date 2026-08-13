@@ -1,6 +1,8 @@
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
+import type { Prisma } from "@/generated/prisma/client";
+import type { InquiryMedium } from "@/generated/prisma/enums";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import type {
@@ -49,6 +51,96 @@ export class InquiryService {
   ): Promise<InquiryPageDto> {
     const { rows, nextCursor } = await this.inquiries.listPage(filters);
     return { rows: rows.map(mapRow), nextCursor };
+  }
+
+  /** Log an inquiry FROM the quote form (Option B): stores the full form
+   *  snapshot on the inquiry so nothing is lost. It lives in the Inquiries
+   *  module — NOT the Quotations list — and the snapshot is restored verbatim
+   *  when the inquiry is later converted to a quote. */
+  async logDraft(
+    actor: Actor,
+    input: {
+      customerName: string;
+      contactNumber: string | null;
+      medium: InquiryMedium;
+      servicesRequested: string;
+      notes: string | null;
+      draft: Prisma.InputJsonValue;
+    }
+  ): Promise<{ id: string }> {
+    assertCan(actor, "create", "Inquiry");
+    const customer = await this.resolveCustomer(
+      input.customerName,
+      input.contactNumber,
+      null,
+      actor.id
+    );
+    const created = await this.inquiries.create({
+      customerId: customer.id,
+      customerName: customer.name,
+      contactNumber: input.contactNumber,
+      email: null,
+      medium: input.medium,
+      servicesRequested: input.servicesRequested,
+      notes: input.notes,
+      draft: input.draft,
+      createdById: actor.id,
+    });
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "Inquiry",
+      entityId: created.id,
+      action: "create",
+      payload: { customerName: input.customerName, medium: input.medium, withDraft: true },
+    });
+    return created;
+  }
+
+  /** The stored quote-form snapshot for an inquiry — restored on convert. */
+  async getDraft(_actor: Actor, id: string): Promise<unknown | null> {
+    return this.inquiries.findDraft(id);
+  }
+
+  /** Update an inquiry that's edited in the FULL quote form — persists the
+   *  edited draft snapshot + the simple fields. Email is left untouched (the
+   *  quote form doesn't carry it), so it's never wiped. */
+  async updateDraft(
+    actor: Actor,
+    id: string,
+    input: {
+      customerName: string;
+      contactNumber: string | null;
+      medium: InquiryMedium;
+      servicesRequested: string;
+      notes: string | null;
+      draft: Prisma.InputJsonValue;
+    }
+  ): Promise<void> {
+    assertCan(actor, "update", "Inquiry");
+    const existing = await this.inquiries.findById(id);
+    if (!existing) throw new NotFoundError("Inquiry not found.");
+    const customer = await this.resolveCustomer(
+      input.customerName,
+      input.contactNumber,
+      null,
+      actor.id
+    );
+    await this.inquiries.update(id, {
+      customerId: customer.id,
+      customerName: customer.name,
+      contactNumber: input.contactNumber,
+      medium: input.medium,
+      servicesRequested: input.servicesRequested,
+      notes: input.notes,
+      draft: input.draft,
+    });
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "Inquiry",
+      entityId: id,
+      action: "update",
+      payload: { customerName: input.customerName, withDraft: true },
+    });
   }
 
   async get(_actor: Actor, id: string): Promise<InquiryRowDto> {

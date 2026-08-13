@@ -1,28 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalculatorIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CheckIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
-// Tarpaulin calculator — the pilot port of the legacy Tarpauline.html
-// wizard: W × H with unit conversion, rate per sqft, eyelets, rush and
-// design fees. "Apply" writes the composed description, the computed unit
-// price, and the structured specs into the quotation line item.
+// Tarpaulin calculator — the pilot port of the legacy Tarpauline.html wizard:
+// W × H with unit conversion, rate per sqft, eyelets (spec only — no price
+// effect, per legacy calcTarpTotal), rush and design fees. Shares the design
+// language of the area calculator (unit pills, fee cards) so the two read as
+// one system. Auto-applies live: the composed description, computed unit price,
+// and structured specs are written into the line item on every change.
 
 const UNITS = [
-  { value: "ft", label: "ft", toFt: 1 },
-  { value: "in", label: "in", toFt: 1 / 12 },
+  { value: "ft", label: "Feet", toFt: 1 },
+  { value: "in", label: "Inches", toFt: 1 / 12 },
   { value: "cm", label: "cm", toFt: 1 / 30.48 },
-  { value: "m", label: "m", toFt: 3.28084 },
+  { value: "m", label: "Meters", toFt: 3.28084 },
 ] as const;
 
 const EYELETS = ["With Eyelets", "No Eyelet"] as const;
@@ -87,7 +82,7 @@ export function TarpCalculator({
   const [height, setHeight] = useState(saved.height ? String(saved.height) : "");
   const [unit, setUnit] = useState(saved.unit ?? "ft");
   const [rate, setRate] = useState(String(saved.ratePerSqft ?? baseRate));
-  const [eyelet, setEyelet] = useState(saved.eyelet ?? "With Eyelets");
+  const [eyelet, setEyelet] = useState<string>(saved.eyelet ?? "With Eyelets");
   const [rush, setRush] = useState(saved.rush ?? false);
   const [design, setDesign] = useState(saved.design ?? false);
 
@@ -128,11 +123,10 @@ export function TarpCalculator({
     specs,
   };
 
-  // Auto-apply: keep the line item in sync as the calculator is filled, so the
-  // composed description + price + specs are written WITHOUT a manual click
-  // (this was the trap — an added item stayed a bare "Tarpaulin"). Skip the
-  // first run on mount so opening the editor never clobbers an existing line
-  // (e.g. a wizard-created item with its own description).
+  // Auto-apply (skip mount): keep the line item in sync as the calculator fills
+  // so the composed description + price + specs are written WITHOUT a manual
+  // click. Skipping the first run means opening the editor never clobbers an
+  // existing line (e.g. a restored draft with its own description).
   const onApplyRef = useRef(onApply);
   useEffect(() => {
     onApplyRef.current = onApply;
@@ -148,18 +142,41 @@ export function TarpCalculator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [w, h, r, unit, eyelet, rush, design, safeQty, ready]);
 
-  const apply = () => {
-    if (ready) onApply(result);
-  };
+  const fees = [
+    { key: "rush", label: "Rush", fee: rushFee, on: rush, toggle: () => setRush((v) => !v) },
+    { key: "design", label: "Design fee", fee: designFee, on: design, toggle: () => setDesign((v) => !v) },
+  ];
 
   return (
     <div className="grid gap-3 rounded-lg bg-muted/50 p-3">
       <p className="text-xs font-medium text-muted-foreground">
         Tarpaulin calculator
       </p>
-      <div className="grid gap-3 sm:grid-cols-[6rem_6rem_5rem_6rem_1fr]">
+
+      <div className="flex flex-wrap gap-2">
+        {UNITS.map((u) => {
+          const selected = unit === u.value;
+          return (
+            <button
+              key={u.value}
+              type="button"
+              onClick={() => setUnit(u.value)}
+              className={cn(
+                "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                selected
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "hover:bg-accent"
+              )}
+            >
+              {u.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="grid gap-1">
-          <Label className="text-xs">Width</Label>
+          <Label className="text-xs">Width ({unit})</Label>
           <Input
             inputMode="decimal"
             value={width}
@@ -168,28 +185,13 @@ export function TarpCalculator({
           />
         </div>
         <div className="grid gap-1">
-          <Label className="text-xs">Height</Label>
+          <Label className="text-xs">Height ({unit})</Label>
           <Input
             inputMode="decimal"
             value={height}
             onChange={(e) => setHeight(e.target.value)}
             placeholder="6"
           />
-        </div>
-        <div className="grid gap-1">
-          <Label className="text-xs">Unit</Label>
-          <Select value={unit} onValueChange={(v) => setUnit(v ?? "ft")}>
-            <SelectTrigger aria-label="Size unit">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {UNITS.map((u) => (
-                <SelectItem key={u.value} value={u.value}>
-                  {u.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
         <div className="grid gap-1">
           <Label className="text-xs">Rate/sqft</Label>
@@ -199,51 +201,82 @@ export function TarpCalculator({
             onChange={(e) => setRate(e.target.value)}
           />
         </div>
-        <div className="grid gap-1">
-          <Label className="text-xs">Eyelets</Label>
-          <Select
-            value={eyelet}
-            onValueChange={(v) => setEyelet(v ?? "With Eyelets")}
-          >
-            <SelectTrigger aria-label="Eyelet option">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EYELETS.map((e) => (
-                <SelectItem key={e} value={e}>
-                  {e}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label className="text-xs">Eyelets</Label>
+        <div className="flex flex-wrap gap-2">
+          {EYELETS.map((e) => {
+            const selected = eyelet === e;
+            return (
+              <button
+                key={e}
+                type="button"
+                onClick={() => setEyelet(e)}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                  selected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "hover:bg-accent"
+                )}
+              >
+                {e}
+              </button>
+            );
+          })}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-4 text-sm">
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={rush}
-            onChange={(e) => setRush(e.target.checked)}
-          />
-          Rush (+₱{rushFee})
-        </label>
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={design}
-            onChange={(e) => setDesign(e.target.checked)}
-          />
-          Design fee (+₱{designFee})
-        </label>
-        <span className="ml-auto tabular-nums text-muted-foreground">
-          {sqftPerPc.toFixed(2)} sqft/pc × {safeQty} pc
-          {ready &&
-            ` = ₱${lineTotal.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`}
-        </span>
-        <Button type="button" size="sm" variant="outline" onClick={apply} disabled={!ready}>
-          <CalculatorIcon /> Apply to item
-        </Button>
+
+      <div className="grid gap-1.5">
+        <Label className="text-xs">Add-ons / fees (optional)</Label>
+        <div
+          role="group"
+          aria-label="Add-on fees"
+          className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
+        >
+          {fees.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              role="checkbox"
+              aria-checked={f.on}
+              onClick={f.toggle}
+              className={cn(
+                "flex items-center justify-between gap-2 rounded-lg border bg-background p-3 text-left text-sm transition-colors",
+                f.on ? "border-primary ring-1 ring-primary" : "hover:bg-accent/40"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded border",
+                    f.on
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-muted-foreground/40"
+                  )}
+                >
+                  {f.on && <CheckIcon className="size-3" />}
+                </span>
+                <span className="font-medium">{f.label}</span>
+              </span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                +₱{f.fee}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
+
+      {ready && (
+        <div className="flex items-center justify-between rounded-md bg-primary/5 px-4 py-2 text-sm">
+          <span className="tabular-nums text-muted-foreground">
+            {sqftPerPc.toFixed(2)} sqft/pc × {safeQty} pc × ₱{r}
+          </span>
+          <strong className="text-primary tabular-nums">
+            ₱{lineTotal.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+          </strong>
+        </div>
+      )}
     </div>
   );
 }

@@ -29,10 +29,10 @@ import {
 } from "@/components/data-states";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
+import { PlusIcon } from "lucide-react";
 import { useQuotationsInfinite } from "../hooks/use-quotations";
 import { ColorBadge, type BadgeTone } from "@/components/color-badge";
 import { QuotationStatusBadge } from "./quotation-status-badge";
-import { NewQuotationButton } from "./new-quotation-button";
 
 const STATUS_VIEWS = [
   { value: "open", label: "Open" },
@@ -107,8 +107,9 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
         </Select>
         {canWrite && (
           <div className="ml-auto">
-            {/* One entry → sales picks Log Inquiry or Create Quotation. */}
-            <NewQuotationButton />
+            <Button nativeButton={false} render={<Link href="/quotations/new/custom" />}>
+              <PlusIcon /> New Quotation
+            </Button>
           </div>
         )}
       </div>

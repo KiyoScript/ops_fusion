@@ -31,6 +31,8 @@ export type InquiryWriteData = {
   medium: InquiryMedium;
   servicesRequested: string;
   notes?: string | null;
+  /** Full quote-form snapshot when logged from the quote form (Option B). */
+  draft?: Prisma.InputJsonValue;
 };
 
 export type InquiryListFilter = {
@@ -53,6 +55,7 @@ export interface IInquiryRepository {
     filter: InquiryListFilter
   ): Promise<{ rows: InquiryRecord[]; nextCursor: string | null }>;
   findById(id: string, tx?: DbTx): Promise<InquiryRecord | null>;
+  findDraft(id: string): Promise<unknown | null>;
   create(data: InquiryWriteData & { createdById: string }): Promise<{ id: string }>;
   update(id: string, data: InquiryWriteData): Promise<void>;
   /** Ties the inquiry to the quotation created from it (and the customer
@@ -106,6 +109,16 @@ export class PrismaInquiryRepository implements IInquiryRepository {
       where: { id },
       select: rowSelect,
     });
+  }
+
+  /** The stored quote-form snapshot (Option B) — fetched only on convert, so
+   *  the heavy JSON stays out of the list's rowSelect. */
+  async findDraft(id: string): Promise<unknown | null> {
+    const row = await prisma.inquiry.findUnique({
+      where: { id },
+      select: { draft: true },
+    });
+    return row?.draft ?? null;
   }
 
   async create(

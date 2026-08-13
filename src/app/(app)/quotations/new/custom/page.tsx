@@ -27,6 +27,7 @@ export default async function CustomQuotationPage({
   const { product: productId, inquiryId } = await searchParams;
 
   let inquiry: InquiryRowDto | undefined;
+  let draft: QuotationCreateInput | undefined;
   if (inquiryId) {
     try {
       inquiry = await getInquiryService().get(actor, inquiryId);
@@ -34,6 +35,12 @@ export default async function CustomQuotationPage({
       if (!(err instanceof NotFoundError)) throw err;
     }
     if (inquiry?.quotationId) redirect(`/quotations/${inquiry.quotationId}`);
+    // Inquiries logged FROM the quote form carry a full snapshot — restore it
+    // verbatim (all items, specs, prices, tax, terms) so nothing is lost.
+    if (inquiry) {
+      const d = await getInquiryService().getDraft(actor, inquiryId);
+      if (d && typeof d === "object") draft = d as QuotationCreateInput;
+    }
   }
 
   const firstItem = {
@@ -43,8 +50,9 @@ export default async function CustomQuotationPage({
     unitPrice: "",
     discount: "",
   };
-  const initialValues: QuotationCreateInput | undefined =
-    inquiry || productId
+  const initialValues: QuotationCreateInput | undefined = draft
+    ? draft
+    : inquiry || productId
       ? {
           type: "SALES",
           poNumber: "",
