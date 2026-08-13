@@ -58,7 +58,7 @@ const TYPE_BADGES: Record<string, { tone: BadgeTone; label: string }> = {
   NON_JO: { tone: "amber", label: "Non-JO" },
 };
 
-const COLS = 8;
+const COLS = 9;
 
 export function QuotationsView({ canWrite }: { canWrite: boolean }) {
   const router = useRouter();
@@ -107,7 +107,7 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
         </Select>
         {canWrite && (
           <div className="ml-auto">
-            <Button nativeButton={false} render={<Link href="/quotations/new" />}>
+            <Button nativeButton={false} render={<Link href="/quotations/new/custom" />}>
               <PlusIcon /> New Quotation
             </Button>
           </div>
@@ -124,6 +124,7 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
                 <TableHead className="min-w-56">Customer</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Items</TableHead>
+                <TableHead>For</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead>Valid until</TableHead>
                 <TableHead>Created</TableHead>
@@ -158,7 +159,7 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
                 rows.map((row) => (
                   <TableRow
                     key={row.id}
-                    className="cursor-pointer"
+                    className="cursor-pointer [&>td]:align-top"
                     onClick={() => router.push(`/quotations/${row.id}`)}
                   >
                     <TableCell>
@@ -181,7 +182,7 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
                         label={TYPE_BADGES[row.type]?.label ?? row.type}
                       />
                     </TableCell>
-                    <TableCell className="max-w-64 truncate">
+                    <TableCell className="min-w-56 wrap-break-word">
                       {row.customerName}
                     </TableCell>
                     <TableCell>
@@ -192,6 +193,11 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {row.itemCount}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="max-w-sm whitespace-normal wrap-break-word text-sm">
+                        {row.summary || <span className="text-muted-foreground">—</span>}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMoney(row.total)}

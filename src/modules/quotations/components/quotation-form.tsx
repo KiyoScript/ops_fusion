@@ -12,13 +12,6 @@ import { todayISO } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   createQuotationAction,
@@ -52,6 +45,12 @@ const TAX_OPTIONS = [
   { value: "NON_VAT", label: "Non-VAT" },
   { value: "VAT_EXCLUSIVE", label: "VAT Exclusive (+12%)" },
   { value: "VAT_INCLUSIVE", label: "VAT Inclusive" },
+] as const;
+
+const QUOTE_TYPES = [
+  { value: "SALES", label: "Sales Quotation", hint: "Standard quote → becomes a Job Order" },
+  { value: "PO", label: "PO Quotation", hint: "Against a customer purchase order" },
+  { value: "NON_JO", label: "Non-JO Quotation", hint: "Billed direct — no production JO" },
 ] as const;
 
 const EMPTY_ITEM: QuotationCreateInput["items"][number] = {
@@ -191,19 +190,43 @@ export function QuotationForm({
               control={form.control}
               name="type"
               render={({ field }) => (
-                <Select
-                  value={field.value}
-                  onValueChange={(v) => field.onChange(v ?? "SALES")}
+                <div
+                  role="radiogroup"
+                  aria-label="Quotation type"
+                  className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]"
                 >
-                  <SelectTrigger aria-label="Quotation type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="SALES">Sales Quotation</SelectItem>
-                    <SelectItem value="PO">PO Quotation</SelectItem>
-                    <SelectItem value="NON_JO">Non-JO Quotation</SelectItem>
-                  </SelectContent>
-                </Select>
+                  {QUOTE_TYPES.map((t) => {
+                    const selected = field.value === t.value;
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => field.onChange(t.value)}
+                        className={cn(
+                          "flex items-start gap-2.5 rounded-lg border p-3 text-left transition-colors",
+                          selected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "hover:bg-accent/40"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
+                            selected ? "border-primary" : "border-muted-foreground/40"
+                          )}
+                        >
+                          {selected && <span className="size-2 rounded-full bg-primary" />}
+                        </span>
+                        <span className="grid gap-0.5">
+                          <span className="text-sm font-medium">{t.label}</span>
+                          <span className="text-xs text-muted-foreground">{t.hint}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             />
           </div>
@@ -226,6 +249,8 @@ export function QuotationForm({
               )}
             </div>
           )}
+
+          <Separator />
 
           <div className="grid gap-2">
             <Label htmlFor="customer-name">Customer</Label>
@@ -280,6 +305,8 @@ export function QuotationForm({
             )}
           </div>
 
+          <Separator />
+
           <div className="grid gap-2">
             <Label htmlFor="valid-until">Valid until</Label>
             <Input
@@ -299,18 +326,36 @@ export function QuotationForm({
               control={form.control}
               name="taxType"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger aria-label="Tax type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TAX_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div role="radiogroup" aria-label="Tax type" className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]">
+                  {TAX_OPTIONS.map((o) => {
+                    const selected = field.value === o.value;
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => field.onChange(o.value)}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-lg border p-3 text-left text-sm transition-colors",
+                          selected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "hover:bg-accent/40"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                            selected ? "border-primary" : "border-muted-foreground/40"
+                          )}
+                        >
+                          {selected && <span className="size-2 rounded-full bg-primary" />}
+                        </span>
+                        <span className="font-medium">{o.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             />
           </div>
@@ -320,29 +365,48 @@ export function QuotationForm({
             <Controller
               control={form.control}
               name="downpaymentRate"
-              render={({ field }) => (
-                <Select
-                  value={String(parseFloat(field.value || "0.5"))}
-                  onValueChange={(rate) => {
-                    field.onChange(rate);
-                    form.setValue(
-                      "paymentTermLabel",
-                      PAYMENT_TERMS.find((t) => t.rate === rate)?.label ?? ""
-                    );
-                  }}
-                >
-                  <SelectTrigger aria-label="Payment term">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_TERMS.map((t) => (
-                      <SelectItem key={t.rate} value={t.rate}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              render={({ field }) => {
+                const current = String(parseFloat(field.value || "0.5"));
+                return (
+                  <div
+                    role="radiogroup"
+                    aria-label="Payment term"
+                    className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
+                  >
+                    {PAYMENT_TERMS.map((t) => {
+                      const selected = current === t.rate;
+                      return (
+                        <button
+                          key={t.rate}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => {
+                            field.onChange(t.rate);
+                            form.setValue("paymentTermLabel", t.label);
+                          }}
+                          className={cn(
+                            "flex items-center gap-2.5 rounded-lg border p-3 text-left text-sm transition-colors",
+                            selected
+                              ? "border-primary bg-primary/5 ring-1 ring-primary"
+                              : "hover:bg-accent/40"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                              selected ? "border-primary" : "border-muted-foreground/40"
+                            )}
+                          >
+                            {selected && <span className="size-2 rounded-full bg-primary" />}
+                          </span>
+                          <span className="font-medium">{t.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              }}
             />
           </div>
 

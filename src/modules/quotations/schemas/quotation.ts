@@ -203,6 +203,8 @@ export type QuotationListRowDto = {
   status: string;
   total: string;
   itemCount: number;
+  /** Full item descriptions joined — what the quote is for (never truncated). */
+  summary: string;
   validUntil: string | null;
   isExpired: boolean;
   createdAt: string;

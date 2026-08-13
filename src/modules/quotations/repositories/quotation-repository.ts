@@ -20,6 +20,7 @@ const listSelect = {
   createdAt: true,
   customer: { select: { name: true } },
   createdBy: { select: { name: true } },
+  items: { select: { description: true }, orderBy: { sortOrder: "asc" as const } },
   _count: { select: { items: true } },
 } satisfies Prisma.QuotationSelect;
 

@@ -604,6 +604,7 @@ function mapListRow(row: QuotationListRecord): QuotationListRowDto {
     status: row.status,
     total: row.total.toString(),
     itemCount: row._count.items,
+    summary: row.items.map((i) => i.description).join(" · "),
     validUntil: dateOnly(row.validUntil),
     isExpired: isExpired(row),
     createdAt: row.createdAt.toISOString(),

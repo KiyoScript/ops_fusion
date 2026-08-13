@@ -62,7 +62,7 @@ export default async function CustomQuotationPage({
 
   return (
     <>
-      <BackButton fallbackHref="/quotations/new" label="Products" />
+      <BackButton fallbackHref="/quotations" label="Quotations" />
       <PageHeader
         title="New Quotation"
         description={
