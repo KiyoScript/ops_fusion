@@ -26,7 +26,14 @@ enum VatStatus {
 
 model Customer {
   id              String         @id @default(cuid())
+  // `name` is the canonical DISPLAY form, kept in sync = "Lastname, Firstname MI."
+  // (composePersonName). The structured parts below are the source of truth for
+  // NEW/edited person customers and drive dedup; legacy rows keep their original
+  // free-text `name` until edited (firstName/lastName may be null).
   name            String
+  lastName        String?
+  firstName       String?
+  middleInitial   String?
   contactNumber   String?
   company         String? // denormalized company name (kept in sync for existing readers)
   companyId       String?

@@ -28,6 +28,7 @@ import {
   convertQuotationAction,
   transitionQuotationAction,
 } from "@/app/(app)/quotations/actions";
+import { useInvalidateQuotations } from "../hooks/use-quotations";
 
 /** Lifecycle buttons for the detail page — which ones render depends on the
  *  current status and the caller's CASL abilities (resolved server-side). */
@@ -55,6 +56,10 @@ export function QuotationStatusActions({
   canArchive: boolean;
 }) {
   const router = useRouter();
+  // Lifecycle writes change status / soft-delete — the list is a client
+  // infinite query, so router.refresh() alone leaves it stale (an archived row
+  // lingers, then 404s on click). Invalidate the cache after every mutation.
+  const invalidateQuotations = useInvalidateQuotations();
   const [pending, startTransition] = useTransition();
   const [convertOpen, setConvertOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -74,6 +79,7 @@ export function QuotationStatusActions({
       }
       toast.success(successMessage);
       setRejectOpen(false);
+      invalidateQuotations();
       router.refresh();
     });
   };
@@ -87,6 +93,7 @@ export function QuotationStatusActions({
       }
       toast.success(`Converted to JO ${result.data.joNumber}.`);
       setConvertOpen(false);
+      invalidateQuotations();
       router.push(`/job-orders`);
       router.refresh();
     });
@@ -101,6 +108,7 @@ export function QuotationStatusActions({
       }
       toast.success(`${quoteNumber} archived.`);
       setArchiveOpen(false);
+      invalidateQuotations();
       router.push("/quotations");
       router.refresh();
     });

@@ -19,6 +19,7 @@ import {
 import { ContactField, TinField, isValidPhContact } from "@/components/validated-fields";
 import { addCustomerAction } from "@/app/(app)/customers/actions";
 import { CompanyCombobox } from "./company-combobox";
+import { PersonNameFields } from "./person-name-fields";
 import type { CompanyPickerDto } from "../schemas/company";
 
 type Kind = "COMPANY" | "INDIVIDUAL";
@@ -38,8 +39,10 @@ export function CustomerCreateForm({
   const [pending, start] = useTransition();
   const [attempted, setAttempted] = useState(false);
 
-  // shared / individual
-  const [name, setName] = useState("");
+  // shared / individual — structured person name (Lastname, Firstname MI.)
+  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [middleInitial, setMiddleInitial] = useState("");
   const [contact, setContact] = useState("");
   const [email, setEmail] = useState("");
   const [companyFree, setCompanyFree] = useState("");
@@ -59,8 +62,10 @@ export function CustomerCreateForm({
   const [coEmail, setCoEmail] = useState(initialCompany?.email ?? "");
   const [coContact, setCoContact] = useState(initialCompany?.contactNumber ?? "");
   const [companyId, setCompanyId] = useState<string | null>(initialCompany?.id ?? null); // set when an existing company is picked
-  // first contact person
-  const [cpName, setCpName] = useState("");
+  // first contact person — structured person name
+  const [cpLast, setCpLast] = useState("");
+  const [cpFirst, setCpFirst] = useState("");
+  const [cpMi, setCpMi] = useState("");
   const [cpDept, setCpDept] = useState("");
   const [cpPos, setCpPos] = useState("");
   const [cpEmail, setCpEmail] = useState("");
@@ -80,12 +85,14 @@ export function CustomerCreateForm({
   const submit = () => {
     setAttempted(true);
     if (kind === "INDIVIDUAL") {
-      if (!name.trim()) { toast.error("Name is required."); return; }
+      if (!lastName.trim() || !firstName.trim()) { toast.error("Last name and first name are required."); return; }
       if (!isValidPhContact(contact)) { toast.error("A valid mobile number is required."); return; }
       start(async () => {
         const res = await addCustomerAction({
           kind: "INDIVIDUAL",
-          name: name.trim(),
+          lastName: lastName.trim(),
+          firstName: firstName.trim(),
+          middleInitial: middleInitial.trim() || undefined,
           contactNumber: contact.trim(),
           email: email.trim() || undefined,
           company: companyFree.trim() || undefined,
@@ -108,7 +115,7 @@ export function CustomerCreateForm({
       if (!coName.trim()) { toast.error("Company name is required."); return; }
       if (!coTin.trim()) { toast.error("Company TIN is required."); return; }
     }
-    if (!cpName.trim()) { toast.error("Contact person name is required."); return; }
+    if (!cpLast.trim() || !cpFirst.trim()) { toast.error("Contact person's last and first name are required."); return; }
     if (!cpDept.trim()) { toast.error("Department is required."); return; }
     if (!cpPos.trim()) { toast.error("Position is required."); return; }
     if (!cpEmail.trim()) { toast.error("Official email is required."); return; }
@@ -130,7 +137,9 @@ export function CustomerCreateForm({
               },
             }),
         contact: {
-          name: cpName.trim(),
+          lastName: cpLast.trim(),
+          firstName: cpFirst.trim(),
+          middleInitial: cpMi.trim() || undefined,
           department: cpDept.trim(),
           position: cpPos.trim(),
           email: cpEmail.trim(),
@@ -160,10 +169,17 @@ export function CustomerCreateForm({
 
         {kind === "INDIVIDUAL" ? (
           <div className="grid gap-4">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Name" required><Input value={name} onChange={(e) => setName(e.target.value)} aria-invalid={attempted && !name.trim()} /></Field>
-              <Field label="Company (optional)"><Input value={companyFree} onChange={(e) => setCompanyFree(e.target.value)} /></Field>
-            </div>
+            <PersonNameFields
+              idPrefix="cc-ind"
+              lastName={lastName}
+              firstName={firstName}
+              middleInitial={middleInitial}
+              onLast={setLastName}
+              onFirst={setFirstName}
+              onMi={setMiddleInitial}
+              attempted={attempted}
+            />
+            <Field label="Company (optional, free-text)"><Input value={companyFree} onChange={(e) => setCompanyFree(e.target.value)} /></Field>
             <div className="grid gap-2 sm:grid-cols-2">
               <Field label="Mobile number" required>
                 <ContactField value={contact} onChange={setContact} aria-invalid={attempted && !isValidPhContact(contact)} />
@@ -222,9 +238,20 @@ export function CustomerCreateForm({
               </div>
             </section>
             <section className="grid gap-4 rounded-lg border border-border/60 p-4">
-              <h3 className="text-sm font-semibold">First contact person</h3>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Field label="Name" required><Input value={cpName} onChange={(e) => setCpName(e.target.value)} aria-invalid={attempted && !cpName.trim()} /></Field>
+              <h3 className="text-sm font-semibold">
+                {companyId ? "Contact person" : "First contact person"}
+              </h3>
+              <PersonNameFields
+                idPrefix="cc-cp"
+                lastName={cpLast}
+                firstName={cpFirst}
+                middleInitial={cpMi}
+                onLast={setCpLast}
+                onFirst={setCpFirst}
+                onMi={setCpMi}
+                attempted={attempted}
+              />
+              <div className="grid gap-2 sm:grid-cols-2">
                 <Field label="Department" required><Input value={cpDept} onChange={(e) => setCpDept(e.target.value)} aria-invalid={attempted && !cpDept.trim()} /></Field>
                 <Field label="Position" required><Input value={cpPos} onChange={(e) => setCpPos(e.target.value)} aria-invalid={attempted && !cpPos.trim()} /></Field>
               </div>

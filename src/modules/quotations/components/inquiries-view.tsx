@@ -31,7 +31,6 @@ import { ColorBadge, type BadgeTone } from "@/components/color-badge";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { useInquiriesInfinite } from "../hooks/use-inquiries";
 import { QuotationStatusBadge } from "./quotation-status-badge";
-import { InquiryDialog } from "./inquiry-dialog";
 import { InquiryRowActions } from "./inquiry-row-actions";
 import { InquiryMetrics } from "./inquiry-metrics";
 
@@ -97,11 +96,6 @@ export function InquiriesView({
             ))}
           </SelectContent>
         </Select>
-        {canWrite && (
-          <div className="ml-auto">
-            <InquiryDialog />
-          </div>
-        )}
       </div>
 
       <Card className="py-0">

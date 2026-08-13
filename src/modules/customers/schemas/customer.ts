@@ -8,6 +8,15 @@ import type { CompanyAttachmentDto } from "./company";
 // record + every document they appear on), and edits the master fields.
 // ══════════════════════════════════════════════════════════════════════════
 
+// Structured person name — the source of truth for every person customer
+// (individual or company contact). Last + First required; MI optional. The
+// display `name` is composed from these (composePersonName).
+export const personNameFields = {
+  lastName: z.string().trim().min(1, "Last name is required.").max(100),
+  firstName: z.string().trim().min(1, "First name is required.").max(100),
+  middleInitial: z.string().trim().max(20).optional(),
+};
+
 export const customerListFilters = z.object({
   q: z.string().trim().max(200).optional(),
   status: z.enum(CustomerStatus).optional(),
@@ -23,7 +32,7 @@ export type CustomerListFilters = z.infer<typeof customerListFilters>;
 
 export const customerUpdateInput = z.object({
   id: z.string().min(1),
-  name: z.string().trim().min(1, "Name is required.").max(200),
+  ...personNameFields,
   company: z.string().trim().max(200).optional(),
   // Mobile number is MANDATORY (PH format). 09XXXXXXXXX or +639XXXXXXXXX.
   contactNumber: z
@@ -53,6 +62,9 @@ export type CustomerUpdateInput = z.infer<typeof customerUpdateInput>;
 export type CustomerEditDto = {
   id: string;
   name: string;
+  lastName: string | null;
+  firstName: string | null;
+  middleInitial: string | null;
   company: string | null;
   companyId: string | null;
   department: string | null;
@@ -66,6 +78,17 @@ export type CustomerEditDto = {
   creditTermDays: number | null;
   status: CustomerStatus;
   notes: string | null;
+};
+
+// Soft-duplicate match returned by the name-check (non-blocking warning): an
+// existing customer whose composed name equals the one being entered.
+export type DuplicateNameMatch = {
+  id: string;
+  name: string;
+  company: string | null;
+  companyId: string | null;
+  status: CustomerStatus;
+  createdAt: string;
 };
 
 // ——— List ———

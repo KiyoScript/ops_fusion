@@ -18,13 +18,16 @@ import {
 } from "@/components/ui/select";
 import { ContactField, TinField, isValidPhContact } from "@/components/validated-fields";
 import { updateCustomerAction } from "@/app/(app)/customers/actions";
+import { PersonNameFields } from "./person-name-fields";
 import { VAT_STATUS_LABEL } from "../vat";
 import type { CustomerEditDto } from "../schemas/customer";
 
 type VatValue = "" | "VAT" | "NON_VAT" | "NO_TIN";
 
 type FormState = {
-  name: string;
+  lastName: string;
+  firstName: string;
+  middleInitial: string;
   company: string;
   department: string;
   position: string;
@@ -50,7 +53,11 @@ export function CustomerEditForm({
   const router = useRouter();
   const isContact = customer.companyId !== null;
   const [form, setForm] = useState<FormState>({
-    name: customer.name,
+    // Legacy rows have only the free-text `name` (backfilled into lastName);
+    // structured parts prefill when present, else fall back so nothing is lost.
+    lastName: customer.lastName ?? customer.name,
+    firstName: customer.firstName ?? "",
+    middleInitial: customer.middleInitial ?? "",
     company: customer.company ?? "",
     department: customer.department ?? "",
     position: customer.position ?? "",
@@ -75,7 +82,7 @@ export function CustomerEditForm({
 
   const submit = () => {
     setAttempted(true);
-    if (!form.name.trim()) { toast.error("Name is required."); return; }
+    if (!form.lastName.trim() || !form.firstName.trim()) { toast.error("Last name and first name are required."); return; }
     if (!contactValid) {
       toast.error(
         form.contactNumber.trim()
@@ -87,7 +94,9 @@ export function CustomerEditForm({
     startTransition(async () => {
       const result = await updateCustomerAction({
         id: customer.id,
-        name: form.name.trim(),
+        lastName: form.lastName.trim(),
+        firstName: form.firstName.trim(),
+        middleInitial: form.middleInitial.trim() || undefined,
         company: form.company.trim() || undefined,
         department: form.department.trim() || undefined,
         position: form.position.trim() || undefined,
@@ -113,21 +122,27 @@ export function CustomerEditForm({
   return (
     <Card>
       <CardContent className="grid gap-4 pt-6">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="cf-name">Name</Label>
-            <Input id="cf-name" value={form.name} onChange={(e) => set("name", e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="cf-company">Company</Label>
-            <Input
-              id="cf-company"
-              value={form.company}
-              onChange={(e) => set("company", e.target.value)}
-              readOnly={isContact}
-              className={isContact ? "bg-muted/50 text-muted-foreground" : undefined}
-            />
-          </div>
+        <PersonNameFields
+          idPrefix="cf"
+          lastName={form.lastName}
+          firstName={form.firstName}
+          middleInitial={form.middleInitial}
+          onLast={(v) => set("lastName", v)}
+          onFirst={(v) => set("firstName", v)}
+          onMi={(v) => set("middleInitial", v)}
+          attempted={attempted}
+          excludeId={customer.id}
+        />
+
+        <div className="grid gap-1.5">
+          <Label htmlFor="cf-company">Company</Label>
+          <Input
+            id="cf-company"
+            value={form.company}
+            onChange={(e) => set("company", e.target.value)}
+            readOnly={isContact}
+            className={isContact ? "bg-muted/50 text-muted-foreground" : undefined}
+          />
         </div>
 
         {isContact && (
@@ -248,7 +263,7 @@ export function CustomerEditForm({
         </div>
 
         <div className="flex gap-2">
-          <Button onClick={submit} disabled={pending || !form.name.trim()}>
+          <Button onClick={submit} disabled={pending || !form.lastName.trim() || !form.firstName.trim()}>
             {pending ? "Saving…" : "Save changes"}
           </Button>
           <Button variant="ghost" nativeButton={false} render={<Link href={detailHref} />}>Cancel</Button>

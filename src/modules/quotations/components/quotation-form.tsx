@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,16 +22,23 @@ import {
   type QuotationCreateInput,
 } from "../schemas/quotation";
 import { computeTotals } from "../services/totals";
+import { useInvalidateQuotations } from "../hooks/use-quotations";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
 import { ContactField } from "@/components/validated-fields";
 import {
   mergeGlobalAddons,
   useGlobalAddons,
   useProductOptions,
+  type ProductRuleDto,
 } from "@/modules/shared/hooks/use-products";
 import { TarpCalculator } from "./tarp-calculator";
+import { AreaCalculator } from "./area-calculator";
 import { VariantPicker } from "./variant-picker";
 import { ProductCombobox } from "./product-combobox";
+
+// Products priced by the square foot get the dimension calculator (W × H →
+// area × rate), not the plain variant picker. Tarpaulin has its own calculator.
+const AREA_UNITS = new Set(["sqft", "sq in", "sq ft", "sqin"]);
 
 // Legacy Payment Terms tab of the price DB (label ↔ downpayment fraction).
 const PAYMENT_TERMS = [
@@ -74,6 +81,7 @@ export function QuotationForm({
   inquiryId?: string;
 }) {
   const router = useRouter();
+  const invalidateQuotations = useInvalidateQuotations();
   const form = useForm<QuotationCreateInput>({
     resolver: zodResolver(quotationCreateInput),
     defaultValues: {
@@ -123,14 +131,68 @@ export function QuotationForm({
     const product = current.productId
       ? productById.get(current.productId)
       : undefined;
-    form.setValue(`items.${index}.unitPrice`, price, { shouldValidate: true });
+    // The variant tier price is the new base; re-fold any checked fees onto it.
     form.setValue(`items.${index}.specs`, {
       ...(current.specs ?? {}),
       variant: label,
     });
+    const checked =
+      (current.specs as { addons?: string[] } | undefined)?.addons ?? [];
+    applyFees(index, parseFloat(price) || 0, checked);
     if (product && (!current.description || current.description === product.name)) {
       form.setValue(`items.${index}.description`, `${product.name} — ${label}`);
     }
+  };
+
+  // Optional add-on fees fold into the line: unit price = (base×qty + fees) ÷ qty,
+  // matching the guided-wizard math. Base + checked labels live in specs so the
+  // fold recomputes when qty, variant, or the checked set changes.
+  const applyFees = (index: number, baseUnit: number, checkedLabels: string[]) => {
+    const current = form.getValues(`items.${index}`);
+    const product = current.productId
+      ? productById.get(current.productId)
+      : undefined;
+    const qty = parseInt(current.qty || "1", 10) || 1;
+    const fees = mergeGlobalAddons(product?.rules ?? [], globalAddons.data).filter(
+      (r) => r.type === "ADDON"
+    );
+    const lineBase = baseUnit * qty;
+    let addonTotal = 0;
+    for (const a of fees) {
+      if (!checkedLabels.includes(a.label)) continue;
+      addonTotal += a.pct
+        ? lineBase * (parseFloat(a.pct) / 100)
+        : parseFloat(a.amount ?? "0");
+    }
+    const total = Math.round((lineBase + addonTotal) * 100) / 100;
+    form.setValue(
+      `items.${index}.unitPrice`,
+      qty > 0 ? (total / qty).toFixed(2) : baseUnit.toFixed(2),
+      { shouldValidate: true }
+    );
+    form.setValue(`items.${index}.specs`, {
+      ...(current.specs ?? {}),
+      baseUnit: baseUnit.toFixed(2),
+      addons: checkedLabels,
+    });
+  };
+
+  const refoldFees = (index: number) => {
+    const current = form.getValues(`items.${index}`);
+    const specs = (current.specs ?? {}) as {
+      addons?: string[];
+      baseUnit?: string;
+      calculator?: string;
+    };
+    // Tarp/area calculators re-price themselves on qty change (their own effect
+    // reruns), including the min-charge floor — don't double-compute here.
+    if (specs.calculator) return;
+    if (!specs.addons?.length) return;
+    const base =
+      specs.baseUnit != null
+        ? parseFloat(specs.baseUnit)
+        : parseFloat(current.unitPrice || "0");
+    applyFees(index, base || 0, specs.addons);
   };
 
   const applyCalculator = (
@@ -173,6 +235,7 @@ export function QuotationForm({
         ? `Quotation ${(result.data as { quoteNumber?: string }).quoteNumber ?? ""} created.`
         : "Quotation updated."
     );
+    invalidateQuotations();
     router.push(`/quotations/${(result.data as { id: string }).id}`);
     router.refresh();
   });
@@ -451,6 +514,8 @@ export function QuotationForm({
                 ? productById.get(watchedItem.productId)
                 : undefined;
               const isTarp = product?.name === "Tarpaulin";
+              const isArea =
+                !isTarp && !!product && AREA_UNITS.has(product.unit.toLowerCase());
               return (
               <div key={field.id} className="grid gap-3 rounded-lg border p-3">
                 <div className="grid gap-1 sm:max-w-96">
@@ -490,7 +555,9 @@ export function QuotationForm({
                     id={`item-qty-${index}`}
                     inputMode="numeric"
                     aria-invalid={!!errors.items?.[index]?.qty}
-                    {...form.register(`items.${index}.qty`)}
+                    {...form.register(`items.${index}.qty`, {
+                      onChange: () => refoldFees(index),
+                    })}
                   />
                 </div>
                 <div className="grid gap-1">
@@ -541,7 +608,20 @@ export function QuotationForm({
                     onApply={(result) => applyCalculator(index, result)}
                   />
                 )}
-                {!isTarp && product && (
+                {isArea && product && (
+                  <AreaCalculator
+                    productName={product.name}
+                    basePrice={parseFloat(product.basePrice ?? "0") || 0}
+                    qty={parseInt(watchedItem?.qty || "1", 10) || 1}
+                    rules={mergeGlobalAddons(
+                      product.rules,
+                      globalAddons.data
+                    )}
+                    initialSpecs={watchedItem?.specs ?? null}
+                    onApply={(result) => applyCalculator(index, result)}
+                  />
+                )}
+                {!isTarp && !isArea && product && (
                   <VariantPicker
                     rules={product.rules}
                     qty={parseInt(watchedItem?.qty || "1", 10) || 1}
@@ -551,6 +631,31 @@ export function QuotationForm({
                     }
                     currentUnitPrice={watchedItem?.unitPrice || ""}
                     onPick={(label, price) => onVariantPick(index, label, price)}
+                  />
+                )}
+                {!isTarp && !isArea && product && (
+                  <AddonPicker
+                    addons={mergeGlobalAddons(product.rules, globalAddons.data)}
+                    checked={
+                      (watchedItem?.specs as { addons?: string[] } | undefined)
+                        ?.addons ?? []
+                    }
+                    onToggle={(label) => {
+                      const current = form.getValues(`items.${index}`);
+                      const specs = (current.specs ?? {}) as {
+                        addons?: string[];
+                        baseUnit?: string;
+                      };
+                      const checked = specs.addons ?? [];
+                      const next = checked.includes(label)
+                        ? checked.filter((l) => l !== label)
+                        : [...checked, label];
+                      const base =
+                        specs.baseUnit != null
+                          ? parseFloat(specs.baseUnit)
+                          : parseFloat(current.unitPrice || "0");
+                      applyFees(index, base || 0, next);
+                    }}
                   />
                 )}
               </div>
@@ -642,4 +747,63 @@ function TotalRow({
 
 function php(n: number): string {
   return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+}
+
+// Optional add-on fees (product ADDON rules + global add-ons) as toggle cards —
+// checking one folds its fee into the line price (see applyFees).
+function AddonPicker({
+  addons,
+  checked,
+  onToggle,
+}: {
+  addons: ProductRuleDto[];
+  checked: string[];
+  onToggle: (label: string) => void;
+}) {
+  const fees = addons.filter((r) => r.type === "ADDON");
+  if (fees.length === 0) return null;
+  return (
+    <div className="grid gap-2 rounded-lg bg-muted/50 p-3">
+      <Label className="text-xs">Add-ons / fees (optional)</Label>
+      <div
+        role="group"
+        aria-label="Add-on fees"
+        className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
+      >
+        {fees.map((f) => {
+          const on = checked.includes(f.label);
+          return (
+            <button
+              key={f.label}
+              type="button"
+              role="checkbox"
+              aria-checked={on}
+              onClick={() => onToggle(f.label)}
+              className={cn(
+                "flex items-center justify-between gap-2 rounded-lg border bg-background p-3 text-left text-sm transition-colors",
+                on ? "border-primary ring-1 ring-primary" : "hover:bg-accent/40"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded border",
+                    on
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-muted-foreground/40"
+                  )}
+                >
+                  {on && <CheckIcon className="size-3" />}
+                </span>
+                <span className="font-medium">{f.label}</span>
+              </span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {f.pct ? `+${f.pct}%` : `+₱${f.amount}`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

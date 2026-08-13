@@ -48,10 +48,30 @@ const MEDIUM_OPTIONS = [
 ] as const;
 
 /** Log-new or edit dialog for one inquiry (legacy spec 1.2 step 1). */
-export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
+export function InquiryDialog({
+  inquiry,
+  triggerVariant,
+  open: openProp,
+  onOpenChange,
+}: {
+  inquiry?: InquiryRowDto;
+  /** Trigger button style for the create ("Log inquiry") mode — e.g. "outline"
+   *  when it sits next to a primary CTA like "New Quotation". */
+  triggerVariant?: "default" | "outline" | "secondary" | "ghost";
+  /** Controlled open state — when provided, the dialog renders WITHOUT its own
+   *  trigger (opened by a parent, e.g. the New-Quotation choice). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const router = useRouter();
   const invalidate = useInvalidateInquiries();
-  const [open, setOpen] = useState(false);
+  const controlled = openProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlled ? openProp : internalOpen;
+  const setOpen = (o: boolean) => {
+    if (controlled) onOpenChange?.(o);
+    else setInternalOpen(o);
+  };
   const mode = inquiry ? "edit" : "create";
 
   const form = useForm<InquiryCreateInput>({
@@ -94,19 +114,21 @@ export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {mode === "create" ? (
-        <DialogTrigger render={<Button />}>
-          <PlusIcon /> Log inquiry
-        </DialogTrigger>
-      ) : (
-        <DialogTrigger
-          render={
-            <Button variant="ghost" size="icon" aria-label="Edit inquiry" />
-          }
-        >
-          <PencilIcon />
-        </DialogTrigger>
-      )}
+      {/* Controlled mode = the parent supplies the entry point, so no trigger. */}
+      {!controlled &&
+        (mode === "create" ? (
+          <DialogTrigger render={<Button variant={triggerVariant} />}>
+            <PlusIcon /> Log inquiry
+          </DialogTrigger>
+        ) : (
+          <DialogTrigger
+            render={
+              <Button variant="ghost" size="icon" aria-label="Edit inquiry" />
+            }
+          >
+            <PencilIcon />
+          </DialogTrigger>
+        ))}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>

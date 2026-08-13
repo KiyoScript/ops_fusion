@@ -5,7 +5,7 @@ import { requireActor } from "@/lib/authz";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getCustomerDirectoryService } from "@/modules/customers/services/customer-directory-service";
 import { getCompanyService } from "@/modules/customers/services/company-service";
-import { customerUpdateInput } from "@/modules/customers/schemas/customer";
+import { customerUpdateInput, type DuplicateNameMatch } from "@/modules/customers/schemas/customer";
 import { addCustomerInput, companyUpdateInput } from "@/modules/customers/schemas/company";
 import type { AttachmentKind } from "@/generated/prisma/enums";
 
@@ -71,6 +71,28 @@ export async function addCustomerAction(
     const result = await getCompanyService().addCustomer(actor, parsed.data);
     revalidatePath("/customers");
     return ok(result);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Non-blocking soft-duplicate check for the create/edit name fields. Returns
+ *  existing customers with the same composed "Lastname, Firstname MI." */
+export async function checkDuplicateNameAction(input: {
+  firstName?: string;
+  lastName?: string;
+  middleInitial?: string;
+  excludeId?: string;
+}): Promise<ActionResult<DuplicateNameMatch[]>> {
+  try {
+    const actor = await requireActor();
+    const matches = await getCustomerDirectoryService().checkDuplicateName(actor, {
+      firstName: input.firstName ?? "",
+      lastName: input.lastName ?? "",
+      middleInitial: input.middleInitial,
+      excludeId: input.excludeId,
+    });
+    return ok(matches);
   } catch (err) {
     return fail(err);
   }

@@ -5,6 +5,7 @@ import type { DbTx } from "@/modules/shared/repositories/types";
 
 const rowSelect = {
   id: true,
+  customerId: true,
   customerName: true,
   contactNumber: true,
   email: true,

@@ -16,7 +16,9 @@ import type {
   CustomerListPageDto,
   CustomerListRowDto,
   CustomerUpdateInput,
+  DuplicateNameMatch,
 } from "../schemas/customer";
+import { composePersonName, type PersonName } from "../person-name";
 
 export class CustomerDirectoryService {
   constructor(
@@ -43,12 +45,25 @@ export class CustomerDirectoryService {
     const c = await this.customers.findForEdit(id);
     if (!c) throw new NotFoundError("Customer not found.");
     return {
-      id: c.id, name: c.name, company: c.company, companyId: c.companyId,
+      id: c.id, name: c.name,
+      lastName: c.lastName, firstName: c.firstName, middleInitial: c.middleInitial,
+      company: c.company, companyId: c.companyId,
       department: c.department, position: c.position,
       contactNumber: c.contactNumber, email: c.email, address: c.address,
       shippingAddress: c.shippingAddress, tin: c.tin, vatStatus: c.vatStatus,
       creditTermDays: c.creditTermDays, status: c.status, notes: c.notes,
     };
+  }
+
+  /** Non-blocking soft-duplicate check: existing customers with the same
+   *  composed name. Used by the create/edit forms to warn (never to reject). */
+  async checkDuplicateName(
+    _actor: Actor,
+    input: PersonName & { excludeId?: string }
+  ): Promise<DuplicateNameMatch[]> {
+    const name = composePersonName(input);
+    if (!name) return [];
+    return this.customers.findNameMatches(name, input.excludeId);
   }
 
   async update(actor: Actor, input: CustomerUpdateInput): Promise<void> {
@@ -61,7 +76,7 @@ export class CustomerDirectoryService {
       entityType: "Customer",
       entityId: input.id,
       action: "update",
-      payload: { name: input.name },
+      payload: { name: composePersonName(input) },
     });
   }
 }

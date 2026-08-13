@@ -16,7 +16,10 @@ import type { IJobOrderRepository } from "@/modules/job-orders/repositories/job-
 import { allocateJoNumber } from "@/modules/job-orders/services/job-order-service";
 import { getProductionWorkflowService } from "@/modules/job-orders/services/production-workflow-service";
 import { sendMail, staffNotifyAddress } from "@/lib/mailer";
-import type { IInquiryRepository } from "../repositories/inquiry-repository";
+import type {
+  IInquiryRepository,
+  InquiryRecord,
+} from "../repositories/inquiry-repository";
 import type {
   IQuotationRepository,
   ItemCreateData,
@@ -136,8 +139,9 @@ export class QuotationService {
     const items = buildItems(input.items, totals);
 
     // Validate the inquiry link up front so a stale prefill fails cleanly.
+    let inquiry: InquiryRecord | null = null;
     if (input.inquiryId) {
-      const inquiry = await this.inquiries.findById(input.inquiryId);
+      inquiry = await this.inquiries.findById(input.inquiryId);
       if (!inquiry) throw new NotFoundError("Inquiry not found.");
       if (inquiry.quotationId) {
         throw new ConflictError(
@@ -147,16 +151,29 @@ export class QuotationService {
     }
 
     return this.quotations.withTransaction(async (tx) => {
-      const customer = await this.customers.findOrCreateByName(
-        input.customerName,
-        actor.id,
-        tx
-      );
+      // Converting from an inquiry whose customer name is unchanged? Reuse that
+      // EXACT customer instead of re-resolving by name — person names can now
+      // collide (an individual and a company contact may share "Last, First"),
+      // so a name lookup could bind the quote to the wrong record or a dup.
+      let customerId: string;
+      if (
+        inquiry?.customerId &&
+        input.customerName.trim() === inquiry.customerName.trim()
+      ) {
+        customerId = inquiry.customerId;
+      } else {
+        const resolved = await this.customers.findOrCreateByName(
+          input.customerName,
+          actor.id,
+          tx
+        );
+        customerId = resolved.id;
+      }
       // Remember the wizard's contact/email on the customer master
       // (fill-if-blank) so a returning customer auto-fills next time.
       if (input.contactNumber || input.email) {
         await this.customers.fillContactDetails(
-          customer.id,
+          customerId,
           {
             contactNumber: input.contactNumber || undefined,
             email: input.email || undefined,
@@ -170,7 +187,7 @@ export class QuotationService {
           quoteNumber: await this.generateQuoteNumber(type, tx),
           type,
           poNumber: type === QuotationType.PO ? input.poNumber?.trim() || null : null,
-          customerId: customer.id,
+          customerId,
           status: QuotationStatus.DRAFT,
           validUntil: parseDate(input.validUntil),
           subtotal: money(totals.subtotal),
@@ -190,7 +207,7 @@ export class QuotationService {
         await this.inquiries.linkQuotation(
           input.inquiryId,
           created.id,
-          customer.id,
+          customerId,
           tx
         );
       }

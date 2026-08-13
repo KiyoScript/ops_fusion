@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { VatStatus } from "@/generated/prisma/enums";
+import { personNameFields } from "./customer";
 
 const phMobile = z
   .string()
@@ -29,7 +30,7 @@ export type CompanyUpdateInput = z.infer<typeof companyUpdateInput>;
 
 // A contact person of a company (required fields per the spec).
 const contactPersonInput = z.object({
-  name: z.string().trim().min(1, "Contact name is required.").max(200),
+  ...personNameFields,
   department: z.string().trim().min(1, "Department is required.").max(120),
   position: z.string().trim().min(1, "Position is required.").max(120),
   email: z.string().trim().min(1, "Official email is required.").max(200),
@@ -49,7 +50,7 @@ export const addCustomerInput = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("INDIVIDUAL"),
-    name: z.string().trim().min(1, "Name is required.").max(200),
+    ...personNameFields,
     contactNumber: phMobile,
     email: z.string().trim().max(200).optional(),
     company: z.string().trim().max(200).optional(), // free-text (not an entity)

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import type { DbTx } from "@/modules/shared/repositories/types";
 import type { AttachmentKind, VatStatus } from "@/generated/prisma/enums";
+import { composePersonName, type PersonName } from "../person-name";
 
 // Billing fields a company owns and pushes down to its contact customers.
 export type CompanyBilling = {
@@ -19,16 +20,14 @@ export type CompanyWriteData = CompanyBilling & {
   notes: string | null;
 };
 
-export type ContactWriteData = {
-  name: string;
+export type ContactWriteData = PersonName & {
   department: string | null;
   position: string | null;
   email: string | null;
   contactNumber: string | null;
 };
 
-export type IndividualWriteData = {
-  name: string;
+export type IndividualWriteData = PersonName & {
   contactNumber: string | null;
   email: string | null;
   company: string | null;
@@ -121,7 +120,10 @@ export class PrismaCompanyRepository {
   ): Promise<{ id: string }> {
     return (tx ?? prisma).customer.create({
       data: {
-        name: contact.name,
+        name: composePersonName(contact),
+        lastName: contact.lastName,
+        firstName: contact.firstName,
+        middleInitial: contact.middleInitial ?? null,
         department: contact.department,
         position: contact.position,
         email: contact.email,
@@ -144,7 +146,13 @@ export class PrismaCompanyRepository {
     createdById: string
   ): Promise<{ id: string }> {
     return prisma.customer.create({
-      data: { ...data, vatRegistered: data.vatStatus === "VAT", createdById },
+      data: {
+        ...data,
+        name: composePersonName(data),
+        middleInitial: data.middleInitial ?? null,
+        vatRegistered: data.vatStatus === "VAT",
+        createdById,
+      },
       select: { id: true },
     });
   }

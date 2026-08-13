@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQueryState } from "nuqs";
 import { format } from "date-fns";
-import { PlusIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +32,7 @@ import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { useQuotationsInfinite } from "../hooks/use-quotations";
 import { ColorBadge, type BadgeTone } from "@/components/color-badge";
 import { QuotationStatusBadge } from "./quotation-status-badge";
+import { NewQuotationButton } from "./new-quotation-button";
 
 const STATUS_VIEWS = [
   { value: "open", label: "Open" },
@@ -107,9 +107,8 @@ export function QuotationsView({ canWrite }: { canWrite: boolean }) {
         </Select>
         {canWrite && (
           <div className="ml-auto">
-            <Button nativeButton={false} render={<Link href="/quotations/new/custom" />}>
-              <PlusIcon /> New Quotation
-            </Button>
+            {/* One entry → sales picks Log Inquiry or Create Quotation. */}
+            <NewQuotationButton />
           </div>
         )}
       </div>

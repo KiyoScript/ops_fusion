@@ -10,6 +10,7 @@ import {
   type CompanyDetailRecord,
   type CompanyListRecord,
 } from "../repositories/company-repository";
+import { composePersonName } from "../person-name";
 import type {
   AddCustomerInput,
   CompanyDetailDto,
@@ -36,7 +37,9 @@ export class CompanyService {
     if (input.kind === "INDIVIDUAL") {
       const { id } = await this.repo.createIndividual(
         {
-          name: input.name,
+          lastName: input.lastName,
+          firstName: input.firstName,
+          middleInitial: input.middleInitial ?? null,
           contactNumber: input.contactNumber,
           email: input.email ?? null,
           company: input.company ?? null,
@@ -51,7 +54,8 @@ export class CompanyService {
       );
       await this.activity.log({
         userId: actor.id, entityType: "Customer", entityId: id,
-        action: "create", payload: { name: input.name, kind: "individual" },
+        action: "create",
+        payload: { name: composePersonName(input), kind: "individual" },
       });
       return { customerId: id, companyId: null };
     }
@@ -64,7 +68,9 @@ export class CompanyService {
         input.companyId,
         billing,
         {
-          name: input.contact.name,
+          lastName: input.contact.lastName,
+          firstName: input.contact.firstName,
+          middleInitial: input.contact.middleInitial ?? null,
           department: input.contact.department,
           position: input.contact.position,
           email: input.contact.email,
@@ -74,7 +80,7 @@ export class CompanyService {
       );
       await this.activity.log({
         userId: actor.id, entityType: "Company", entityId: input.companyId,
-        action: "add-contact", payload: { contact: input.contact.name },
+        action: "add-contact", payload: { contact: composePersonName(input.contact) },
       });
       return { customerId: contact.id, companyId: input.companyId };
     }
@@ -110,7 +116,9 @@ export class CompanyService {
         company.id,
         billing,
         {
-          name: input.contact.name,
+          lastName: input.contact.lastName,
+          firstName: input.contact.firstName,
+          middleInitial: input.contact.middleInitial ?? null,
           department: input.contact.department,
           position: input.contact.position,
           email: input.contact.email,
@@ -123,7 +131,7 @@ export class CompanyService {
     });
     await this.activity.log({
       userId: actor.id, entityType: "Company", entityId: result.companyId,
-      action: "create", payload: { name: co.name, firstContact: input.contact.name },
+      action: "create", payload: { name: co.name, firstContact: composePersonName(input.contact) },
     });
     return result;
   }

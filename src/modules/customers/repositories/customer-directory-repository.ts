@@ -4,11 +4,16 @@ import type {
   CustomerListFilters,
   CustomerMetricsDto,
   CustomerUpdateInput,
+  DuplicateNameMatch,
 } from "../schemas/customer";
+import { composePersonName } from "../person-name";
 
 const editSelect = {
   id: true,
   name: true,
+  lastName: true,
+  firstName: true,
+  middleInitial: true,
   company: true,
   companyId: true,
   department: true,
@@ -131,6 +136,7 @@ export interface ICustomerDirectoryRepository {
   findDetail(id: string): Promise<CustomerDetailRecord | null>;
   findForEdit(id: string): Promise<CustomerEditRecord | null>;
   update(input: CustomerUpdateInput, isCompanyContact: boolean): Promise<void>;
+  findNameMatches(name: string, excludeId?: string): Promise<DuplicateNameMatch[]>;
   getMetrics(): Promise<CustomerMetricsDto>;
 }
 
@@ -183,7 +189,10 @@ export class PrismaCustomerDirectoryRepository
     await prisma.customer.update({
       where: { id: input.id },
       data: {
-        name: input.name,
+        name: composePersonName(input),
+        lastName: input.lastName,
+        firstName: input.firstName,
+        middleInitial: input.middleInitial ?? null,
         contactNumber: input.contactNumber || null,
         email: input.email || null,
         address: input.address || null,
@@ -205,6 +214,28 @@ export class PrismaCustomerDirectoryRepository
             }),
       },
     });
+  }
+
+  /** Existing customers whose composed name equals `name` (case-insensitive) —
+   *  drives the soft duplicate warning. Never blocks; just surfaces matches. */
+  async findNameMatches(name: string, excludeId?: string): Promise<DuplicateNameMatch[]> {
+    const rows = await prisma.customer.findMany({
+      where: {
+        deletedAt: null,
+        name: { equals: name, mode: "insensitive" },
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+      select: {
+        id: true, name: true, company: true, companyId: true,
+        status: true, createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    });
+    return rows.map((r) => ({
+      id: r.id, name: r.name, company: r.company, companyId: r.companyId,
+      status: r.status, createdAt: r.createdAt.toISOString(),
+    }));
   }
 
   async getMetrics(): Promise<CustomerMetricsDto> {
