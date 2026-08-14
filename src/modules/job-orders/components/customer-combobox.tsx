@@ -38,8 +38,9 @@ export function CustomerCombobox({
   const options = (search.data ?? []).filter(
     (o) => o.name.toLowerCase() !== value.trim().toLowerCase()
   );
-  const open =
-    focused && !dismissed && value.trim().length >= 2 && options.length > 0;
+  // Open once there's a query — even with zero matches, so a "No results" hint
+  // shows instead of silently nothing.
+  const open = focused && !dismissed && value.trim().length >= 2;
 
   const pick = (option: CustomerSuggestion) => {
     onChange(option.name);
@@ -55,7 +56,7 @@ export function CustomerCombobox({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!open) return;
+    if (!open || options.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((i) => (i + 1) % options.length);
@@ -135,6 +136,11 @@ export function CustomerCombobox({
               </li>
             );
           })}
+          {options.length === 0 && (
+            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+              {search.isFetching ? "Searching…" : "No customers found."}
+            </li>
+          )}
         </ul>
       )}
     </div>

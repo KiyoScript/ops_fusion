@@ -26,7 +26,9 @@ export function CompanyCombobox({
   const [dismissed, setDismissed] = useState(false);
   const search = useCompanySearch(value);
   const options = search.data ?? [];
-  const open = focused && !dismissed && value.trim().length >= 2 && options.length > 0;
+  // Open once there's a query — even with zero matches, so a "No results" hint
+  // shows instead of silently nothing.
+  const open = focused && !dismissed && value.trim().length >= 2;
 
   return (
     <div className="relative">
@@ -73,6 +75,11 @@ export function CompanyCombobox({
               </button>
             </li>
           ))}
+          {options.length === 0 && (
+            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+              {search.isFetching ? "Searching…" : "No companies found."}
+            </li>
+          )}
         </ul>
       )}
     </div>

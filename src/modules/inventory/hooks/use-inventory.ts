@@ -2,6 +2,7 @@
 
 import {
   useInfiniteQuery,
+  keepPreviousData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -48,6 +49,8 @@ export function useMaterials(filters: {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -112,6 +115,8 @@ export function useAdjustments(filters: { q?: string; status?: string }) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -141,6 +146,8 @@ export function useCycleCounts(filters: { q?: string; status?: string }) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -182,6 +189,8 @@ export function useMaterialRequests(filters: { q?: string; status?: string }) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
   });
 }
 

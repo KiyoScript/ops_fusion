@@ -2,6 +2,7 @@
 
 import {
   useInfiniteQuery,
+  keepPreviousData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -27,6 +28,8 @@ export function useQuotationsInfinite(params: QuotationListParams) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
   });
 }
 

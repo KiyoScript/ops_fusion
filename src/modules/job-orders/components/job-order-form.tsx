@@ -111,11 +111,6 @@ export function JobOrderForm({
     label: `${e.code} — ${e.name}${e.team ? ` (${e.team})` : ""}`,
   }));
   const categoryOptions = categoryLookups.data?.map((o) => o.label) ?? [];
-  const lfpCategories = new Set(
-    (categoryLookups.data ?? [])
-      .filter((o) => o.isLFP)
-      .map((o) => o.label.toLowerCase())
-  );
 
   const onSubmit = form.handleSubmit(async (values) => {
     // Quote-derived items keep a locked amount = qty × unit price (the field is
@@ -378,14 +373,7 @@ export function JobOrderForm({
                         <SuggestInput
                           id={`item-category-${index}`}
                           value={field.value ?? ""}
-                          onChange={(value) => {
-                            field.onChange(value);
-                            // Legacy OPSServices "LF" rule: LFP categories flip
-                            // the large-format flag automatically.
-                            if (lfpCategories.has(value.trim().toLowerCase())) {
-                              form.setValue(`items.${index}.isLFP`, true);
-                            }
-                          }}
+                          onChange={field.onChange}
                           options={categoryOptions}
                           placeholder="Tarpaulin, Photocopy…"
                         />
@@ -452,52 +440,10 @@ export function JobOrderForm({
                   </p>
                 )}
 
-              {/* Rush is not set here — it's carried over from the quotation
-                  (which holds the rush fee); it's reflected in the job
-                  description. Only the LFP flag is set for direct entry. */}
-              {mode === "create" && (
-                <div className="flex flex-wrap items-center gap-6">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      {...form.register(`items.${index}.isLFP`)}
-                    />
-                    LFP (large format)
-                  </label>
-                </div>
-              )}
-
-              {mode === "create" && watchedItems?.[index]?.isLFP && (
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="grid gap-2">
-                    <Label htmlFor={`item-lfpw-${index}`}>Width</Label>
-                    <Input
-                      id={`item-lfpw-${index}`}
-                      aria-invalid={!!errors.items?.[index]?.lfpWidth}
-                      {...form.register(`items.${index}.lfpWidth`)}
-                    />
-                    <FieldError
-                      message={errors.items?.[index]?.lfpWidth?.message}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor={`item-lfph-${index}`}>Height</Label>
-                    <Input
-                      id={`item-lfph-${index}`}
-                      {...form.register(`items.${index}.lfpHeight`)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor={`item-lfpu-${index}`}>Unit</Label>
-                    <Input
-                      id={`item-lfpu-${index}`}
-                      placeholder="ft"
-                      {...form.register(`items.${index}.lfpUnit`)}
-                    />
-                  </div>
-                </div>
-              )}
+              {/* LFP is a Product attribute now (fixed-standard production) —
+                  Non-JO walk-ins (xerox/photocopy/supplies) are never large
+                  format, so no manual LFP flag/dimensions here. Production JOs
+                  inherit LFP from the quotation's products. */}
             </div>
           ))}
 

@@ -60,10 +60,12 @@ const TAX_OPTIONS = [
   { value: "VAT_INCLUSIVE", label: "VAT Inclusive" },
 ] as const;
 
+// NON_JO is deliberately NOT offered at quote creation — the non-JO decision is
+// made in the Job Order module / at Convert (the "non-JO escape hatch"). The
+// QuotationType enum still carries NON_JO for existing quotes + convert refusal.
 const QUOTE_TYPES = [
   { value: "SALES", label: "Sales Quotation", hint: "Standard quote → becomes a Job Order" },
   { value: "PO", label: "PO Quotation", hint: "Against a customer purchase order" },
-  { value: "NON_JO", label: "Non-JO Quotation", hint: "Billed direct — no production JO" },
 ] as const;
 
 // How the customer reached out — only used when logging this as an inquiry

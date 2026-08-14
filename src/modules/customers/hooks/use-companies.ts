@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, keepPreviousData } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api-client";
 import type { CompanyListRowDto } from "../schemas/company";
 
@@ -18,5 +18,7 @@ export function useCompanies(filters: { q?: string; vatStatus?: string }) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
   });
 }

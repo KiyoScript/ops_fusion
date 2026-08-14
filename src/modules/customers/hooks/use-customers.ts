@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, keepPreviousData } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api-client";
 import type { CustomerListPageDto } from "../schemas/customer";
 
@@ -23,5 +23,7 @@ export function useCustomers(filters: {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
   });
 }
