@@ -39,6 +39,7 @@ import {
 } from "@/modules/shared/hooks/use-products";
 import { TarpCalculator } from "./tarp-calculator";
 import { AreaCalculator } from "./area-calculator";
+import { NewspaperCalculator } from "./newspaper-calculator";
 import { VariantPicker } from "./variant-picker";
 import { ProductCombobox } from "./product-combobox";
 
@@ -144,7 +145,10 @@ export function QuotationForm({
     const product = productById.get(productId);
     if (!product) return;
     const current = form.getValues(`items.${index}`);
-    if (!current.unitPrice && parseFloat(product.basePrice) > 0) {
+    // Newspaper is priced from the Newspaper Pricing list (the picker), never
+    // from a master base price.
+    const isNewspaper = product.name === "Newspaper";
+    if (!isNewspaper && !current.unitPrice && parseFloat(product.basePrice) > 0) {
       form.setValue(`items.${index}.unitPrice`, product.basePrice);
     }
     if (!current.description) {
@@ -225,7 +229,13 @@ export function QuotationForm({
 
   const applyCalculator = (
     index: number,
-    result: { description: string; unitPrice: string; specs: Record<string, unknown> }
+    result: {
+      description: string;
+      unitPrice: string;
+      specs: Record<string, unknown>;
+      // Newspaper: copies IS the quantity, so the calculator also drives qty.
+      qty?: string;
+    }
   ) => {
     form.setValue(`items.${index}.description`, result.description, {
       shouldValidate: true,
@@ -233,6 +243,9 @@ export function QuotationForm({
     form.setValue(`items.${index}.unitPrice`, result.unitPrice, {
       shouldValidate: true,
     });
+    if (result.qty != null) {
+      form.setValue(`items.${index}.qty`, result.qty, { shouldValidate: true });
+    }
     form.setValue(`items.${index}.specs`, result.specs);
   };
 
@@ -667,8 +680,12 @@ export function QuotationForm({
                 ? productById.get(watchedItem.productId)
                 : undefined;
               const isTarp = product?.name === "Tarpaulin";
+              const isNewspaper = product?.name === "Newspaper";
               const isArea =
-                !isTarp && !!product && AREA_UNITS.has(product.unit.toLowerCase());
+                !isTarp &&
+                !isNewspaper &&
+                !!product &&
+                AREA_UNITS.has(product.unit.toLowerCase());
               return (
               <div key={field.id} className="grid gap-3 rounded-lg border p-3">
                 <div className="grid gap-1 sm:max-w-96">
@@ -774,7 +791,13 @@ export function QuotationForm({
                     onApply={(result) => applyCalculator(index, result)}
                   />
                 )}
-                {!isTarp && !isArea && product && (
+                {isNewspaper && (
+                  <NewspaperCalculator
+                    initialSpecs={watchedItem?.specs ?? null}
+                    onApply={(result) => applyCalculator(index, result)}
+                  />
+                )}
+                {!isTarp && !isArea && !isNewspaper && product && (
                   <VariantPicker
                     rules={product.rules}
                     qty={parseInt(watchedItem?.qty || "1", 10) || 1}

@@ -1,0 +1,89 @@
+// ============================================================
+// NEWSPAPER / PUBLICATION PRINTING PRICING
+// ============================================================
+//
+// Publications: SLT, SLB, EVMail, Krusada, Bandilyo. A newspaper job is priced
+// by (publication, total pages, color pages, BW pages, copies): an EXACT
+// price-table lookup first, else the admin FORMULA (plate + labor + paper +
+// running + margin). Source of truth: "Newspaper Computation 2026.xlsx".
+//
+// Prices stored NET — VAT is applied by the quotation's own tax type, like every
+// other product. Part of the Quotations domain; kept in its own file to limit
+// merge conflicts on the collaborator branch.
+
+enum NewspaperRowKind {
+  FULL_ISSUE // keyed by total pages + color + BW + copies
+  LOOSE_PAGES // loose-pages sub-table — keyed by copies + color + BW (no total pages)
+}
+
+enum NewspaperRowStatus {
+  PENDING // submitted from the calculator — awaits admin approval, NOT used in pricing
+  APPROVED // live in the price table
+}
+
+model NewspaperPublication {
+  id        String  @id @default(cuid())
+  name      String  @unique // SLT, SLB, EVMail, Krusada, Bandilyo
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  // Optional per-publication formula override — null falls back to the global
+  // NewspaperFormulaParams.
+  pricePerPlate Decimal? @db.Decimal(12, 2)
+  laborPerPlate Decimal? @db.Decimal(12, 2)
+  paperRate     Decimal? @db.Decimal(12, 4) // per sheet (e.g. 0.70)
+  runningRate   Decimal? @db.Decimal(12, 2)
+  marginPct     Decimal? @db.Decimal(5, 4) // fraction (e.g. 0.50)
+
+  priceRows NewspaperPriceRow[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([name])
+}
+
+model NewspaperPriceRow {
+  id            String               @id @default(cuid())
+  publicationId String
+  publication   NewspaperPublication @relation(fields: [publicationId], references: [id])
+  kind          NewspaperRowKind     @default(FULL_ISSUE)
+
+  totalPages Int? // FULL_ISSUE only (loose pages has none)
+  colorPages Int @default(0)
+  bwPages    Int @default(0)
+  copies     Int
+  // Final quotable NET price. For SLB this already folds in the sorting charge
+  // (per-publication column mapping is done at import time).
+  price     Decimal @db.Decimal(12, 2)
+  priceCode String? // e.g. NEWSPAPER-BW-01 (reference only)
+  // TABLE = imported from the workbook · TEMPLATE = saved via "Add to Template" ·
+  // CUSTOM = admin-added/edited row · SUBMISSION = proposed via the calculator.
+  source    String  @default("TABLE")
+
+  // Approval workflow. A row is quotable only when APPROVED. A submission from
+  // the calculator lands as PENDING; an admin approves it (updates the matching
+  // APPROVED row's price, or promotes the pending row) or rejects it.
+  status       NewspaperRowStatus @default(APPROVED)
+  submittedById String? // who proposed it (no FK — provenance only)
+  approvedById  String? // admin who approved it
+  approvedAt    DateTime?
+
+  createdAt   DateTime @default(now())
+  createdById String? // user who saved a TEMPLATE row (no FK — provenance only)
+
+  @@index([publicationId, kind, totalPages, colorPages, bwPages, copies])
+  @@index([status])
+}
+
+// Global formula constants (admin-only). Single row.
+model NewspaperFormulaParams {
+  id            String   @id @default(cuid())
+  pricePerPlate Decimal  @default(400) @db.Decimal(12, 2)
+  laborPerPlate Decimal  @default(150) @db.Decimal(12, 2)
+  paperRate     Decimal  @default(0.70) @db.Decimal(12, 4)
+  runningRate   Decimal  @default(425) @db.Decimal(12, 2)
+  marginPct     Decimal  @default(0.50) @db.Decimal(5, 4)
+  updatedAt     DateTime @updatedAt
+}

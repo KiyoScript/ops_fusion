@@ -391,90 +391,6 @@ function parseProductsTab(rows: Rows): ParsedProduct[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Newspaper Maintenance: side-by-side contract-rate blocks (EVMail / SLT /
-// SLB …). Row 0 = block titles, row 1 = column headers, data below. Each data
-// row is one whole print-run package — the label carries pages/colors/copies
-// and the price is the run total, so minQty stays 1.
-// ═══════════════════════════════════════════════════════════════════════════
-function parseNewspaperMaintenance(rows: Rows): ParsedProduct[] {
-  const titles = rows[0] ?? [];
-  const headers = rows[1] ?? [];
-  const blocks: { name: string; start: number; end: number }[] = [];
-  const seen = new Set<string>();
-  for (let c = 0; c < titles.length; c++) {
-    const title = String(titles[c] ?? "").trim();
-    if (!title || seen.has(title)) continue;
-    seen.add(title);
-    blocks.push({ name: title.split(/\s+/)[0]!, start: c, end: titles.length });
-  }
-  blocks.forEach((b, i) => {
-    const next = blocks[i + 1];
-    if (next) b.end = next.start;
-  });
-
-  const products: ParsedProduct[] = [];
-  for (const b of blocks) {
-    const col = (re: RegExp, last = false): number => {
-      let found = -1;
-      for (let c = b.start; c < b.end; c++) {
-        if (re.test(String(headers[c] ?? ""))) {
-          found = c;
-          if (!last) break;
-        }
-      }
-      return found;
-    };
-    const cPages = col(/total pages|# of pages$/i);
-    const cCopies = col(/copies/i);
-    const cColor = col(/colored|full color/i);
-    // When a block carries a base + final rate pair (SLT's "No VAT"/"New
-    // Rate", Bandilyo's two "New Rate" columns), the FINAL rate is the
-    // rightmost rate-titled column.
-    const cRate =
-      col(/new rate/i, true) >= 0 ? col(/new rate/i, true) : col(/rate/i, true);
-    if (cPages < 0 || cCopies < 0) continue;
-    // Bandilyo/Krusada list run configs but their rate column was never
-    // filled in — import them anyway at ₱0 so the client exists in
-    // Maintenance and the real rates can be typed inline later.
-    const priced = cRate >= 0;
-
-    const rules: RuleCreateData[] = [];
-    for (let r = 2; r < rows.length; r++) {
-      // each block's own "Materials Estimate" section (paper requisitions,
-      // not customer pricing) starts below this marker — stop there.
-      if (/materials estimate/i.test(cell(rows, r, b.start))) break;
-      const pages = parseInt(cell(rows, r, cPages), 10);
-      const copies = parseInt(cell(rows, r, cCopies), 10);
-      const price = priced ? money(cell(rows, r, cRate)) : 0;
-      if (!Number.isFinite(pages) || !Number.isFinite(copies) || price === null)
-        continue;
-      const color = parseInt(cell(rows, r, cColor), 10);
-      const colorTxt =
-        Number.isFinite(color) && color > 0 ? ` (${color} color)` : "";
-      rules.push(
-        variant(
-          `${pages} pages${colorTxt} × ${copies} copies`,
-          price,
-          rules.length
-        )
-      );
-    }
-    if (rules.length) {
-      products.push({
-        name: `Newspaper — ${b.name}`,
-        category: "Printing",
-        unit: "run",
-        description: priced
-          ? `${b.name} contract rates — price is for the whole print run`
-          : `${b.name} run configs — rates not in the sheet yet, fill them in here (₱0 = pending)`,
-        rules,
-      });
-    }
-  }
-  return products;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // NewsLetterNewPaper: two paired label|price columns — Newsletter (page-count
 // variants, per copy) and Newspaper (color+BW page combos where the BW line
 // sits on the next row without a price). Spec lines (size/method/material/
@@ -601,7 +517,9 @@ export const SHEET_PARSERS: Record<string, (rows: Rows) => ParsedProduct[]> = {
   banner: parseBanner,
   receipt: parseReceipt,
   products: parseProductsTab,
-  "newspaper maintenance": parseNewspaperMaintenance,
+  // "newspaper maintenance" (the per-publication "Newspaper — SLT/SLB/…" run
+  // products) is RETIRED — newspaper pricing now lives in the dedicated
+  // Newspaper Pricing tables + calculator (prisma/schema/newspaper.prisma).
   newsletternewpaper: parseNewsletterNewspaper,
   "uv print": parseUvPrint,
   "foldable fan": twoColumn("Foldable Fan", "Souvenirs", "pc"),

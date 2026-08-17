@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { PlusIcon, SaveIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,7 +16,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { NumberField } from "@/components/validated-fields";
 import {
   Select,
@@ -27,14 +26,21 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ColorBadge } from "@/components/color-badge";
+import {
   EmptyState,
   ErrorState,
+  TableSkeletonRows,
 } from "@/components/data-states";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import {
-  feeKey,
   useGlobalAddons,
   useProductOptions,
   type ProductOptionDto,
@@ -43,47 +49,14 @@ import {
 import {
   removeAllProductsAction,
   saveGlobalAddonsAction,
-  savePriceListProductAction,
 } from "@/app/(app)/maintenance/quotations/actions";
 import { PriceListImportDialog } from "./price-list-import-dialog";
 import { WorkbookImportDialog } from "./workbook-import-dialog";
 import { ProductEditDialog } from "./product-edit-dialog";
 
-// Spreadsheet-style maintenance: a tab per product (like the workbook's
-// sheets), and the selected product's price rules edited inline in a grid.
-
-type Row = {
-  type: "VARIANT" | "ADDON";
-  label: string;
-  unitPrice: string;
-  minQty: string;
-  minCharge: string;
-  amount: string;
-  pct: string;
-  notes: string;
-};
-
-const toRow = (r: ProductRuleDto): Row => ({
-  type: r.type,
-  label: r.label,
-  unitPrice: r.unitPrice ?? "",
-  minQty: r.minQty > 1 ? String(r.minQty) : "",
-  minCharge: r.minCharge ?? "",
-  amount: r.amount ?? "",
-  pct: r.pct ?? "",
-  notes: r.notes ?? "",
-});
-
-const EMPTY_ROW: Row = {
-  type: "VARIANT",
-  label: "",
-  unitPrice: "",
-  minQty: "",
-  minCharge: "",
-  amount: "",
-  pct: "",
-  notes: "",
-};
+// Product Masters directory — uniform with the other module list views: search
+// + category filter + table, with the full product editor (basics + variants /
+// tiers / add-ons) in a dialog per row (ProductEditDialog).
 
 export function PriceListWorkbench({
   canMaintain,
@@ -95,119 +68,67 @@ export function PriceListWorkbench({
   const products = useProductOptions();
   const globalAddons = useGlobalAddons();
   const [q, setQ] = useState("");
+  const [category, setCategory] = useState("all");
   const debouncedQ = useDebounce(q);
-  // "__global__" selects the pinned Common add-ons tab.
-  const [activeId, setActiveId] = useState<string | null>(null);
 
+  const categories = useMemo(
+    () => [...new Set((products.data ?? []).map((p) => p.category))].sort(),
+    [products.data]
+  );
   const filtered = useMemo(() => {
-    const all = products.data ?? [];
     const needle = debouncedQ.trim().toLowerCase();
-    if (!needle) return all;
-    return all.filter(
-      (p) =>
+    return (products.data ?? []).filter((p) => {
+      if (category !== "all" && p.category !== category) return false;
+      if (!needle) return true;
+      return (
         p.name.toLowerCase().includes(needle) ||
         p.category.toLowerCase().includes(needle)
-    );
-  }, [products.data, debouncedQ]);
+      );
+    });
+  }, [products.data, debouncedQ, category]);
 
-  // Active product is derived: the selected one if it's still in the filtered
-  // list, otherwise the first — no effect/setState needed.
-  const globalActive = activeId === "__global__";
-  const active = globalActive
-    ? null
-    : (filtered.find((p) => p.id === activeId) ?? filtered[0] ?? null);
+  const variantCount = (p: ProductOptionDto) =>
+    new Set(p.rules.filter((r) => r.type === "VARIANT").map((r) => r.label)).size;
+  const addonCount = (p: ProductOptionDto) =>
+    p.rules.filter((r) => r.type === "ADDON").length;
+  const php = (v: string) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n > 0
+      ? `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
+      : "—";
+  };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[16rem_1fr]">
-      {/* product tabs (like spreadsheet sheet tabs) */}
-      <div className="grid h-fit gap-2">
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search product…"
+          placeholder="Search product or category…"
           aria-label="Search products"
+          className="max-w-72"
         />
-        <button
-          type="button"
-          onClick={() => setActiveId("__global__")}
-          className={cn(
-            "flex w-full items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm font-medium",
-            globalActive
-              ? "border-primary bg-primary text-primary-foreground"
-              : "hover:bg-accent"
-          )}
-        >
-          <span>Common add-ons</span>
-          <span
-            className={cn(
-              "shrink-0 text-xs tabular-nums",
-              globalActive
-                ? "text-primary-foreground/70"
-                : "text-muted-foreground"
-            )}
-          >
-            {globalAddons.data?.length ?? 0}
-          </span>
-        </button>
-        <Card className="py-0">
-          <CardContent className="max-h-[70vh] overflow-y-auto p-1">
-            {products.isPending ? (
-              <div className="grid gap-1 p-1">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Skeleton key={i} className="h-8 w-full" />
-                ))}
-              </div>
-            ) : filtered.length === 0 ? (
-              <p className="p-3 text-sm text-muted-foreground">No products.</p>
-            ) : (
-              <ul className="grid gap-0.5">
-                {filtered.map((p) => (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      onClick={() => setActiveId(p.id)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm",
-                        p.id === active?.id
-                          ? "bg-primary text-primary-foreground"
-                          : "hover:bg-accent"
-                      )}
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate">{p.name}</span>
-                        {p.isLFP && (
-                          <span
-                            className={cn(
-                              "shrink-0 rounded px-1 py-px text-[10px] font-semibold",
-                              p.id === active?.id
-                                ? "bg-primary-foreground/20 text-primary-foreground"
-                                : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
-                            )}
-                          >
-                            LFP
-                          </span>
-                        )}
-                      </span>
-                      <span
-                        className={cn(
-                          "shrink-0 text-xs tabular-nums",
-                          p.id === active?.id
-                            ? "text-primary-foreground/70"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        {p.rules.length}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+        <Select value={category} onValueChange={(v) => setCategory(v as string)}>
+          <SelectTrigger aria-label="Filter by category" className="w-44">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All categories</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {canMaintain && (
-          <div className="flex flex-wrap gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             <ProductEditDialog />
+            <CommonAddonsButton
+              addons={globalAddons.data ?? []}
+              count={globalAddons.data?.length ?? 0}
+              canMaintain={canMaintain}
+            />
             <PriceListImportDialog />
             <WorkbookImportDialog />
             {canRemoveAll && (
@@ -217,43 +138,112 @@ export function PriceListWorkbench({
         )}
       </div>
 
-      {/* selected product's editable grid */}
-      <div>
-        {globalActive ? (
-          globalAddons.isPending ? (
-            <Skeleton className="h-64 w-full" />
-          ) : globalAddons.isError ? (
-            <ErrorState
-              message={globalAddons.error.message}
-              onRetry={() => globalAddons.refetch()}
-            />
-          ) : (
-            <GlobalAddonsSheet
-              addons={globalAddons.data}
-              canMaintain={canMaintain}
-            />
-          )
-        ) : products.isPending ? (
-          <Skeleton className="h-64 w-full" />
-        ) : products.isError ? (
-          <ErrorState
-            message={products.error.message}
-            onRetry={() => products.refetch()}
-          />
-        ) : !active ? (
-          <EmptyState
-            title="No product selected"
-            description="Pick a product from the list, or add one."
-          />
-        ) : (
-          <ProductSheet
-            key={active.id}
-            product={active}
-            canMaintain={canMaintain}
-          />
-        )}
-      </div>
+      <Card className="py-0">
+        <CardContent className="overflow-x-auto px-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-56">Product</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Unit</TableHead>
+                <TableHead>LFP</TableHead>
+                <TableHead className="text-right">Base price</TableHead>
+                <TableHead className="text-right">Variants</TableHead>
+                <TableHead className="text-right">Add-ons</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {products.isPending ? (
+                <TableSkeletonRows cols={8} />
+              ) : products.isError ? (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <ErrorState
+                      message={products.error.message}
+                      onRetry={() => products.refetch()}
+                    />
+                  </TableCell>
+                </TableRow>
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <EmptyState
+                      title="No products found"
+                      description={
+                        canMaintain
+                          ? "Add a product or import the workbook."
+                          : "Nothing matches the filters."
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium wrap-break-word">
+                      {p.name}
+                    </TableCell>
+                    <TableCell>
+                      <ColorBadge tone="gray" label={p.category} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{p.unit}</TableCell>
+                    <TableCell>
+                      {p.isLFP && <ColorBadge tone="blue" label="LFP" />}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {php(p.basePrice)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {variantCount(p) || "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {addonCount(p) || "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {canMaintain && <ProductEditDialog product={p} />}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+// Common add-ons — the shared-fee editor (rush / design / delivery …) in a
+// dialog. Was a pinned "tab" in the old two-pane workbench.
+function CommonAddonsButton({
+  addons,
+  count,
+  canMaintain,
+}: {
+  addons: ProductRuleDto[];
+  count: number;
+  canMaintain: boolean;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button variant="outline" />}>
+        Common add-ons
+        <span className="ml-1 rounded bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">
+          {count}
+        </span>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Common add-ons</DialogTitle>
+          <DialogDescription>
+            Fees offered on every product (rush, design, delivery…). These
+            override a product&apos;s own same-name add-on.
+          </DialogDescription>
+        </DialogHeader>
+        <GlobalAddonsSheet addons={addons} canMaintain={canMaintain} />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -475,288 +465,6 @@ function GlobalAddonsSheet({
             >
               <PlusIcon /> Add common add-on
             </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ProductSheet({
-  product,
-  canMaintain,
-}: {
-  product: ProductOptionDto;
-  canMaintain: boolean;
-}) {
-  const queryClient = useQueryClient();
-  const globalAddons = useGlobalAddons();
-  const [rows, setRows] = useState<Row[]>(product.rules.map(toRow));
-  const [saving, setSaving] = useState(false);
-  const [ruleQ, setRuleQ] = useState("");
-  const ruleNeedle = useDebounce(ruleQ).trim().toLowerCase();
-
-  // feeKey → what quotes actually charge, e.g. "₱500" (global overrides).
-  const globalByKey = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const g of globalAddons.data ?? []) {
-      map.set(feeKey(g.label), g.pct ? `${g.pct}%` : `₱${g.amount ?? "0"}`);
-    }
-    return map;
-  }, [globalAddons.data]);
-
-  const setRow = (i: number, patch: Partial<Row>) =>
-    setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
-  const removeRow = (i: number) =>
-    setRows((rs) => rs.filter((_, x) => x !== i));
-
-  // Filter keeps the ORIGINAL index so inline edits/removals still hit the
-  // right row — long price DBs (e.g. Receipt Booklet) are searched, not paged.
-  const visible = rows
-    .map((r, i) => ({ r, i }))
-    .filter(
-      ({ r }) =>
-        !ruleNeedle ||
-        r.label.toLowerCase().includes(ruleNeedle) ||
-        r.notes.toLowerCase().includes(ruleNeedle)
-    );
-
-  const addRow = (type: Row["type"]) => {
-    setRuleQ(""); // a fresh row must not be hidden by an active filter
-    setRows((rs) => [...rs, { ...EMPTY_ROW, type }]);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    const result = await savePriceListProductAction({
-      id: product.id,
-      name: product.name,
-      category: product.category,
-      unit: product.unit,
-      basePrice: "",
-      description: product.description ?? "",
-      rules: rows
-        .filter((r) => r.label.trim())
-        .map((r) => ({
-          type: r.type,
-          label: r.label,
-          unitPrice: r.unitPrice,
-          minQty: r.minQty,
-          minCharge: r.minCharge,
-          amount: r.amount,
-          pct: r.pct,
-          notes: r.notes,
-        })),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success(`${product.name} saved.`);
-    queryClient.invalidateQueries({ queryKey: ["products"] });
-  };
-
-  return (
-    <Card>
-      <CardContent className="grid gap-4 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
-              {product.name}
-              {product.isLFP && (
-                <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
-                  LFP
-                </span>
-              )}
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              {product.category} · priced per {product.unit}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={ruleQ}
-                onChange={(e) => setRuleQ(e.target.value)}
-                placeholder="Search rules…"
-                aria-label={`Search ${product.name} rules`}
-                className="h-8 w-44 pl-8"
-              />
-            </div>
-            {canMaintain && (
-              <div className="flex items-center gap-1">
-                <ProductEditDialog product={product} />
-                <Button onClick={save} disabled={saving} size="sm">
-                  <SaveIcon /> {saving ? "Saving…" : "Save"}
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* grid header */}
-        <div className="overflow-x-auto">
-          <div className="min-w-[42rem]">
-            <div className="grid grid-cols-[7rem_1fr_6rem_5rem_6rem_5rem_2.5rem] gap-2 border-b pb-1 text-xs font-medium text-muted-foreground">
-              <span>Type</span>
-              <span>Label</span>
-              <span>Unit price</span>
-              <span>Min qty</span>
-              <span>Min charge</span>
-              <span>%</span>
-              <span className="sr-only">Remove</span>
-            </div>
-            <div className="grid gap-1.5 pt-2">
-              {rows.length === 0 && (
-                <p className="py-2 text-sm text-muted-foreground">
-                  No rules — add a variant or add-on below.
-                </p>
-              )}
-              {rows.length > 0 && visible.length === 0 && (
-                <p className="py-2 text-sm text-muted-foreground">
-                  No rules match “{ruleQ}” — {rows.length} hidden.
-                </p>
-              )}
-              {ruleNeedle && visible.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Showing {visible.length} of {rows.length} rules
-                </p>
-              )}
-              {visible.map(({ r, i }) => {
-                const overriddenBy =
-                  r.type === "ADDON"
-                    ? globalByKey.get(feeKey(r.label))
-                    : undefined;
-                // Overridden fee rows are LOCKED — the Common add-ons tab is
-                // the single place to adjust them; the row can only be removed.
-                const editable = canMaintain && !overriddenBy;
-                return (
-                <div
-                  key={i}
-                  className="grid grid-cols-[7rem_1fr_6rem_5rem_6rem_5rem_2.5rem] items-center gap-2"
-                >
-                  <Select
-                    value={r.type}
-                    onValueChange={(v) =>
-                      editable && setRow(i, { type: (v as Row["type"]) ?? "VARIANT" })
-                    }
-                    disabled={!editable}
-                  >
-                    <SelectTrigger aria-label="Rule type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="VARIANT">Variant</SelectItem>
-                      <SelectItem value="ADDON">Add-on</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="grid gap-0.5">
-                    <Input
-                      value={r.label}
-                      onChange={(e) => setRow(i, { label: e.target.value })}
-                      placeholder="Label"
-                      readOnly={!editable}
-                      className={overriddenBy ? "opacity-60" : undefined}
-                    />
-                    {overriddenBy && (
-                      <p className="text-[11px] font-medium text-amber-600">
-                        Uses Common add-on ({overriddenBy}) — adjust it there
-                      </p>
-                    )}
-                  </div>
-                  {r.type === "VARIANT" ? (
-                    <>
-                      <NumberField
-                        decimal
-                        value={r.unitPrice}
-                        onChange={(v) => setRow(i, { unitPrice: v })}
-                        placeholder="Price"
-                        disabled={!editable}
-                      />
-                      <NumberField
-                        value={r.minQty}
-                        onChange={(v) => setRow(i, { minQty: v })}
-                        placeholder="1"
-                        disabled={!editable}
-                      />
-                      <NumberField
-                        decimal
-                        value={r.minCharge}
-                        onChange={(v) => setRow(i, { minCharge: v })}
-                        placeholder="—"
-                        disabled={!editable}
-                      />
-                      <span className="text-center text-muted-foreground">—</span>
-                    </>
-                  ) : (
-                    <>
-                      <NumberField
-                        decimal
-                        value={r.amount}
-                        onChange={(v) => setRow(i, { amount: v })}
-                        placeholder="Amount"
-                        disabled={!editable}
-                      />
-                      <span className="text-center text-muted-foreground">—</span>
-                      <span className="text-center text-muted-foreground">—</span>
-                      <NumberField
-                        decimal
-                        value={r.pct}
-                        onChange={(v) => setRow(i, { pct: v })}
-                        placeholder="%"
-                        disabled={!editable}
-                      />
-                    </>
-                  )}
-                  {canMaintain && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove row ${i + 1}`}
-                      onClick={() => removeRow(i)}
-                    >
-                      <Trash2Icon className="size-4" />
-                    </Button>
-                  )}
-                </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {canMaintain && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => addRow("VARIANT")}
-            >
-              <PlusIcon /> Add variant
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => addRow("ADDON")}
-            >
-              <PlusIcon /> Add-on fee
-            </Button>
-          </div>
-        )}
-
-        {product.productionSteps.length > 0 && (
-          <div className="border-t pt-3">
-            <Label className="text-xs text-muted-foreground">
-              Production steps
-            </Label>
-            <p className="mt-1 text-sm">
-              {product.productionSteps.join(" → ")}
-            </p>
           </div>
         )}
       </CardContent>

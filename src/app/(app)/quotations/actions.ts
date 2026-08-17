@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/lib/authz";
+import { assertCan } from "@/lib/ability";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getQuotationService } from "@/modules/quotations/services";
+import { saveTemplateRow } from "@/modules/quotations/services/newspaper-pricing";
 import {
   quotationCreateInput,
   quotationTransitionInput,
@@ -13,6 +15,38 @@ import { z } from "zod";
 
 function firstIssue(error: z.ZodError): ValidationError {
   return new ValidationError(error.issues[0]?.message ?? "Invalid input.");
+}
+
+// "Add to Template" — save the current formula-computed newspaper price as a
+// reusable row (recomputed server-side). Part of quoting → gated on create.
+const newspaperTemplateInput = z.object({
+  publicationId: z.string().min(1),
+  kind: z.enum(["FULL_ISSUE", "LOOSE_PAGES"]),
+  colorPages: z.coerce.number().int().min(0).max(200),
+  bwPages: z.coerce.number().int().min(0).max(200),
+  copies: z.coerce.number().int().min(1).max(100000),
+});
+
+export async function addNewspaperTemplateAction(
+  input: unknown
+): Promise<ActionResult<{ price: number; created: boolean }>> {
+  try {
+    const actor = await requireActor();
+    assertCan(actor, "create", "Quotation");
+    const parsed = newspaperTemplateInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+    const { publicationId, kind, colorPages, bwPages, copies } = parsed.data;
+    if (colorPages + bwPages <= 0) {
+      return fail(new ValidationError("Enter the color / BW page counts."));
+    }
+    const result = await saveTemplateRow(
+      { publicationId, kind, totalPages: colorPages + bwPages, colorPages, bwPages, copies },
+      actor.id
+    );
+    return ok({ price: result.price, created: result.created });
+  } catch (err) {
+    return fail(err);
+  }
 }
 
 export async function createQuotationAction(
