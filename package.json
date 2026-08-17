@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "verify:sales-contract": "tsx scripts/verify-sales-contract.ts",
+    "check": "npm run typecheck && npm run lint && npm run verify:sales-contract",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate dev",

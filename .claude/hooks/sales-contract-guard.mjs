@@ -102,7 +102,7 @@ const FOOTER =
   `\nThese seams belong to the finance track even when the file belongs to core dev. ` +
   `Their failures surface as wrong VAT reports and uncollectable receivables — ` +
   `not as errors in your own module.\n` +
-  `Verify with: npx tsx scripts/verify-sales-contract.ts`;
+  `Verify with: npm run check`;
 
 function readStdin() {
   try {

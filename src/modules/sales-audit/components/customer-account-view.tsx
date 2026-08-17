@@ -99,7 +99,12 @@ export function CustomerAccountView({
   return (
     <div className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="ghost" size="sm" render={<Link href="/sales-audit/receivables" />}>
+        <Button
+          variant="ghost"
+          size="sm"
+          nativeButton={false}
+          render={<Link href="/sales-audit/receivables" />}
+        >
           <ArrowLeftIcon /> All receivables
         </Button>
         <Button onClick={() => setCollecting(true)} disabled={owesNothing}>

@@ -101,6 +101,20 @@ Rules:
 4. **Keep the booklet intact.** All copies of cancelled, voided, and replaced receipts stay bound in the booklet (see Section 5).
 5. **Record the range.** Log the serial number range of each booklet when it is opened and when it is closed.
 
+### 4.1 Which labels share a series
+
+The Sales Invoice has three labels of use (Section 3.1) but is pre-printed on **two** number lines:
+
+| Line | Prefix | Labels on it |
+|---|---|---|
+| Sales Invoice | `IN` | Sales Invoice – VAT **and** Sales Invoice – Charge Invoice |
+| Non-VAT Invoice | `NV` | Sales Invoice – NON-VAT |
+
+- **VAT and Charge Invoice are one continuous series.** A booklet is pre-printed for a single label, but its numbers carry on from whichever of the two came before it. Neither restarts at 1, and no two of their booklets may claim the same numbers. Only the wording on the leaf differs.
+- **NON-VAT is a separate series with its own numbering.** It neither continues nor consumes any part of the `IN` line, so `IN-0578` and `NV-0578` are two different, both-valid receipts.
+
+Job Order Receipts (`JO`), Collection Receipts (`CR`) and Delivery Receipts (`DR`) each have their own line, as they always did.
+
 ## 5. Cancelled, Voided, and Replaced Transactions
 
 **Rule:** If a receipt transaction is cancelled, voided, and/or replaced, **the exact receipt used for the cancellation, void, and/or replacement must be attached in the booklet sequentially.**

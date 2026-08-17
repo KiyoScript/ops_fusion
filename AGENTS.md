@@ -63,7 +63,7 @@ side. Design Purchasing and Sales-Audit with this seam in mind.
   Sales Impact Checklist. Those seams belong to the finance track even when
   the file belongs to core dev, and the failures they cause surface as wrong
   VAT reports and uncollectable receivables, not as errors in your module.
-  Verify with `npx tsx scripts/verify-sales-contract.ts`.
+  Verify with `npm run check` (typecheck + lint + contract scanner).
 - **Where things live** — Prisma schema is folder-based: `prisma/schema/`
   (one file per domain; enums live beside their owning model). Permissions:
   `src/lib/ability/policies/` (one CASL policy file per resource, registered

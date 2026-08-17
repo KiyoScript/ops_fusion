@@ -356,7 +356,8 @@ Layers 1 and 2 are reminders and can be missed. Layer 3 cannot.
 ### How the scanner behaves
 
 ```
-npx tsx scripts/verify-sales-contract.ts
+npm run verify:sales-contract     # this contract only
+npm run check                     # typecheck + lint + contract — run this before you push
 ```
 
 It is a source scanner, so it needs no database and is safe in CI. It checks

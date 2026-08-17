@@ -214,6 +214,10 @@ async function main() {
   const suggestion = await booklets.suggestRange(actor, "SI_VAT");
   check("suggests a range for a new booklet", suggestion.suggestedEnd > suggestion.suggestedStart, suggestion);
   check("suggested prefix for SI_VAT is IN", suggestion.prefix === "IN");
+  // Snapshot the NV line BEFORE anything lands on IN. Comparing against this
+  // makes the independence check below about the two lines rather than about
+  // whatever happens to be in this database already.
+  const nvBefore = await booklets.suggestRange(actor, "SI_NON_VAT");
 
   const siBk = await booklets.create(cashier, {
     type: "SI_VAT", seriesStart: 9000, seriesEnd: 9049,
@@ -232,26 +236,39 @@ async function main() {
     label: `${PREFIX}CI booklet`, gapExempt: false,
   });
 
-  // The three SI labels are ONE pre-printed IN series (docs/sales.txt §3.1).
+  // VAT + Charge Invoice are ONE pre-printed IN series; Non-VAT is its own NV
+  // series and shares nothing with them (docs/sales.txt §4.1).
   const [vatNext, nonVatNext, chargeNext] = await Promise.all([
     booklets.suggestRange(actor, "SI_VAT"),
     booklets.suggestRange(actor, "SI_NON_VAT"),
     booklets.suggestRange(actor, "SI_CHARGE"),
   ]);
-  check("all three SI labels continue ONE number line",
-    nonVatNext.suggestedStart === vatNext.suggestedStart && chargeNext.suggestedStart === vatNext.suggestedStart,
-    [vatNext.suggestedStart, nonVatNext.suggestedStart, chargeNext.suggestedStart]);
+  check("VAT and Charge Invoice continue ONE number line",
+    chargeNext.suggestedStart === vatNext.suggestedStart,
+    [vatNext.suggestedStart, chargeNext.suggestedStart]);
   check("that line runs past the SI booklet just registered", vatNext.suggestedStart > 9049, vatNext.suggestedStart);
   check("a Charge Invoice prints the same IN prefix", chargeNext.prefix === "IN", chargeNext.prefix);
+  check("Non-VAT prints its OWN prefix", nonVatNext.prefix === "NV", nonVatNext.prefix);
+  check("…and 150 leaves added to the IN line leave the NV line where it was",
+    nonVatNext.suggestedStart === nvBefore.suggestedStart,
+    [nvBefore.suggestedStart, nonVatNext.suggestedStart]);
 
   let crossLabel = "";
   try {
     await booklets.create(cashier, {
-      type: "SI_NON_VAT", seriesStart: 9002, seriesEnd: 9010,
+      type: "SI_CHARGE", seriesStart: 9002, seriesEnd: 9010,
       label: `${PREFIX}cross-label`, gapExempt: false,
     });
   } catch (e) { crossLabel = (e as Error).constructor.name; }
-  check("a Non-VAT range colliding with a VAT booklet is refused (ConflictError)", crossLabel === "ConflictError", crossLabel);
+  check("a Charge range colliding with a VAT booklet is refused (ConflictError)", crossLabel === "ConflictError", crossLabel);
+
+  // The SAME numbers on the other line are not a collision at all: IN-9002 and
+  // NV-9002 are two different leaves on two different pads.
+  const nvTwin = await booklets.create(cashier, {
+    type: "SI_NON_VAT", seriesStart: 9002, seriesEnd: 9010,
+    label: `${PREFIX}NV twin`, gapExempt: false,
+  });
+  check("…while the identical range on the NV line is accepted", !!nvTwin.id, nvTwin);
 
   const pending = await booklets.list(actor, { status: "PENDING_APPROVAL" });
   check("a new booklet awaits approval (not usable yet)", pending.some((b) => b.id === siBk.id));
@@ -644,13 +661,21 @@ async function main() {
     label: `${PREFIX}NV booklet`, gapExempt: false,
   });
   await booklets.approve(actor, nvBk.id);
+  const nvIssued: (string | null)[] = [];
   for (let i = 0; i < 3; i++) {
     const j = await makeJo(400 + i, "100");
-    await receipts.receivePayment(cashier, {
+    const nvSi = await receipts.receivePayment(cashier, {
       ...base, jobOrderId: j.id, kind: "SI_NON_VAT", amount: "100.00",
       payments: [{ method: "CASH", amount: "100.00", reference: undefined }],
     });
+    nvIssued.push(nvSi.documentNo);
   }
+  // The number actually printed on the leaf — an IN here would mean a Non-VAT
+  // sale had eaten a serial out of the VAT/Charge line.
+  check("a Non-VAT invoice takes its number from the NV series",
+    nvIssued[0] === "NV-9500", nvIssued[0]);
+  check("…and runs its own sequence", nvIssued.join(",") === "NV-9500,NV-9501,NV-9502", nvIssued);
+
   const spent = (await booklets.list(actor, { type: "SI_NON_VAT" })).find((b) => b.id === nvBk.id)!;
   check("a used-up booklet flips to CONSUMED", spent.status === "CONSUMED", spent.status);
   check("consumed booklet reports 0 remaining", spent.remaining === 0, spent.remaining);

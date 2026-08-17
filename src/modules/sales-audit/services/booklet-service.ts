@@ -42,9 +42,10 @@ export class BookletService {
   /**
    * What the "register a booklet" form pre-fills: the block straight after the
    * last range on that NUMBER LINE — not merely the last one wearing the same
-   * label, since the three Sales Invoice labels are printed as one continuous
-   * IN series. The admin can overwrite both ends — booklet size is not fixed
-   * (a 25-, 50- or 100-leaf booklet all work).
+   * label, since VAT and Charge Invoice are printed as one continuous IN
+   * series. Non-VAT is on its own NV line and is suggested from that line
+   * alone. The admin can overwrite both ends — booklet size is not fixed (a
+   * 25-, 50- or 100-leaf booklet all work).
    */
   async suggestRange(
     actor: Actor,
@@ -70,7 +71,8 @@ export class BookletService {
 
     // No two booklets on one number line may claim the same numbers, or the
     // ledger ends up with two IN-0578s. The clash is not always with a booklet
-    // of the same label: VAT, Non-VAT and Charge all draw from the IN series.
+    // of the same label — VAT and Charge both draw from the IN series — and a
+    // Non-VAT range is NOT a clash with either, since NV is its own line.
     const [clash] = await this.booklets.findOverlapping(
       BOOKLET_PREFIX[input.type],
       input.seriesStart,

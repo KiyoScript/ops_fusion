@@ -45,9 +45,9 @@ export interface IBookletRepository {
   create(data: BookletCreateData): Promise<{ id: string }>;
   /**
    * Highest seriesEnd on one number line — where the next block starts. Keyed
-   * on the prefix, not the type: the three Sales Invoice labels all print "IN"
-   * and run as one series, so a Non-VAT booklet carries on from wherever the
-   * last VAT or Charge one ended.
+   * on the prefix, not the type: VAT and Charge Invoice both print "IN" and run
+   * as one series, so a Charge booklet carries on from wherever the last VAT
+   * one ended. Non-VAT prints "NV" and advances entirely independently.
    */
   maxSeriesEnd(prefix: string): Promise<number>;
   /** Booklets on the same number line whose range collides with [start, end]. */

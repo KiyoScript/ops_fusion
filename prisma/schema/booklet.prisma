@@ -3,15 +3,21 @@
 // ============================================================
 
 // The three SI_* values are the Sales Invoice's "three separate labels of use"
-// (docs/sales.txt §3.1) — one document, printed as ONE continuous IN series.
-// A booklet is pre-printed for a single label, but its numbers carry on from
-// whichever labelled booklet came before it, so the labels never restart at 1
-// and no two of them may claim the same numbers. Only the wording on the leaf
-// differs. The shared "prefix" column is what identifies the line — see
-// BOOKLET_PREFIX in schemas/booklet.ts and the Booklet_no_overlapping_ranges
-// constraint, which keys on it.
+// (docs/sales.txt §3.1). They sit on TWO number lines, not three and not one:
+//
+//   IN — SI_VAT + SI_CHARGE, printed as one continuous series. A booklet is
+//        pre-printed for a single label, but its numbers carry on from
+//        whichever of the two came before it, so neither restarts at 1 and no
+//        two of them may claim the same numbers. Only the wording differs.
+//   NV — SI_NON_VAT, printed as its own series with its own numbering. It
+//        neither continues nor consumes any part of the IN line.
+//
+// The "prefix" column is what identifies the line — see BOOKLET_PREFIX in
+// schemas/booklet.ts and the Booklet_no_overlapping_ranges constraint, which
+// keys on it, so IN-0578 and NV-0578 can coexist while two IN-0578s cannot.
 enum BookletType {
   SI_VAT
+  // Its own NV series — not part of the IN line.
   SI_NON_VAT
   // Sales Invoice used for a sale on credit (utang) — docs/sales.txt §3.1.3.
   SI_CHARGE
@@ -44,7 +50,11 @@ enum BookletStatus {
 model Booklet {
   id            String        @id @default(cuid())
   type          BookletType
-  prefix        String // IN / JO / CR / DR — builds the number: IN-0578
+  // IN / NV / JO / CR / DR — builds the number: IN-0578. Stored per booklet
+  // rather than derived from `type` on read, because it is what was physically
+  // printed on the leaves: re-pointing a type at a new line (as SI_NON_VAT
+  // moved from IN to NV) must not renumber booklets already in the drawer.
+  prefix        String
   label         String?
   seriesStart   Int
   seriesEnd     Int
