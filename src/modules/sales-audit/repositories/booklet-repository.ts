@@ -203,8 +203,15 @@ export class PrismaBookletRepository implements IBookletRepository {
   }
 
   async hasIssuedDocuments(id: string): Promise<boolean> {
+    // Booklet accountability counts LEAVES, not revenue. A voided receipt still
+    // consumed its serial, so both queries below deliberately see voided and
+    // deleted rows — filtering them out would let a booklet full of cancelled
+    // receipts look untouched and be re-registered, which is the exact gap
+    // BIR serial accountability exists to close.
     const [sale, cr] = await Promise.all([
+      // contract:allow R2 — a voided receipt still consumed this booklet's leaf
       prisma.sale.findFirst({ where: { bookletId: id }, select: { id: true } }),
+      // contract:allow R2 — a voided CR still consumed this booklet's leaf
       prisma.collectionReceipt.findFirst({
         where: { bookletId: id },
         select: { id: true },

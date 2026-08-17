@@ -130,6 +130,24 @@ export class ReceivableService {
       if (!byCustomer.has(customerId)) byCustomer.set(customerId, []);
     }
 
+    // Company-wide exposure, before any per-customer line is built.
+    //
+    // A company's ceiling is agreed with the COMPANY and denormalised onto each
+    // of its contacts, so checking each contact against it independently grants
+    // the whole ceiling once per contact — five contacts on a ₱100k limit carry
+    // ₱500k and every one of them reads as comfortably inside their limit
+    // (docs/sales-contract.md R15). Exposure is therefore summed per company
+    // first, and each contact's line is judged against that total.
+    const exposureByCompany = new Map<string, number>();
+    for (const r of open) {
+      const companyId = r.customer.companyId;
+      if (!companyId) continue;
+      exposureByCompany.set(
+        companyId,
+        (exposureByCompany.get(companyId) ?? 0) + openBalanceOf(r)
+      );
+    }
+
     let customers: ReceivableCustomerDto[] = [];
     for (const [customerId, rows] of byCustomer) {
       const first = rows[0] as ReceivableRecord | undefined;
@@ -148,6 +166,9 @@ export class ReceivableService {
           creditAvailable: null,
           overLimit: false,
           creditOnAccount: toAmount(creditByCustomer.get(customerId) ?? 0),
+          companyId: null,
+          companyName: null,
+          exposure: "0.00",
         });
         continue;
       }
@@ -167,7 +188,15 @@ export class ReceivableService {
         first.customer.creditLimit === null
           ? null
           : toCentavos(first.customer.creditLimit);
-      const available = limit === null ? null : limit - outstanding;
+
+      // The ceiling is judged against whatever it was agreed with: the company's
+      // whole exposure for a contact, this person's alone for an individual.
+      const companyId = first.customer.companyId;
+      const chargedExposure =
+        companyId !== null
+          ? exposureByCompany.get(companyId) ?? outstanding
+          : outstanding;
+      const available = limit === null ? null : limit - chargedExposure;
 
       customers.push({
         customerId: first.customer.id,
@@ -181,6 +210,13 @@ export class ReceivableService {
         creditAvailable: available === null ? null : toAmount(available),
         overLimit: available !== null && available < 0,
         creditOnAccount: toAmount(creditByCustomer.get(customerId) ?? 0),
+        companyId,
+        companyName: first.customer.companyName,
+        // What the ceiling is actually measured against. Equal to `outstanding`
+        // for an individual; the company's total for a contact — which is the
+        // number that explains an "over limit" flag on a contact who personally
+        // owes very little.
+        exposure: toAmount(chargedExposure),
       });
     }
 
@@ -293,6 +329,19 @@ export class ReceivableService {
       this.creditControlEnabled(),
     ]);
 
+    // Exposure and the over-limit verdict are computed HERE, not by whoever
+    // renders this, so the customer profile and the A/R ledger cannot disagree
+    // about whether someone is over their limit. For a company contact that
+    // means loading the company's other contacts too — their invoices count
+    // against the same ceiling (docs/sales-contract.md R15).
+    const companyId = rows[0]?.customer.companyId ?? null;
+    const companyName = rows[0]?.customer.companyName ?? null;
+    const companyRows = companyId
+      ? (await this.receipts.listReceivables()).filter(
+          (r) => r.customer.companyId === companyId
+        )
+      : [];
+
     const open = rows.filter((r) => openBalanceOf(r) > 0);
     const aging = emptyAging();
     const invoices = open.map((r) => {
@@ -314,13 +363,26 @@ export class ReceivableService {
       };
     });
 
+    const outstanding = open.reduce((t, r) => t + openBalanceOf(r), 0);
+    const exposure = companyId
+      ? companyRows.reduce((t, r) => t + openBalanceOf(r), 0)
+      : outstanding;
+    const limit =
+      customer.creditLimit === null ? null : toCentavos(customer.creditLimit);
+    const available = limit === null ? null : limit - exposure;
+
     return {
       customerId: customer.id,
       customerName: customer.name,
       customerAddress: customer.address,
       customerTin: customer.tin,
       invoices,
-      totalOutstanding: toAmount(open.reduce((t, r) => t + openBalanceOf(r), 0)),
+      totalOutstanding: toAmount(outstanding),
+      companyId,
+      companyName,
+      exposure: toAmount(exposure),
+      creditAvailable: available === null ? null : toAmount(available),
+      overLimit: available !== null && available < 0,
       aging: formatAging(aging),
       credits: credits.map((c) => ({
         ...c,

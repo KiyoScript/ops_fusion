@@ -648,7 +648,7 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       // receipt (amountPaid) + later collections applied to a charge invoice
       // (settledAmount).
       prisma.sale.findMany({
-        where: { jobOrderId: { in: jobOrderIds }, voidedAt: null },
+        where: { jobOrderId: { in: jobOrderIds }, voidedAt: null, deletedAt: null },
         select: { jobOrderId: true, amountPaid: true, settledAmount: true },
       }),
     ]);

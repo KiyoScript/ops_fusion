@@ -1,12 +1,26 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import type {
+  CustomerFinancialTotals,
   CustomerListFilters,
   CustomerMetricsDto,
   CustomerUpdateInput,
   DuplicateNameMatch,
 } from "../schemas/customer";
 import { composePersonName } from "../person-name";
+
+// ── financial row filters (docs/sales-contract.md R2) ──────────────────────
+//
+// A voided receipt is not a deleted one: it keeps its row and its serial so the
+// booklet stays accountable, and it stops counting as revenue. Anything on this
+// page that presents money must therefore exclude BOTH — a cancelled invoice
+// shown next to a live one reads as revenue that was never earned.
+//
+// Defined once and reused by every financial select AND its _count, because the
+// failure mode of getting it right in one and not the other is a page whose
+// tab badge disagrees with the table underneath it.
+const LIVE_RECEIPT = { deletedAt: null, voidedAt: null } as const;
+const LIVE_CREDIT = { deletedAt: null } as const;
 
 const editSelect = {
   id: true,
@@ -74,14 +88,17 @@ const detailSelect = {
     },
     orderBy: { createdAt: "desc" },
   },
+  // Financial relations are counted with the SAME filter their lists use. A
+  // bare `sales: true` counts cancelled receipts, so a customer with one live
+  // invoice and four voided ones reads "5 sales" — see docs/sales-contract.md R2.
   _count: {
     select: {
       quotations: true,
       jobOrders: true,
       deliveryReceipts: true,
-      sales: true,
-      collectionReceipts: true,
-      advancePayments: true,
+      sales: { where: LIVE_RECEIPT },
+      collectionReceipts: { where: LIVE_RECEIPT },
+      advancePayments: { where: LIVE_CREDIT },
       inquiries: true,
     },
   },
@@ -110,17 +127,34 @@ const detailSelect = {
     take: 50,
   },
   sales: {
-    select: { id: true, documentNo: true, paymentStatus: true, amount: true, saleDate: true },
+    where: LIVE_RECEIPT,
+    // amountPaid + settledAmount are what make an open balance computable:
+    // `amount − amountPaid − settledAmount` (R3). paymentStatus alone cannot
+    // answer it — a settled charge invoice stays UNPAID by design, because the
+    // printed receipt is a legal record that must not be rewritten.
+    select: {
+      id: true, documentNo: true, type: true, paymentStatus: true,
+      amount: true, amountPaid: true, settledAmount: true,
+      vatableSales: true, vatAmount: true, dueDate: true, saleDate: true,
+    },
     orderBy: { saleDate: "desc" },
     take: 50,
   },
   collectionReceipts: {
-    select: { id: true, crNumber: true, amount: true, receivedAt: true },
+    where: LIVE_RECEIPT,
+    select: { id: true, crNumber: true, documentIssued: true, amount: true, method: true, receivedAt: true },
     orderBy: { receivedAt: "desc" },
     take: 50,
   },
   advancePayments: {
-    select: { id: true, amount: true, status: true, receivedAt: true },
+    where: LIVE_CREDIT,
+    // `applications` yields `remaining` — what the customer can actually still
+    // spend. Reporting the raw `amount` tells a customer they hold credit the
+    // shop has already applied (R6).
+    select: {
+      id: true, amount: true, status: true, receivedAt: true,
+      applications: { select: { amount: true } },
+    },
     orderBy: { receivedAt: "desc" },
     take: 50,
   },
@@ -134,6 +168,7 @@ export interface ICustomerDirectoryRepository {
     filter: CustomerListFilters
   ): Promise<{ rows: CustomerListRecord[]; nextCursor: string | null }>;
   findDetail(id: string): Promise<CustomerDetailRecord | null>;
+  getFinancialTotals(customerId: string): Promise<CustomerFinancialTotals>;
   findForEdit(id: string): Promise<CustomerEditRecord | null>;
   update(input: CustomerUpdateInput, isCompanyContact: boolean): Promise<void>;
   findNameMatches(name: string, excludeId?: string): Promise<DuplicateNameMatch[]>;
@@ -178,6 +213,55 @@ export class PrismaCustomerDirectoryRepository
     });
   }
 
+  /**
+   * Lifetime money for one customer, aggregated in SQL over EVERY document.
+   *
+   * The document lists above are capped at `take: 50` so the activity tabs stay
+   * cheap. Summing those lists in the component would produce a total that
+   * silently means "of the 50 most recent" — which for a long-standing customer
+   * is simply a wrong number, and wrong in a direction nobody notices
+   * (docs/sales-contract.md R7). So the totals come from here instead.
+   *
+   * Deliberately derived from `Sale` alone (R4/R5): revenue is booked by
+   * invoices, and a CollectionReceipt is cash arriving against revenue that was
+   * already booked. Summing collections into a "collected" figure double-counts
+   * every peso paid by applying existing customer credit, because that credit
+   * was never cash crossing the counter.
+   */
+  async getFinancialTotals(customerId: string): Promise<CustomerFinancialTotals> {
+    const [live, voided] = await Promise.all([
+      prisma.sale.aggregate({
+        where: { customerId, ...LIVE_RECEIPT },
+        _sum: { amount: true, amountPaid: true, settledAmount: true, vatAmount: true },
+        _count: true,
+      }),
+      prisma.sale.count({
+        // contract:allow R2 — counting the voided ones IS the point of this figure
+        where: { customerId, deletedAt: null, NOT: { voidedAt: null } },
+      }),
+    ]);
+
+    const cents = (v: Prisma.Decimal | null) =>
+      v === null ? 0 : Math.round(Number(v) * 100);
+    const money = (c: number) =>
+      `${Math.floor(c / 100)}.${String(Math.abs(c) % 100).padStart(2, "0")}`;
+
+    const billed = cents(live._sum.amount);
+    // What actually landed against their invoices: taken at the counter
+    // (amountPaid, frozen on the printed receipt) plus collected afterwards
+    // (settledAmount). Their sum is the only honest "received" figure.
+    const received = cents(live._sum.amountPaid) + cents(live._sum.settledAmount);
+
+    return {
+      lifetimeBilled: money(billed),
+      lifetimeReceived: money(received),
+      openBalance: money(Math.max(billed - received, 0)),
+      lifetimeVat: money(cents(live._sum.vatAmount)),
+      documentCount: live._count,
+      voidedCount: voided,
+    };
+  }
+
   async findForEdit(id: string): Promise<CustomerEditRecord | null> {
     return prisma.customer.findFirst({
       where: { id, deletedAt: null },
@@ -203,6 +287,15 @@ export class PrismaCustomerDirectoryRepository
         notes: input.notes || null,
         // Billing is company-owned for contacts (kept in sync from the
         // company); only individuals edit it on their own record.
+        //
+        // `creditTermDays` / `creditLimit` are deliberately ABSENT from both
+        // branches. This path is gated on `update Customer`, which ENCODER
+        // holds — the cashier at the counter. Credit terms and ceilings are
+        // admin reference data and move only through
+        // ReceivableService.setCredit, which gates on `maintain Maintenance`
+        // (docs/sales-contract.md R8). Adding them back here would let the
+        // person about to issue a charge invoice raise the ceiling that exists
+        // to stop them.
         ...(isCompanyContact
           ? {}
           : {
@@ -210,7 +303,6 @@ export class PrismaCustomerDirectoryRepository
               tin: input.tin || null,
               vatStatus: input.vatStatus ?? null,
               vatRegistered: input.vatStatus === "VAT",
-              creditTermDays: input.creditTermDays ?? null,
             }),
       },
     });

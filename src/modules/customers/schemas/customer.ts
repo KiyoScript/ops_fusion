@@ -134,9 +134,58 @@ export type CustomerMetricsDto = {
 export type QuoteRefDto = { id: string; number: string; status: string; total: string; createdAt: string; summary: string; itemCount: number };
 export type JoRefDto = { id: string; number: string; status: string; total: string; createdAt: string; summary: string; itemCount: number };
 export type DrRefDto = { id: string; number: string; status: string; issuedAt: string; summary: string; itemCount: number };
-export type SaleRefDto = { id: string; documentNo: string; paymentStatus: string; amount: string; saleDate: string };
-export type CrRefDto = { id: string; number: string | null; amount: string; receivedAt: string };
-export type ApRefDto = { id: string; amount: string; status: string; receivedAt: string };
+export type SaleRefDto = {
+  id: string;
+  documentNo: string;
+  type: string;
+  paymentStatus: string;
+  amount: string;
+  /** `amount − amountPaid − settledAmount`, floored at zero — the only honest
+   *  answer to "what is still owed on this receipt" (docs/sales-contract.md R3). */
+  openBalance: string;
+  vatAmount: string;
+  dueDate: string | null;
+  daysOverdue: number | null;
+  saleDate: string;
+};
+export type CrRefDto = {
+  id: string;
+  number: string | null;
+  /** False → money came in with no printed CR, so no booklet leaf was used. */
+  documentIssued: boolean;
+  amount: string;
+  method: string;
+  receivedAt: string;
+};
+export type ApRefDto = {
+  id: string;
+  amount: string;
+  /** What is still available to spend — NOT `amount` (R6). */
+  remaining: string;
+  status: string;
+  receivedAt: string;
+};
+
+/**
+ * Lifetime money for one customer, aggregated server-side over every document.
+ *
+ * Separate from the capped document lists above precisely because it must not
+ * be derived from them: those stop at 50 rows, and a total computed from a
+ * page is wrong without ever looking wrong (R7).
+ */
+export type CustomerFinancialTotals = {
+  /** Revenue booked to this customer across every live invoice. */
+  lifetimeBilled: string;
+  /** Counter payments plus later collections applied to their invoices. */
+  lifetimeReceived: string;
+  /** billed − received. The customer's own contribution to A/R. */
+  openBalance: string;
+  lifetimeVat: string;
+  documentCount: number;
+  /** Cancelled / voided / replaced receipts — excluded from every figure above,
+   *  surfaced separately so the exclusion is visible rather than silent. */
+  voidedCount: number;
+};
 
 export type CustomerDetailDto = {
   id: string;
@@ -158,6 +207,7 @@ export type CustomerDetailDto = {
   createdByName: string;
   createdAt: string;
   updatedAt: string;
+  totals: CustomerFinancialTotals;
   counts: {
     quotations: number;
     jobOrders: number;

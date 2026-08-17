@@ -53,6 +53,17 @@ side. Design Purchasing and Sales-Audit with this seam in mind.
 - **Data discipline** — qty = `Int`; money = `Decimal(12,2)` (never Float);
   **never truncate** descriptions/specs in any view; soft deletes
   (`deletedAt`); one `ActivityLog` row per mutation.
+- **Money crosses the branch line — read `docs/sales-contract.md` FIRST.**
+  Before writing code that touches a `Customer`/`Company` credit, tax, or
+  status field; a `Sale`, `CollectionReceipt`, `CrAllocation`,
+  `AdvancePayment`, `Booklet`, or `AuditEntry` row (read *or* write); a Job
+  Order total / downpayment / cancellation path; a Delivery Receipt issuance
+  gate; or any `Decimal` column or ₱ figure — open
+  [`docs/sales-contract.md`](docs/sales-contract.md) and follow its rules and
+  Sales Impact Checklist. Those seams belong to the finance track even when
+  the file belongs to core dev, and the failures they cause surface as wrong
+  VAT reports and uncollectable receivables, not as errors in your module.
+  Verify with `npx tsx scripts/verify-sales-contract.ts`.
 - **Where things live** — Prisma schema is folder-based: `prisma/schema/`
   (one file per domain; enums live beside their owning model). Permissions:
   `src/lib/ability/policies/` (one CASL policy file per resource, registered

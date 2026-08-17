@@ -271,6 +271,19 @@ export type ReceivableRecord = {
     tin: string | null;
     creditTermDays: number | null;
     creditLimit: string | null;
+    /**
+     * The billed entity, when this customer is a company contact.
+     *
+     * Company billing (TIN, terms, ceiling) is denormalised onto every contact
+     * by syncBillingToContacts, so `creditLimit` above is the COMPANY's ceiling
+     * copied down — not this person's share of it. Aggregating exposure per
+     * contact therefore grants the ceiling once per contact: a company with a
+     * ₱100k limit and five contacts carries ₱500k. Grouping by this id is what
+     * makes the ceiling company-wide, as it was always meant to be
+     * (docs/sales-contract.md R15).
+     */
+    companyId: string | null;
+    companyName: string | null;
   };
 };
 
@@ -379,12 +392,18 @@ export class PrismaReceiptRepository implements IReceiptRepository {
   async listByJobOrder(
     jobOrderId: string
   ): Promise<{ sales: SaleRecord[]; crs: CrRecord[] }> {
+    // A job order's receipt history INCLUDES its cancellations — the void
+    // reason and the replacement pairing are what the cashier is looking at.
+    // Callers that need revenue rather than history filter on voidedAt
+    // themselves; this is the document trail, not the ledger.
     const [sales, crs] = await Promise.all([
+      // contract:allow R2 — the JO receipt trail shows voided receipts on purpose
       prisma.sale.findMany({
         where: { jobOrderId, deletedAt: null },
         select: saleSelect,
         orderBy: { saleDate: "desc" },
       }),
+      // contract:allow R2 — the JO receipt trail shows voided collections on purpose
       prisma.collectionReceipt.findMany({
         where: { jobOrderId, deletedAt: null },
         select: crSelect,
@@ -426,13 +445,19 @@ export class PrismaReceiptRepository implements IReceiptRepository {
         { jobOrder: { joNumber: { contains: q, mode: "insensitive" } } },
       ];
     }
+    // The day's receipts INCLUDE the cancelled ones. §5.1 step 5 makes the
+    // cancellation log a scan of the day's voided receipts, and an auditor
+    // reconciling a booklet against the day needs every serial that was used —
+    // spoiled or not. The view marks them; the totals exclude them.
     const [sales, crs] = await Promise.all([
+      // contract:allow R2 — the daily view IS the cancellation log; it must show voids
       prisma.sale.findMany({
         where: saleWhere,
         select: saleSelect,
         orderBy: [{ saleDate: "desc" }, { id: "desc" }],
         take: 500,
       }),
+      // contract:allow R2 — same: voided collections appear in the day's log
       prisma.collectionReceipt.findMany({
         where: crWhere,
         select: crSelect,
@@ -443,6 +468,10 @@ export class PrismaReceiptRepository implements IReceiptRepository {
     return { sales, crs };
   }
 
+  // Existence lookups for void / audit operations. An auditor signs off on a
+  // CANCELLED receipt as readily as a live one — §5.1 wants the cancellation
+  // itself initialled — so these must resolve voided rows.
+  // contract:allow R2 — you audit and void receipts that are already voided
   async findSale(id: string): Promise<{ id: string } | null> {
     return prisma.sale.findFirst({
       where: { id, deletedAt: null },
@@ -450,6 +479,7 @@ export class PrismaReceiptRepository implements IReceiptRepository {
     });
   }
 
+  // contract:allow R2 — same: a voided CR is still an auditable document
   async findCr(id: string): Promise<{ id: string } | null> {
     return prisma.collectionReceipt.findFirst({
       where: { id, deletedAt: null },
@@ -521,6 +551,8 @@ export class PrismaReceiptRepository implements IReceiptRepository {
             tin: true,
             creditTermDays: true,
             creditLimit: true,
+            companyId: true,
+            companyRef: { select: { name: true, creditLimit: true } },
           },
         },
       },
@@ -549,11 +581,25 @@ export class PrismaReceiptRepository implements IReceiptRepository {
         address: r.customer.address,
         tin: r.customer.tin,
         creditTermDays: r.customer.creditTermDays,
-        creditLimit: r.customer.creditLimit?.toString() ?? null,
+        // For a contact, the ceiling is read from the COMPANY rather than from
+        // the copy denormalised onto them: the copy drifts if a sync is missed,
+        // and the company row is the one an admin actually edits.
+        creditLimit:
+          r.customer.companyRef?.creditLimit?.toString() ??
+          r.customer.creditLimit?.toString() ??
+          null,
+        companyId: r.customer.companyId,
+        companyName: r.customer.companyRef?.name ?? null,
       },
     }));
   }
 
+  // A customer's payment history shows cancelled payments too, with their void
+  // reason and who approved it — that record is precisely what a customer
+  // disputing their balance is shown. The DTO carries voidType / voidReason /
+  // voidedByName for exactly this. A/R totals come from open invoices, not from
+  // this list, so including voided rows here cannot inflate a balance.
+  // contract:allow R2 — payment history is a document trail, not a balance
   async listPaymentsForCustomer(
     customerId: string
   ): Promise<CustomerPaymentRecord[]> {

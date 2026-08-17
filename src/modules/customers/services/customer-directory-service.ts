@@ -9,9 +9,11 @@ import type {
   ICustomerDirectoryRepository,
 } from "../repositories/customer-directory-repository";
 import { PrismaCustomerDirectoryRepository } from "../repositories/customer-directory-repository";
+import type { Prisma } from "@/generated/prisma/client";
 import type {
   CustomerDetailDto,
   CustomerEditDto,
+  CustomerFinancialTotals,
   CustomerListFilters,
   CustomerListPageDto,
   CustomerListRowDto,
@@ -26,22 +28,34 @@ export class CustomerDirectoryService {
     private readonly activity: IActivityLogRepository
   ) {}
 
-  async list(_actor: Actor, filters: CustomerListFilters): Promise<CustomerListPageDto> {
+  // Every read below is gated (docs/sales-contract.md R9). These rows carry
+  // credit limits, TINs, VAT standing and full sales history — the customer's
+  // credit file, not a phone book — and `read Customer` is what the policy
+  // grants for it. Taking the actor and never checking it was the gap.
+
+  async list(actor: Actor, filters: CustomerListFilters): Promise<CustomerListPageDto> {
+    assertCan(actor, "read", "Customer");
     const { rows, nextCursor } = await this.customers.listPage(filters);
     return { rows: rows.map(mapListRow), nextCursor };
   }
 
-  getMetrics(_actor: Actor) {
+  getMetrics(actor: Actor) {
+    assertCan(actor, "read", "Customer");
     return this.customers.getMetrics();
   }
 
-  async get(_actor: Actor, id: string): Promise<CustomerDetailDto> {
-    const c = await this.customers.findDetail(id);
+  async get(actor: Actor, id: string): Promise<CustomerDetailDto> {
+    assertCan(actor, "read", "Customer");
+    const [c, totals] = await Promise.all([
+      this.customers.findDetail(id),
+      this.customers.getFinancialTotals(id),
+    ]);
     if (!c) throw new NotFoundError("Customer not found.");
-    return mapDetail(c);
+    return mapDetail(c, totals);
   }
 
-  async getForEdit(_actor: Actor, id: string): Promise<CustomerEditDto> {
+  async getForEdit(actor: Actor, id: string): Promise<CustomerEditDto> {
+    assertCan(actor, "read", "Customer");
     const c = await this.customers.findForEdit(id);
     if (!c) throw new NotFoundError("Customer not found.");
     return {
@@ -58,9 +72,10 @@ export class CustomerDirectoryService {
   /** Non-blocking soft-duplicate check: existing customers with the same
    *  composed name. Used by the create/edit forms to warn (never to reject). */
   async checkDuplicateName(
-    _actor: Actor,
+    actor: Actor,
     input: PersonName & { excludeId?: string }
   ): Promise<DuplicateNameMatch[]> {
+    assertCan(actor, "read", "Customer");
     const name = composePersonName(input);
     if (!name) return [];
     return this.customers.findNameMatches(name, input.excludeId);
@@ -70,7 +85,20 @@ export class CustomerDirectoryService {
     assertCan(actor, "update", "Customer");
     const existing = await this.customers.findForEdit(input.id);
     if (!existing) throw new NotFoundError("Customer not found.");
-    await this.customers.update(input, existing.companyId !== null);
+
+    // Tax standing is snapshotted onto every receipt at issue (billedToTin,
+    // and the VAT split that follows from vatStatus), so moving it changes what
+    // the NEXT document says about this customer and nothing about the ones
+    // already filed. That is a BIR-relevant event and gets its own log action
+    // rather than being buried in a generic "update"
+    // (docs/sales-contract.md R12).
+    const isContact = existing.companyId !== null;
+    const taxMoved =
+      !isContact &&
+      ((input.tin || null) !== existing.tin ||
+        (input.vatStatus ?? null) !== existing.vatStatus);
+
+    await this.customers.update(input, isContact);
     await this.activity.log({
       userId: actor.id,
       entityType: "Customer",
@@ -78,6 +106,19 @@ export class CustomerDirectoryService {
       action: "update",
       payload: { name: composePersonName(input) },
     });
+    if (taxMoved) {
+      await this.activity.log({
+        userId: actor.id,
+        entityType: "Customer",
+        entityId: input.id,
+        action: "change-tax-status",
+        payload: {
+          name: composePersonName(input),
+          from: { tin: existing.tin, vatStatus: existing.vatStatus },
+          to: { tin: input.tin || null, vatStatus: input.vatStatus ?? null },
+        },
+      });
+    }
   }
 }
 
@@ -100,8 +141,12 @@ function mapListRow(c: CustomerListRecord): CustomerListRowDto {
   };
 }
 
-function mapDetail(c: CustomerDetailRecord): CustomerDetailDto {
+function mapDetail(
+  c: CustomerDetailRecord,
+  totals: CustomerFinancialTotals
+): CustomerDetailDto {
   return {
+    totals,
     id: c.id,
     name: c.name,
     company: c.company,
@@ -151,20 +196,59 @@ function mapDetail(c: CustomerDetailRecord): CustomerDetailDto {
       summary: dr.lines.map((l) => `${l.qty}× ${l.jobOrderItem.description}`).join(" · "),
       itemCount: dr.lines.length,
     })),
-    sales: c.sales.map((s) => ({
-      id: s.id, documentNo: s.documentNo, paymentStatus: s.paymentStatus,
-      amount: s.amount.toString(), saleDate: s.saleDate.toISOString(),
-    })),
+    sales: c.sales.map((s) => {
+      // R3: what is still owed is the arithmetic, never the status flag.
+      const owed = Math.max(
+        cents(s.amount) - cents(s.amountPaid) - cents(s.settledAmount),
+        0
+      );
+      return {
+        id: s.id,
+        documentNo: s.documentNo,
+        type: s.type,
+        paymentStatus: s.paymentStatus,
+        amount: s.amount.toString(),
+        openBalance: pesos(owed),
+        vatAmount: s.vatAmount.toString(),
+        dueDate: s.dueDate?.toISOString() ?? null,
+        daysOverdue:
+          s.dueDate && owed > 0
+            ? Math.max(
+                0,
+                Math.floor((Date.now() - s.dueDate.getTime()) / 86_400_000)
+              )
+            : null,
+        saleDate: s.saleDate.toISOString(),
+      };
+    }),
     collections: c.collectionReceipts.map((cr) => ({
-      id: cr.id, number: cr.crNumber, amount: cr.amount.toString(),
+      id: cr.id, number: cr.crNumber, documentIssued: cr.documentIssued,
+      amount: cr.amount.toString(), method: cr.method,
       receivedAt: cr.receivedAt.toISOString(),
     })),
     advancePayments: c.advancePayments.map((ap) => ({
-      id: ap.id, amount: ap.amount.toString(), status: ap.status,
+      id: ap.id,
+      amount: ap.amount.toString(),
+      // R6: `remaining` is what the customer can still spend. Showing the
+      // original amount promises credit that may already be gone.
+      remaining: pesos(
+        Math.max(
+          cents(ap.amount) -
+            ap.applications.reduce((t, a) => t + cents(a.amount), 0),
+          0
+        )
+      ),
+      status: ap.status,
       receivedAt: ap.receivedAt.toISOString(),
     })),
   };
 }
+
+// Money crosses this boundary as decimal strings; comparisons and sums happen
+// in integer centavos so no float ever touches a peso (R1).
+const cents = (v: Prisma.Decimal) => Math.round(Number(v) * 100);
+const pesos = (c: number) =>
+  `${Math.floor(c / 100)}.${String(Math.abs(c) % 100).padStart(2, "0")}`;
 
 let instance: CustomerDirectoryService | undefined;
 

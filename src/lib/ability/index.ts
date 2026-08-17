@@ -47,3 +47,21 @@ export function assertCan(
     throw new ForbiddenError();
   }
 }
+
+/**
+ * Non-throwing sibling of assertCan, for the case where an actor may perform
+ * an action but only PART of the payload is theirs to set.
+ *
+ * A company edit is the motivating example: an encoder may fix the phone
+ * number, but the credit limit on the same form is admin-only reference data
+ * (docs/sales-contract.md R8). Refusing the whole edit would be wrong, and so
+ * would silently accepting the credit change — so the service asks, and keeps
+ * the fields the actor is not entitled to move.
+ */
+export function can(
+  actor: Actor,
+  action: AppAction,
+  subject: AppSubject
+): boolean {
+  return defineAbilityFor(actor).can(action, subject);
+}

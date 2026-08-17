@@ -18,10 +18,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { AttachmentsCard } from "./attachments-card";
 import type { CustomerDetailDto } from "../schemas/customer";
 import { VAT_STATUS_LABEL } from "../vat";
 import { CustomerStatusBadge, VatBadge } from "./badges";
+
+// A receipt's kind, in the shop's words rather than the enum's.
+const RECEIPT_TYPE_LABEL: Record<string, string> = {
+  SI_VAT: "SI (VAT)",
+  SI_NON_VAT: "SI (non-VAT)",
+  SI_CHARGE: "Charge invoice",
+  JO_SLIP: "JO slip",
+};
 
 const peso = (v: string | null) => {
   if (v === null) return "—";
@@ -140,11 +149,17 @@ export function CustomerDetailView({
   const advancePayments = c.advancePayments.filter((x) => inRange(x.receivedAt) && hit(x.status));
   const isContact = c.companyId !== null;
 
-  // Overview metrics (client-side, from the loaded history).
+  // Pipeline value over the LOADED documents only — quotations and job orders
+  // are capped at 50 like every other tab, so these are labelled "recent"
+  // rather than presented as lifetime figures. The money that has to be exact
+  // (billed, received, outstanding) comes from `c.totals`, aggregated in SQL
+  // over every document — see docs/sales-contract.md R7.
   const money = (n: number) => `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+  const pesoStr = (v: string) =>
+    `₱${Number(v).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const totalQuoted = c.quotations.reduce((s, x) => s + (parseFloat(x.total) || 0), 0);
   const totalJo = c.jobOrders.reduce((s, x) => s + (parseFloat(x.total) || 0), 0);
-  const totalCollected = c.collections.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
+  const owesMoney = Math.round(Number(c.totals.openBalance) * 100) > 0;
   const activityDates = [
     ...c.quotations.map((x) => x.createdAt), ...c.jobOrders.map((x) => x.createdAt),
     ...c.deliveries.map((x) => x.issuedAt), ...c.sales.map((x) => x.saleDate),
@@ -197,10 +212,27 @@ export function CustomerDetailView({
             <Stat label="Adv. pay" value={c.counts.advancePayments} />
             <Stat label="Inquiries" value={c.counts.inquiries} />
           </div>
+          {/* Lifetime money — every document, aggregated server-side. Voided
+              receipts are excluded from all three and counted separately, so
+              the exclusion is visible instead of silent. */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard label="Total quoted" value={money(totalQuoted)} hint={`${c.quotations.length} recent`} />
-            <MetricCard label="Job order value" value={money(totalJo)} hint={`${c.jobOrders.length} recent`} />
-            <MetricCard label="Collected" value={money(totalCollected)} hint={`${c.collections.length} receipt${c.collections.length === 1 ? "" : "s"}`} />
+            <MetricCard
+              label="Billed (lifetime)"
+              value={pesoStr(c.totals.lifetimeBilled)}
+              hint={`${c.totals.documentCount} receipt${c.totals.documentCount === 1 ? "" : "s"}${
+                c.totals.voidedCount ? ` · ${c.totals.voidedCount} voided, excluded` : ""
+              }`}
+            />
+            <MetricCard
+              label="Received (lifetime)"
+              value={pesoStr(c.totals.lifetimeReceived)}
+              hint="at the counter + collected after"
+            />
+            <MetricCard
+              label="Open balance"
+              value={pesoStr(c.totals.openBalance)}
+              hint={owesMoney ? "still owed — see A/R above" : "nothing outstanding"}
+            />
             <MetricCard
               label="Credit standing"
               value={c.creditTermDays ? `${c.creditTermDays}-day terms` : "No terms"}
@@ -208,7 +240,17 @@ export function CustomerDetailView({
             />
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <MetricCard label="Tax status" value={c.vatStatus ? VAT_STATUS_LABEL[c.vatStatus] : "—"} hint={c.tin ? `TIN ${c.tin}` : "No TIN"} />
+            <MetricCard
+              label="Tax status"
+              value={c.vatStatus ? VAT_STATUS_LABEL[c.vatStatus] : "—"}
+              hint={
+                Math.round(Number(c.totals.lifetimeVat) * 100) > 0
+                  ? `${c.tin ? `TIN ${c.tin} · ` : ""}${pesoStr(c.totals.lifetimeVat)} VAT billed`
+                  : c.tin
+                    ? `TIN ${c.tin}`
+                    : "No TIN"
+              }
+            />
             <MetricCard label="Last activity" value={lastActivity ? format(lastActivity, "MMM d, yyyy") : "None"} hint={lastActivity ? format(lastActivity, "h:mm a") : ""} />
             <MetricCard
               label={isContact ? "Company" : "Type"}
@@ -216,6 +258,10 @@ export function CustomerDetailView({
               hint={isContact ? "View company profile →" : undefined}
               href={isContact ? `/customers/companies/${c.companyId}` : undefined}
             />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MetricCard label="Quoted (recent 50)" value={money(totalQuoted)} hint={`${c.quotations.length} quotation${c.quotations.length === 1 ? "" : "s"} loaded`} />
+            <MetricCard label="Job order value (recent 50)" value={money(totalJo)} hint={`${c.jobOrders.length} job order${c.jobOrders.length === 1 ? "" : "s"} loaded`} />
           </div>
           <p className="text-xs text-muted-foreground">
             Added by {c.createdByName} · {format(new Date(c.createdAt), "MMM d, yyyy · h:mm a")}
@@ -273,6 +319,20 @@ export function CustomerDetailView({
           {(from || to || query) && (
             <Button variant="ghost" size="sm" onClick={() => { setFrom(""); setTo(""); setQuery(""); }}>Clear</Button>
           )}
+          {/* Each tab loads the 50 most recent documents and this filter narrows
+              THAT set — it does not reach further back. Saying so matters: a
+              date range that silently searches only the newest 50 rows returns
+              an empty table for an old invoice that certainly exists, and the
+              money figures on Overview are aggregated separately for exactly
+              this reason (docs/sales-contract.md R7). */}
+          <p className="w-full text-xs text-muted-foreground">
+            Filters the 50 most recent documents per tab. For a customer&rsquo;s complete
+            financial record, use the{" "}
+            <Link href={`/sales-audit/receivables/${c.id}`} className="underline underline-offset-2">
+              full account
+            </Link>
+            .
+          </p>
         </div>
 
         <TabsContent value="quotations" className="pt-2">
@@ -314,39 +374,86 @@ export function CustomerDetailView({
         </TabsContent>
 
         <TabsContent value="sales" className="pt-2">
-          <DocTable head={["Receipt #", "Payment", "Amount", "Date"]} rows={sales} empty="sales"
-            render={(s) => (
-              <>
-                <TableCell><Num>{s.documentNo}</Num></TableCell>
-                <TableCell><Pill>{pretty(s.paymentStatus)}</Pill></TableCell>
-                <TableCell className="tabular-nums">{peso(s.amount)}</TableCell>
-                <TableCell className="text-muted-foreground">{d(s.saleDate)}</TableCell>
-              </>
-            )} />
+          <DocTable head={["Receipt #", "Type", "Amount", "Open balance", "Due", "Date"]} rows={sales} empty="sales"
+            render={(s) => {
+              const open = Math.round(Number(s.openBalance) * 100) > 0;
+              return (
+                <>
+                  <TableCell><Num>{s.documentNo}</Num></TableCell>
+                  <TableCell><Pill>{RECEIPT_TYPE_LABEL[s.type] ?? pretty(s.type)}</Pill></TableCell>
+                  <TableCell className="tabular-nums">{peso(s.amount)}</TableCell>
+                  {/* R3: derived from amount − amountPaid − settledAmount, not
+                      from paymentStatus. A charge invoice settled by a later
+                      collection keeps its UNPAID status on purpose — the
+                      printed receipt is a legal record and is never rewritten. */}
+                  <TableCell className={cn("tabular-nums", open && "font-medium text-red-600 dark:text-red-500")}>
+                    {open ? peso(s.openBalance) : "—"}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {s.dueDate ? (
+                      <span className={cn(s.daysOverdue !== null && s.daysOverdue > 0 && "font-medium text-red-600 dark:text-red-500")}>
+                        {format(new Date(s.dueDate), "M/d/yyyy")}
+                        {s.daysOverdue !== null && s.daysOverdue > 0 && ` · ${s.daysOverdue}d overdue`}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground whitespace-nowrap">{d(s.saleDate)}</TableCell>
+                </>
+              );
+            }} />
         </TabsContent>
 
         <TabsContent value="payments" className="grid gap-4 pt-2">
           <div>
-            <h3 className="mb-1.5 text-sm font-semibold">Collection receipts</h3>
-            <DocTable head={["CR #", "Amount", "Date"]} rows={collections} empty="collection receipts"
+            <h3 className="text-sm font-semibold">Collection receipts</h3>
+            {/* `amount` is the TENDER taken in on this collection, which is not
+                the same as what it settled: a payment made by applying credit
+                already on file settles invoices without cash crossing the
+                counter. Which invoices each one closed lives on the full
+                account view (docs/sales-contract.md R5). */}
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Cash taken in. What each one settled is on the{" "}
+              <Link href={`/sales-audit/receivables/${c.id}`} className="underline underline-offset-2">full account</Link>.
+            </p>
+            <DocTable head={["CR #", "Method", "Amount", "Date"]} rows={collections} empty="collection receipts"
               render={(cr) => (
                 <>
-                  <TableCell><Num>{cr.number ?? "— (no doc)"}</Num></TableCell>
+                  <TableCell>
+                    <Num>{cr.number ?? "—"}</Num>
+                    {!cr.documentIssued && (
+                      <span className="ml-2 text-xs text-muted-foreground">no document issued</span>
+                    )}
+                  </TableCell>
+                  <TableCell><Pill>{pretty(cr.method)}</Pill></TableCell>
                   <TableCell className="tabular-nums">{peso(cr.amount)}</TableCell>
-                  <TableCell className="text-muted-foreground">{d(cr.receivedAt)}</TableCell>
+                  <TableCell className="text-muted-foreground whitespace-nowrap">{d(cr.receivedAt)}</TableCell>
                 </>
               )} />
           </div>
           <div>
-            <h3 className="mb-1.5 text-sm font-semibold">Advance payments</h3>
-            <DocTable head={["Amount", "Status", "Date"]} rows={advancePayments} empty="advance payments"
-              render={(ap) => (
-                <>
-                  <TableCell className="tabular-nums">{peso(ap.amount)}</TableCell>
-                  <TableCell><Pill>{pretty(ap.status)}</Pill></TableCell>
-                  <TableCell className="text-muted-foreground">{d(ap.receivedAt)}</TableCell>
-                </>
-              )} />
+            <h3 className="text-sm font-semibold">Customer credit</h3>
+            <p className="mb-1.5 text-xs text-muted-foreground">
+              Money held for this customer from an overpayment — the opposite sign to what they owe, and never netted against it.
+            </p>
+            {/* R6: `Remaining` is the figure that matters. A fully-applied
+                ₱10,000 advance is worth nothing to the customer, and showing
+                its original amount promises credit the shop already spent. */}
+            <DocTable head={["Received", "Remaining", "Status", "Date"]} rows={advancePayments} empty="customer credit"
+              render={(ap) => {
+                const left = Math.round(Number(ap.remaining) * 100) > 0;
+                return (
+                  <>
+                    <TableCell className="tabular-nums text-muted-foreground">{peso(ap.amount)}</TableCell>
+                    <TableCell className={cn("tabular-nums", left && "font-medium text-emerald-600 dark:text-emerald-500")}>
+                      {left ? peso(ap.remaining) : "—"}
+                    </TableCell>
+                    <TableCell><Pill>{pretty(ap.status)}</Pill></TableCell>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">{d(ap.receivedAt)}</TableCell>
+                  </>
+                );
+              }} />
           </div>
         </TabsContent>
       </Tabs>

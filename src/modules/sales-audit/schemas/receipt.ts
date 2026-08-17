@@ -370,9 +370,23 @@ export type ReceivableCustomerDto = {
   aging: Record<AgingBucket, string>;
   creditTermDays: number | null;
   creditLimit: string | null;
-  /** limit − outstanding; null when no limit is set. Negative = over limit. */
+  /** limit − exposure; null when no limit is set. Negative = over limit. */
   creditAvailable: string | null;
   overLimit: boolean;
+  /** Set when this customer is a company contact — the billed entity. */
+  companyId: string | null;
+  companyName: string | null;
+  /**
+   * What the credit limit is measured against.
+   *
+   * Equal to `outstanding` for an individual. For a company contact it is the
+   * COMPANY's whole open A/R, because the ceiling was agreed with the company
+   * and merely copied onto each contact — judging each contact against it
+   * separately would grant it once per contact (docs/sales-contract.md R15).
+   * This is the number that explains an over-limit flag on a contact whose own
+   * invoices are small.
+   */
+  exposure: string;
   /**
    * Money the shop is HOLDING for this customer from an overpayment — the
    * opposite sign to `outstanding`, and deliberately not netted against it.
@@ -570,6 +584,21 @@ export type CustomerAccountDto = {
   payments: CustomerPaymentDto[];
   creditTermDays: number | null;
   creditLimit: string | null;
+  /** The billed entity, when this customer is a company contact. */
+  companyId: string | null;
+  companyName: string | null;
+  /**
+   * What the credit limit is measured against — this customer's own A/R for an
+   * individual, the whole company's for a contact (docs/sales-contract.md R15).
+   */
+  exposure: string;
+  /** limit − exposure; null when no ceiling is set. */
+  creditAvailable: string | null;
+  /**
+   * Decided here rather than by the caller, so the customer profile and the A/R
+   * ledger can never render different verdicts on the same customer.
+   */
+  overLimit: boolean;
   /** Mirrors the credit-control module flag. */
   creditControlEnabled: boolean;
 };

@@ -15,7 +15,11 @@ export class CreditTermService {
     private readonly activity: IActivityLogRepository
   ) {}
 
-  list(_actor: Actor, includeInactive = false): Promise<CreditTermRecord[]> {
+  // The maintained list itself is admin reference data — every mutation below
+  // already gates on it, and listing it (including the inactive entries) is
+  // part of the same maintenance screen (docs/sales-contract.md R9).
+  list(actor: Actor, includeInactive = false): Promise<CreditTermRecord[]> {
+    assertCan(actor, "maintain", "Maintenance");
     return this.repo.list(includeInactive);
   }
 

@@ -1,0 +1,8 @@
+{
+  "note": "Known Sales & Finance Contract debt, recorded so the scanner can ratchet: these do not fail the build, anything NEW does. Values are occurrence counts — exceeding one fails, so debt can shrink but never grow. See docs/sales-contract.md. Regenerate with --update-baseline only after FIXING violations, never to silence new ones.",
+  "generated": "2026-08-17",
+  "violations": {
+    "R9|src/modules/delivery-receipts/services/delivery-receipt-service.ts|method takes `_actor` — it receives the actor and never checks it. Reads of credit limits, TINs, sales history and profi": 3,
+    "R9|src/modules/job-orders/services/job-order-service.ts|method takes `_actor` — it receives the actor and never checks it. Reads of credit limits, TINs, sales history and profi": 9
+  }
+}

@@ -1,6 +1,6 @@
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
-import { assertCan } from "@/lib/ability";
+import { assertCan, can } from "@/lib/ability";
 import type { AttachmentKind, VatStatus } from "@/generated/prisma/enums";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
@@ -34,6 +34,13 @@ export class CompanyService {
   ): Promise<{ customerId: string; companyId: string | null }> {
     assertCan(actor, "create", "Customer");
 
+    // Same split as update(): creating a customer is an encoder's job, but
+    // agreeing credit terms with them is not (docs/sales-contract.md R8). A new
+    // customer created by an encoder simply starts with no terms and no
+    // ceiling — which is the pre-existing behaviour anyway, since both fields
+    // are nullable and null means "no terms agreed".
+    const maySetCredit = can(actor, "maintain", "Maintenance");
+
     if (input.kind === "INDIVIDUAL") {
       const { id } = await this.repo.createIndividual(
         {
@@ -47,7 +54,7 @@ export class CompanyService {
           shippingAddress: input.shippingAddress ?? null,
           tin: input.tin ?? null,
           vatStatus: input.vatStatus ?? null,
-          creditTermDays: input.creditTermDays ?? null,
+          creditTermDays: maySetCredit ? input.creditTermDays ?? null : null,
           notes: input.notes ?? null,
         },
         actor.id
@@ -97,8 +104,11 @@ export class CompanyService {
       name: co.name,
       tin: co.tin,
       vatStatus: co.vatStatus ?? null,
-      creditTermDays: co.creditTermDays ?? null,
-      creditLimit: co.creditLimit !== undefined ? co.creditLimit.toFixed(2) : null,
+      creditTermDays: maySetCredit ? co.creditTermDays ?? null : null,
+      creditLimit:
+        maySetCredit && co.creditLimit !== undefined
+          ? co.creditLimit.toFixed(2)
+          : null,
     };
     const result = await this.repo.withTransaction(async (tx) => {
       const company = await this.repo.createCompany(
@@ -136,47 +146,72 @@ export class CompanyService {
     return result;
   }
 
+  // Company rows carry TIN, VAT standing, credit terms and ceilings — the
+  // billing file for the entity, so every read is gated (R9).
   async list(
-    _actor: Actor,
+    actor: Actor,
     q: string | undefined,
     cursor: string | undefined,
     take: number,
     vatStatus?: VatStatus
   ): Promise<{ rows: CompanyListRowDto[]; nextCursor: string | null }> {
+    assertCan(actor, "read", "Customer");
     const { rows, nextCursor } = await this.repo.listPage(q, cursor, take, vatStatus);
     return { rows: rows.map(mapListRow), nextCursor };
   }
 
-  async getDetail(_actor: Actor, id: string): Promise<CompanyDetailDto> {
+  async getDetail(actor: Actor, id: string): Promise<CompanyDetailDto> {
+    assertCan(actor, "read", "Customer");
     const c = await this.repo.findDetail(id);
     if (!c) throw new NotFoundError("Company not found.");
     return mapDetail(c);
   }
 
-  async search(_actor: Actor, q: string): Promise<CompanySearchDto[]> {
+  async search(actor: Actor, q: string): Promise<CompanySearchDto[]> {
+    assertCan(actor, "read", "Customer");
     if (!q.trim()) return [];
     return this.repo.search(q.trim());
   }
 
   /** Company picker for the add-customer flow (carries billing to auto-fill). */
-  async searchForAdd(_actor: Actor, q: string): Promise<CompanyPickerDto[]> {
+  async searchForAdd(actor: Actor, q: string): Promise<CompanyPickerDto[]> {
+    assertCan(actor, "read", "Customer");
     if (!q.trim()) return [];
     return this.repo.searchForPicker(q.trim());
   }
 
   /** One company in picker shape — pre-scopes the add-contact form. */
-  async getPicker(_actor: Actor, id: string): Promise<CompanyPickerDto | null> {
+  async getPicker(actor: Actor, id: string): Promise<CompanyPickerDto | null> {
+    assertCan(actor, "read", "Customer");
     return this.repo.findPickerById(id);
   }
 
   async update(actor: Actor, input: CompanyUpdateInput): Promise<void> {
     assertCan(actor, "update", "Customer");
+
+    // Credit terms and ceilings are admin reference data, not something the
+    // cashier editing a company's phone number decides (docs/sales-contract.md
+    // R8). This method is gated on `update Customer`, which ENCODER holds, so
+    // the credit fields are only honoured when the actor ALSO holds the
+    // Maintenance ability that ReceivableService.setCredit requires. Anyone
+    // else keeps whatever is already on file — their edit succeeds, the credit
+    // policy simply does not move with it.
+    const maySetCredit = can(actor, "maintain", "Maintenance");
+    const existing = maySetCredit ? null : await this.repo.getBilling(input.id);
+    if (!maySetCredit && !existing) throw new NotFoundError("Company not found.");
+
     const billing: CompanyBilling = {
       name: input.name,
       tin: input.tin,
       vatStatus: input.vatStatus ?? null,
-      creditTermDays: input.creditTermDays ?? null,
-      creditLimit: input.creditLimit !== undefined ? input.creditLimit.toFixed(2) : null,
+      creditTermDays: maySetCredit
+        ? input.creditTermDays ?? null
+        : existing!.creditTermDays,
+      creditLimit: maySetCredit
+        ? input.creditLimit !== undefined
+          ? input.creditLimit.toFixed(2)
+          : null
+        : existing!.creditLimit,
     };
     await this.repo.withTransaction(async (tx) => {
       await this.repo.updateCompany(
