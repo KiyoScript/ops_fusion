@@ -34,6 +34,7 @@ export async function resolveWizardProduct(
           minCharge: true,
           amount: true,
           pct: true,
+          scope: true,
           notes: true,
         },
       },
@@ -48,7 +49,7 @@ export async function resolveWizardProduct(
   const globals = await prisma.priceRule.findMany({
     where: { productId: null, isActive: true },
     orderBy: { sortOrder: "asc" },
-    select: { label: true, amount: true, pct: true, notes: true },
+    select: { label: true, amount: true, pct: true, scope: true, notes: true },
   });
   const feeKey = (label: string) =>
     label
@@ -77,6 +78,7 @@ export async function resolveWizardProduct(
           minCharge: r.minCharge?.toString() ?? null,
           amount: r.amount?.toString() ?? null,
           pct: r.pct?.toString() ?? null,
+          scope: r.scope,
           notes: r.notes,
         })),
       ...globals.map((g) => ({
@@ -87,6 +89,7 @@ export async function resolveWizardProduct(
         minCharge: null,
         amount: g.amount?.toString() ?? null,
         pct: g.pct?.toString() ?? null,
+        scope: g.scope,
         notes: g.notes,
       })),
     ],

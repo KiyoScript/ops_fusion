@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/page-header";
 import { ModuleFlagsManager } from "@/modules/shared/components/module-flags-manager";
 import { SignatureUpload } from "@/modules/shared/components/signature-upload";
 import { getCompanyProfile } from "@/lib/company-profile";
+import { getCreditTermService } from "@/modules/customers/services/credit-term-service";
+import { CreditTermsManager } from "@/modules/customers/components/credit-terms-manager";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -19,6 +21,7 @@ export default async function SettingsPage() {
 
   const modules = await getModuleFlagService().list();
   const profile = await getCompanyProfile();
+  const creditTerms = await getCreditTermService().list(actor, true);
 
   return (
     <>
@@ -28,6 +31,9 @@ export default async function SettingsPage() {
       />
       <div className="grid gap-6">
         <ModuleFlagsManager modules={modules} />
+        <div className="max-w-xl">
+          <CreditTermsManager terms={creditTerms} />
+        </div>
         <SignatureUpload profile={profile} />
       </div>
     </>

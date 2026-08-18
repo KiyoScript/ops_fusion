@@ -13,7 +13,7 @@ import {
   createCreditTermAction,
   deleteCreditTermAction,
   toggleCreditTermAction,
-} from "@/app/(app)/maintenance/customers/actions";
+} from "@/app/(app)/settings/actions";
 
 type Term = { id: string; days: number; isActive: boolean };
 

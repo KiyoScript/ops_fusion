@@ -9,6 +9,7 @@ import { defineAbilityFor } from "@/lib/ability";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getModuleFlagService } from "@/modules/shared/services/module-flag-service";
 import { setContactInfo, setOwnerName } from "@/lib/company-profile";
+import { getCreditTermService } from "@/modules/customers/services/credit-term-service";
 
 // The proprietor's signature is a single shared asset that every printable
 // (JO / DR / Quotation) already reads from public/jon-signature.png — so
@@ -114,6 +115,55 @@ export async function setModuleEnabledAction(
     );
     // A module going on/off changes the sidebar + route guard for everyone.
     revalidatePath("/", "layout");
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ─── Credit terms (moved here from Customer Maintenance) ─────────────────────
+// The reference list of available credit terms (30 / 60 / 90 days). Auth lives
+// in the service (assertCan maintain Maintenance).
+const CREDIT_TERMS_PAGE = "/settings";
+
+export async function createCreditTermAction(
+  days: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const n = Number(days);
+    if (!Number.isFinite(n)) return fail(new ValidationError("Enter a number of days."));
+    await getCreditTermService().create(actor, Math.trunc(n));
+    revalidatePath(CREDIT_TERMS_PAGE);
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function toggleCreditTermAction(data: {
+  id: string;
+  isActive: boolean;
+}): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    if (!data?.id) return fail(new ValidationError("Missing id."));
+    await getCreditTermService().setActive(actor, data.id, data.isActive);
+    revalidatePath(CREDIT_TERMS_PAGE);
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function deleteCreditTermAction(
+  id: string
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    if (!id) return fail(new ValidationError("Missing id."));
+    await getCreditTermService().remove(actor, id);
+    revalidatePath(CREDIT_TERMS_PAGE);
     return ok(null);
   } catch (err) {
     return fail(err);

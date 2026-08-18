@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { PriceRuleType } from "@/generated/prisma/enums";
+import type { PriceRuleType, AddonScope } from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
 
 export type RuleCreateData = {
@@ -10,6 +10,7 @@ export type RuleCreateData = {
   minCharge?: string | null;
   amount?: string | null;
   pct?: string | null;
+  scope?: AddonScope; // ADDON: per-line vs whole-JO
   notes?: string | null;
   sortOrder: number;
 };
@@ -63,6 +64,7 @@ export type GlobalAddonRow = {
   label: string;
   amount: string | null;
   pct: string | null;
+  scope: AddonScope;
   notes: string | null;
 };
 
@@ -169,12 +171,13 @@ export class PrismaPriceListRepository implements IPriceListRepository {
     const rows = await prisma.priceRule.findMany({
       where: { productId: null, isActive: true },
       orderBy: { sortOrder: "asc" },
-      select: { label: true, amount: true, pct: true, notes: true },
+      select: { label: true, amount: true, pct: true, scope: true, notes: true },
     });
     return rows.map((r) => ({
       label: r.label,
       amount: r.amount?.toString() ?? null,
       pct: r.pct?.toString() ?? null,
+      scope: r.scope,
       notes: r.notes,
     }));
   }

@@ -17,6 +17,7 @@ export async function GET() {
         label: true,
         amount: true,
         pct: true,
+        scope: true,
         notes: true,
       },
     });
@@ -28,6 +29,7 @@ export async function GET() {
       minCharge: null,
       amount: rule.amount?.toString() ?? null,
       pct: rule.pct?.toString() ?? null,
+      scope: rule.scope,
       notes: rule.notes,
     }));
     return NextResponse.json(ok(addons));

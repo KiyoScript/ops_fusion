@@ -12,6 +12,7 @@ export type ProductRuleDto = {
   minCharge: string | null;
   amount: string | null;
   pct: string | null;
+  scope: "PER_LINE_ITEM" | "WHOLE_JO"; // ADDON scope (VARIANT: ignored)
   notes: string | null;
 };
 
@@ -53,6 +54,7 @@ export async function GET() {
             minCharge: true,
             amount: true,
             pct: true,
+            scope: true,
             notes: true,
           },
         },
@@ -80,6 +82,7 @@ export async function GET() {
         minCharge: rule.minCharge?.toString() ?? null,
         amount: rule.amount?.toString() ?? null,
         pct: rule.pct?.toString() ?? null,
+        scope: rule.scope,
         notes: rule.notes,
       })),
       productionSteps: row.productionSteps.map((s) => s.name),

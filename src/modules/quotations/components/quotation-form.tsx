@@ -249,6 +249,50 @@ export function QuotationForm({
     form.setValue(`items.${index}.specs`, result.specs);
   };
 
+  // Whole-JO add-ons (delivery fee…): ONE fee line for the whole quotation,
+  // toggled below the line items — never repeated per line item.
+  const wholeJoAddons = (globalAddons.data ?? []).filter(
+    (a) => a.type === "ADDON" && a.scope === "WHOLE_JO"
+  );
+  const wholeJoChecked = (label: string) =>
+    (watched.items ?? []).some(
+      (it) =>
+        (it?.specs as { wholeJoAddon?: string } | undefined)?.wholeJoAddon ===
+        label
+    );
+  const toggleWholeJo = (addon: (typeof wholeJoAddons)[number]) => {
+    const all = form.getValues("items");
+    const idx = all.findIndex(
+      (it) =>
+        (it?.specs as { wholeJoAddon?: string } | undefined)?.wholeJoAddon ===
+        addon.label
+    );
+    if (idx >= 0) {
+      items.remove(idx);
+      return;
+    }
+    let amount = addon.amount ? parseFloat(addon.amount) || 0 : 0;
+    if (!amount && addon.pct) {
+      const base = all.reduce((s, it) => {
+        if ((it?.specs as { wholeJoAddon?: string } | undefined)?.wholeJoAddon)
+          return s;
+        const q = parseInt(it?.qty || "0", 10) || 0;
+        const up = parseFloat(it?.unitPrice || "0") || 0;
+        const disc = parseFloat(it?.discount || "0") || 0;
+        return s + Math.max(0, q * up - disc);
+      }, 0);
+      amount = Math.round(base * ((parseFloat(addon.pct) || 0) / 100) * 100) / 100;
+    }
+    items.append({
+      productId: "",
+      description: addon.label,
+      qty: "1",
+      unitPrice: amount.toFixed(2),
+      discount: "",
+      specs: { wholeJoAddon: addon.label },
+    });
+  };
+
   // Live preview with the SAME math the service uses on save.
   const totals = computeTotals({
     items: (watched.items ?? []).map((item) => ({
@@ -676,6 +720,14 @@ export function QuotationForm({
             )}
             {items.fields.map((field, index) => {
               const watchedItem = watched.items?.[index];
+              // Whole-JO fee lines are managed in "Quotation add-ons" below, not
+              // shown among the product line items.
+              if (
+                (watchedItem?.specs as { wholeJoAddon?: string } | undefined)
+                  ?.wholeJoAddon
+              ) {
+                return null;
+              }
               const product = watchedItem?.productId
                 ? productById.get(watchedItem.productId)
                 : undefined;
@@ -811,7 +863,12 @@ export function QuotationForm({
                 )}
                 {!isTarp && !isArea && product && (
                   <AddonPicker
-                    addons={mergeGlobalAddons(product.rules, globalAddons.data)}
+                    addons={mergeGlobalAddons(
+                      product.rules,
+                      globalAddons.data
+                    ).filter(
+                      (r) => r.type !== "ADDON" || r.scope === "PER_LINE_ITEM"
+                    )}
                     checked={
                       (watchedItem?.specs as { addons?: string[] } | undefined)
                         ?.addons ?? []
@@ -847,6 +904,51 @@ export function QuotationForm({
             </Button>
           </CardContent>
         </Card>
+
+        {wholeJoAddons.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Quotation add-ons</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Fees applied once to the whole quotation — not per line item.
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              {wholeJoAddons.map((a) => {
+                const checked = wholeJoChecked(a.label);
+                const feeLabel = a.pct
+                  ? `${a.pct}%`
+                  : php(parseFloat(a.amount ?? "0") || 0);
+                return (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={() => toggleWholeJo(a)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                      checked
+                        ? "border-primary bg-primary/10"
+                        : "hover:bg-accent"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "grid size-4 place-items-center rounded border",
+                        checked
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input"
+                      )}
+                    >
+                      {checked && <CheckIcon className="size-3" />}
+                    </span>
+                    {a.label}
+                    <span className="text-muted-foreground">· {feeLabel}</span>
+                  </button>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

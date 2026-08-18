@@ -112,6 +112,7 @@ export class PriceListService {
       minCharge: null,
       amount: addon.amount ? parseFloat(addon.amount).toFixed(2) : null,
       pct: addon.pct ? parseFloat(addon.pct).toFixed(2) : null,
+      scope: addon.scope,
       notes: addon.notes || null,
       sortOrder: index,
     }));

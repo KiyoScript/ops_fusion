@@ -52,7 +52,7 @@ export const MODULES: ModuleDef[] = [
       "Quote builder, supervisor approval, convert to Job Order, plus its price/workflow maintenance.",
     group: "Sales",
     defaultEnabled: true,
-    routes: ["/quotations", "/maintenance/quotations"],
+    routes: ["/quotations", "/maintenance/quotations", "/maintenance/add-ons"],
   },
   {
     key: "sales-audit",
@@ -121,7 +121,7 @@ export const MODULES: ModuleDef[] = [
     description: "The shared customer master.",
     group: "Masters",
     defaultEnabled: true,
-    routes: ["/customers", "/maintenance/customers"],
+    routes: ["/customers"],
   },
   {
     key: "products",

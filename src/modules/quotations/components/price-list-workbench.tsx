@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
+import { Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,7 +16,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { NumberField } from "@/components/validated-fields";
 import {
   Select,
   SelectContent,
@@ -41,15 +40,10 @@ import {
 } from "@/components/data-states";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import {
-  useGlobalAddons,
   useProductOptions,
   type ProductOptionDto,
-  type ProductRuleDto,
 } from "@/modules/shared/hooks/use-products";
-import {
-  removeAllProductsAction,
-  saveGlobalAddonsAction,
-} from "@/app/(app)/maintenance/quotations/actions";
+import { removeAllProductsAction } from "@/app/(app)/maintenance/quotations/actions";
 import { PriceListImportDialog } from "./price-list-import-dialog";
 import { WorkbookImportDialog } from "./workbook-import-dialog";
 import { ProductEditDialog } from "./product-edit-dialog";
@@ -66,7 +60,6 @@ export function PriceListWorkbench({
   canRemoveAll?: boolean;
 }) {
   const products = useProductOptions();
-  const globalAddons = useGlobalAddons();
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("all");
   const debouncedQ = useDebounce(q);
@@ -124,11 +117,6 @@ export function PriceListWorkbench({
         {canMaintain && (
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <ProductEditDialog />
-            <CommonAddonsButton
-              addons={globalAddons.data ?? []}
-              count={globalAddons.data?.length ?? 0}
-              canMaintain={canMaintain}
-            />
             <PriceListImportDialog />
             <WorkbookImportDialog />
             {canRemoveAll && (
@@ -216,37 +204,6 @@ export function PriceListWorkbench({
 
 // Common add-ons — the shared-fee editor (rush / design / delivery …) in a
 // dialog. Was a pinned "tab" in the old two-pane workbench.
-function CommonAddonsButton({
-  addons,
-  count,
-  canMaintain,
-}: {
-  addons: ProductRuleDto[];
-  count: number;
-  canMaintain: boolean;
-}) {
-  return (
-    <Dialog>
-      <DialogTrigger render={<Button variant="outline" />}>
-        Common add-ons
-        <span className="ml-1 rounded bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">
-          {count}
-        </span>
-      </DialogTrigger>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Common add-ons</DialogTitle>
-          <DialogDescription>
-            Fees offered on every product (rush, design, delivery…). These
-            override a product&apos;s own same-name add-on.
-          </DialogDescription>
-        </DialogHeader>
-        <GlobalAddonsSheet addons={addons} canMaintain={canMaintain} />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // Admin-only reset: soft-deletes the whole catalog so it can be re-imported
 // clean. Existing quotes/JOs keep their references, so it's recoverable.
 function RemoveAllProductsButton({ count }: { count: number }) {
@@ -299,175 +256,5 @@ function RemoveAllProductsButton({ count }: { count: number }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// Common add-ons — fees offered on EVERY product (rush, design, delivery…).
-// Saving here applies them to all quote flows, overriding same-fee
-// product-level add-ons ("Rush Fee" replaces a product's "Rush"). One value
-// field + a Fixed/Percentage picker (maps to amount vs pct on save).
-type AddonRow = {
-  label: string;
-  mode: "FIXED" | "PCT";
-  value: string;
-  notes: string;
-};
-
-function GlobalAddonsSheet({
-  addons,
-  canMaintain,
-}: {
-  addons: ProductRuleDto[];
-  canMaintain: boolean;
-}) {
-  const queryClient = useQueryClient();
-  const [rows, setRows] = useState<AddonRow[]>(
-    addons.map((a) => ({
-      label: a.label,
-      mode: a.pct ? "PCT" : "FIXED",
-      value: (a.pct ? a.pct : a.amount) ?? "",
-      notes: a.notes ?? "",
-    }))
-  );
-  const [saving, setSaving] = useState(false);
-
-  const setRow = (i: number, patch: Partial<AddonRow>) =>
-    setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
-
-  const save = async () => {
-    setSaving(true);
-    const result = await saveGlobalAddonsAction({
-      addons: rows
-        .filter((r) => r.label.trim())
-        .map((r) => ({
-          label: r.label,
-          amount: r.mode === "FIXED" ? r.value : "",
-          pct: r.mode === "PCT" ? r.value : "",
-          notes: r.notes,
-        })),
-    });
-    setSaving(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success("Common add-ons saved.");
-    queryClient.invalidateQueries({ queryKey: ["global-addons"] });
-  };
-
-  return (
-    <Card>
-      <CardContent className="grid gap-4 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">Common add-ons</h2>
-            <p className="text-xs text-muted-foreground">
-              Once saved, these apply to every product&apos;s quote — and
-              override a product&apos;s own add-on of the same fee (e.g. a
-              global &quot;Rush Fee&quot; replaces a product&apos;s
-              &quot;Rush&quot;).
-            </p>
-          </div>
-          {canMaintain && (
-            <Button onClick={save} disabled={saving} size="sm">
-              <SaveIcon /> {saving ? "Saving…" : "Save"}
-            </Button>
-          )}
-        </div>
-
-        <div className="overflow-x-auto">
-          <div className="min-w-[36rem]">
-            <div className="grid grid-cols-[1fr_9rem_7rem_1fr_2.5rem] gap-2 border-b pb-1 text-xs font-medium text-muted-foreground">
-              <span>Label</span>
-              <span>Type</span>
-              <span>Value</span>
-              <span>Notes</span>
-              <span className="sr-only">Remove</span>
-            </div>
-            <div className="grid gap-1.5 pt-2">
-              {rows.length === 0 && (
-                <p className="py-2 text-sm text-muted-foreground">
-                  No common add-ons yet — add fees like Rush or Design fee that
-                  apply to every product.
-                </p>
-              )}
-              {rows.map((r, i) => (
-                <div
-                  key={i}
-                  className="grid grid-cols-[1fr_9rem_7rem_1fr_2.5rem] items-center gap-2"
-                >
-                  <Input
-                    value={r.label}
-                    onChange={(e) => setRow(i, { label: e.target.value })}
-                    placeholder="e.g. Rush fee"
-                    readOnly={!canMaintain}
-                  />
-                  <Select
-                    value={r.mode}
-                    onValueChange={(v) =>
-                      canMaintain &&
-                      setRow(i, { mode: (v as AddonRow["mode"]) ?? "FIXED" })
-                    }
-                    disabled={!canMaintain}
-                  >
-                    <SelectTrigger aria-label="Add-on pricing type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="FIXED">Fixed ₱</SelectItem>
-                      <SelectItem value="PCT">Percentage %</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <NumberField
-                    decimal
-                    value={r.value}
-                    onChange={(v) => setRow(i, { value: v })}
-                    placeholder={r.mode === "PCT" ? "%" : "Amount"}
-                    disabled={!canMaintain}
-                  />
-                  <Input
-                    value={r.notes}
-                    onChange={(e) => setRow(i, { notes: e.target.value })}
-                    placeholder="Notes"
-                    readOnly={!canMaintain}
-                  />
-                  {canMaintain && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove add-on ${i + 1}`}
-                      onClick={() =>
-                        setRows((rs) => rs.filter((_, x) => x !== i))
-                      }
-                    >
-                      <Trash2Icon className="size-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {canMaintain && (
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setRows((rs) => [
-                  ...rs,
-                  { label: "", mode: "FIXED" as const, value: "", notes: "" },
-                ])
-              }
-            >
-              <PlusIcon /> Add common add-on
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
