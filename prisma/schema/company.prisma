@@ -14,6 +14,14 @@ model Company {
   creditTermDays Int?
   /// Ceiling on the company's total open A/R. Null = no ceiling.
   creditLimit    Decimal?   @db.Decimal(12, 2)
+
+  // Credit-line document checklist — which supporting docs the company has
+  // submitted. Tracking flags only (not the credit terms/limit themselves).
+  docBusinessReg   Boolean @default(false) // DTI (sole prop) or SEC (corp)
+  docCreditAppForm Boolean @default(false) // filled-up Ormoc Printshoppe credit application form
+  docBir2303       Boolean @default(false) // BIR Certificate of Registration (Form 2303)
+  docMayorPermit   Boolean @default(false) // Mayor's Business Permit
+
   address        String? // billing address
   email          String? // official company email
   contactNumber  String?

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AttachmentsCard } from "./attachments-card";
+import { CreditDocsCard } from "./credit-docs-card";
 import { CompanyBadge, VatBadge } from "./badges";
 import { VAT_STATUS_LABEL } from "../vat";
 import type { CompanyDetailDto } from "../schemas/company";
@@ -59,6 +60,19 @@ export function CompanyDetailView({
           canEdit={canEdit}
         />
       </div>
+
+      <CreditDocsCard
+        companyId={company.id}
+        companyName={company.name}
+        companyEmail={company.email}
+        docs={{
+          docBusinessReg: company.docBusinessReg,
+          docCreditAppForm: company.docCreditAppForm,
+          docBir2303: company.docBir2303,
+          docMayorPermit: company.docMayorPermit,
+        }}
+        canEdit={canEdit}
+      />
 
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">

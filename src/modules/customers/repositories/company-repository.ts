@@ -56,6 +56,10 @@ const detailSelect = {
   vatStatus: true,
   creditTermDays: true,
   creditLimit: true,
+  docBusinessReg: true,
+  docCreditAppForm: true,
+  docBir2303: true,
+  docMayorPermit: true,
   address: true,
   email: true,
   contactNumber: true,
@@ -107,6 +111,19 @@ export class PrismaCompanyRepository {
       },
       select: { id: true },
     });
+  }
+
+  /** Toggle the credit-line document checklist flags (not the credit terms). */
+  async updateCreditDocs(
+    id: string,
+    docs: {
+      docBusinessReg: boolean;
+      docCreditAppForm: boolean;
+      docBir2303: boolean;
+      docMayorPermit: boolean;
+    }
+  ): Promise<void> {
+    await prisma.company.update({ where: { id }, data: docs });
   }
 
   /** Create a contact-person Customer under a company, with the company's

@@ -101,6 +101,10 @@ export type CompanyDetailDto = {
   vatStatus: VatStatus | null;
   creditTermDays: number | null;
   creditLimit: string | null;
+  docBusinessReg: boolean;
+  docCreditAppForm: boolean;
+  docBir2303: boolean;
+  docMayorPermit: boolean;
   address: string | null;
   email: string | null;
   contactNumber: string | null;

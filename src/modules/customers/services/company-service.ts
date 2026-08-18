@@ -234,6 +234,30 @@ export class CompanyService {
     });
   }
 
+  /** Toggle the credit-line document checklist. These are document-submission
+   *  tracking flags (NOT the credit terms/limit), so gated on the normal
+   *  company update ability rather than the R8 Maintenance gate. */
+  async updateCreditDocs(
+    actor: Actor,
+    id: string,
+    docs: {
+      docBusinessReg: boolean;
+      docCreditAppForm: boolean;
+      docBir2303: boolean;
+      docMayorPermit: boolean;
+    }
+  ): Promise<void> {
+    assertCan(actor, "update", "Customer");
+    await this.repo.updateCreditDocs(id, docs);
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "Company",
+      entityId: id,
+      action: "update-credit-docs",
+      payload: { ...docs },
+    });
+  }
+
   // ——— attachments (Credit Request / BIR 2303 / other) ———
   async addAttachment(
     actor: Actor,
@@ -285,6 +309,10 @@ function mapDetail(c: CompanyDetailRecord): CompanyDetailDto {
     vatStatus: c.vatStatus,
     creditTermDays: c.creditTermDays,
     creditLimit: c.creditLimit?.toString() ?? null,
+    docBusinessReg: c.docBusinessReg,
+    docCreditAppForm: c.docCreditAppForm,
+    docBir2303: c.docBir2303,
+    docMayorPermit: c.docMayorPermit,
     address: c.address,
     email: c.email,
     contactNumber: c.contactNumber,
