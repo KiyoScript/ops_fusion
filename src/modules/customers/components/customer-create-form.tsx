@@ -250,6 +250,7 @@ export function CustomerCreateForm({
                 onFirst={setCpFirst}
                 onMi={setCpMi}
                 attempted={attempted}
+                companyId={companyId}
               />
               <div className="grid gap-2 sm:grid-cols-2">
                 <Field label="Department" required><Input value={cpDept} onChange={(e) => setCpDept(e.target.value)} aria-invalid={attempted && !cpDept.trim()} /></Field>

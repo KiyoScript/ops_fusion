@@ -132,6 +132,7 @@ export function CustomerEditForm({
           onMi={(v) => set("middleInitial", v)}
           attempted={attempted}
           excludeId={customer.id}
+          companyId={customer.companyId}
         />
 
         <div className="grid gap-1.5">

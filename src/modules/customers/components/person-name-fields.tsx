@@ -17,6 +17,7 @@ export function PersonNameFields({
   onMi,
   attempted,
   excludeId,
+  companyId,
   idPrefix = "pn",
 }: {
   lastName: string;
@@ -28,6 +29,8 @@ export function PersonNameFields({
   attempted?: boolean;
   /** The customer being edited — excluded from duplicate matches. */
   excludeId?: string;
+  /** Company being added to — a same-name contact in it is a real duplicate. */
+  companyId?: string | null;
   idPrefix?: string;
 }) {
   return (
@@ -73,6 +76,7 @@ export function PersonNameFields({
         lastName={lastName}
         middleInitial={middleInitial}
         excludeId={excludeId}
+        companyId={companyId}
       />
     </div>
   );

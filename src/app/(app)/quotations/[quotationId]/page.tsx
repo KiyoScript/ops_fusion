@@ -23,6 +23,10 @@ import { getQuotationService } from "@/modules/quotations/services";
 import type { QuotationDetailDto } from "@/modules/quotations/schemas/quotation";
 import { QuotationStatusBadge } from "@/modules/quotations/components/quotation-status-badge";
 import { QuotationStatusActions } from "@/modules/quotations/components/quotation-status-actions";
+import { CopyQuoteButton } from "@/modules/quotations/components/copy-quote-button";
+import { SendQuoteEmailButton } from "@/modules/quotations/components/send-quote-email-button";
+import { buildMessengerQuote } from "@/modules/quotations/services/quote-messenger";
+import { buildQuoteEmail } from "@/modules/quotations/services/quote-email";
 
 export const metadata: Metadata = { title: "Quotation" };
 
@@ -70,7 +74,20 @@ export default async function QuotationDetailPage({
               </span>
             </span>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <CopyQuoteButton text={buildMessengerQuote(detail)} />
+            {ability.can("send", "Quotation") &&
+              (() => {
+                const email = buildQuoteEmail(detail);
+                return (
+                  <SendQuoteEmailButton
+                    id={detail.id}
+                    defaultTo={detail.customer.email ?? ""}
+                    defaultSubject={email.subject}
+                    defaultBody={email.body}
+                  />
+                );
+              })()}
             <Button
               variant="outline"
               nativeButton={false}

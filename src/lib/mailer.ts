@@ -17,11 +17,24 @@ function getTransporter(): Transporter | null {
   return transporter;
 }
 
+/** Whether SMTP is configured (so callers can show a clear "set it up" message). */
+export function isMailConfigured(): boolean {
+  return !!process.env.SMTP_URL;
+}
+
+export type MailAttachment = {
+  filename: string;
+  content: Buffer | Uint8Array;
+  contentType?: string;
+};
+
 /** Best-effort send — never throws; returns whether a mail went out. */
 export async function sendMail(message: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
+  attachments?: MailAttachment[];
 }): Promise<boolean> {
   const smtp = getTransporter();
   if (!smtp) {
@@ -32,6 +45,11 @@ export async function sendMail(message: {
     await smtp.sendMail({
       from: process.env.MAIL_FROM ?? "OPS Fusion <no-reply@ops.local>",
       ...message,
+      attachments: message.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content instanceof Uint8Array ? Buffer.from(a.content) : a.content,
+        contentType: a.contentType,
+      })),
     });
     return true;
   } catch (err) {

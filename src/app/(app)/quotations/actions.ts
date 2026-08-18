@@ -6,6 +6,8 @@ import { assertCan } from "@/lib/ability";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getQuotationService } from "@/modules/quotations/services";
 import { saveTemplateRow } from "@/modules/quotations/services/newspaper-pricing";
+import { renderQuotationPdf } from "@/modules/quotations/services/quotation-pdf";
+import { sendMail, isMailConfigured } from "@/lib/mailer";
 import {
   quotationCreateInput,
   quotationTransitionInput,
@@ -125,6 +127,56 @@ export async function archiveQuotationAction(
 
     await getQuotationService().archive(actor, id);
     revalidatePath("/quotations");
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// Email the quotation with the PDF attached. Subject/body are editable client-
+// side (prefilled from buildQuoteEmail). Gated on the same "send" ability as the
+// mark-as-sent transition; reads the quote through the service (auth + filters).
+const sendEmailInput = z.object({
+  id: z.string().min(1),
+  to: z.string().trim().email("Enter a valid email address."),
+  subject: z.string().trim().min(1, "Subject is required.").max(200),
+  body: z.string().trim().min(1, "Body is required.").max(8000),
+});
+
+export async function sendQuotationEmailAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    assertCan(actor, "send", "Quotation");
+    const parsed = sendEmailInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+    if (!isMailConfigured()) {
+      return fail(
+        new ValidationError(
+          "Email isn't set up yet — add SMTP_URL and MAIL_FROM to .env (Gmail app password), then restart."
+        )
+      );
+    }
+    const quote = await getQuotationService().get(actor, parsed.data.id);
+    const pdf = await renderQuotationPdf(quote);
+    const sent = await sendMail({
+      to: parsed.data.to,
+      subject: parsed.data.subject,
+      text: parsed.data.body,
+      attachments: [
+        {
+          filename: `${quote.quoteNumber}.pdf`,
+          content: pdf,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+    if (!sent) {
+      return fail(
+        new ValidationError("Email failed to send — check the SMTP settings.")
+      );
+    }
     return ok(null);
   } catch (err) {
     return fail(err);
