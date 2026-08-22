@@ -46,6 +46,10 @@ import {
   isDoneStatus,
   isWaitingPickupStatus,
 } from "./production-status";
+// Centavo → "1234.50", and the one definition of what is still owed on an
+// invoice (R3). Same functions the receipts use, so the board, the archive
+// guard and the printed document can never disagree about an amount.
+import { openBalanceOf, toAmount } from "@/modules/sales-audit/services/money";
 import { composeJobDescription } from "./job-description";
 import { getProductionWorkflowService } from "./production-workflow-service";
 
@@ -927,11 +931,18 @@ export class JobOrderService {
   }
 
   /** Soft removal: archives every open item and cancels the JO — nothing is
-   *  hard-deleted, and the items stay browsable on the Archive page. */
+   *  hard-deleted, and the items stay browsable on the Archive page.
+   *
+   *  Refused while the job still has money owed on it. A JO that leaves the
+   *  board keeps its issued receipts (R11) and keeps its place on the A/R
+   *  ledger, so archiving an unpaid one produces exactly what the contract
+   *  warns about on the customer side: a receivable nobody is looking at. */
   async archiveJo(actor: Actor, id: string): Promise<void> {
     assertCan(actor, "archive", "JobOrder");
     const detail = await this.jobOrders.findDetail(id);
     if (!detail) throw new NotFoundError("Job order not found.");
+
+    await this.assertNothingOwed(actor, id, detail.joNumber);
 
     const now = new Date();
     await this.jobOrders.withTransaction(async (tx) => {
@@ -962,6 +973,45 @@ export class JobOrderService {
         tx
       );
     });
+  }
+
+  /**
+   * Refuse to hide a job that still owes money.
+   *
+   * What is owed is the open balance on the job's LIVE INVOICES — never the
+   * job total less what came in. Work that was never invoiced is not a debt:
+   * a ₱10,000 job with a ₱2,000 slip against it has ₱8,000 unbilled, and
+   * nobody owes that until somebody raises a document for it. Reading the
+   * shortfall as a receivable would block the archive on ordinary unfinished
+   * work (R3).
+   *
+   * The escape is the one the shop already has on paper: cancel the receipt,
+   * which reopens the job and takes the debt off the ledger, or collect the
+   * balance. Writing off a bad debt is a real accounting event and belongs to
+   * the ledger track — it is deliberately not a checkbox here.
+   */
+  private async assertNothingOwed(
+    actor: Actor,
+    jobOrderId: string,
+    joNumber: string
+  ): Promise<void> {
+    // R9 — this reads invoice amounts, so it is gated like any other money read.
+    assertCan(actor, "read", "Sale");
+
+    const invoices = await this.jobOrders.listJoInvoices(jobOrderId);
+    const open = invoices
+      .map((inv) => ({ documentNo: inv.documentNo, owed: openBalanceOf(inv) }))
+      .filter((inv) => inv.owed > 0);
+    if (open.length === 0) return;
+
+    const owed = open.reduce((t, inv) => t + inv.owed, 0);
+    const docs = open.map((inv) => inv.documentNo).join(", ");
+    throw new ConflictError(
+      `${joNumber} still has ₱${toAmount(owed)} owed on ${docs}. ` +
+        `Archiving it now would leave that on the customer's account with ` +
+        `nothing on the board pointing at it. Collect the balance, or cancel ` +
+        `the receipt first — cancelling reopens the job.`
+    );
   }
 
   /** Marks the JO as approved by the customer — the "work may start" signal.
@@ -1333,18 +1383,29 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
   };
 }
 
+/**
+ * The board's Paid / Partial / Unpaid badge.
+ *
+ * Both figures arrive as INTEGER CENTAVOS from the repository, which computes
+ * them with the finance track's shared maths — so this badge and the Receive
+ * Payment dialog are reading the same number and cannot disagree.
+ *
+ * There is no rounding tolerance here any more. The old float version needed a
+ * half-centavo epsilon to decide "paid", which is exactly the drift R1 exists
+ * to prevent; in centavos, `>=` is simply true or false.
+ */
 function toPaymentDto(received: number, total: number): JoPaymentDto {
   const status: JoPaymentDto["status"] =
-    total > 0 && received >= total - 0.005
+    total > 0 && received >= total
       ? "PAID"
       : received > 0
         ? "PARTIAL"
         : "UNPAID";
   return {
     status,
-    paid: received.toFixed(2),
-    total: total.toFixed(2),
-    balance: Math.max(total - received, 0).toFixed(2),
+    paid: toAmount(received),
+    total: toAmount(total),
+    balance: toAmount(Math.max(total - received, 0)),
   };
 }
 

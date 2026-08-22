@@ -57,6 +57,9 @@ import { formatDocumentNo } from "./booklet-service";
 import {
   computeWithholding,
   dominantTender,
+  joCollectedCentavos,
+  joTotalCentavos,
+  openBalanceOf as sharedOpenBalanceOf,
   paymentStatusOf,
   settleTenders,
   splitVat,
@@ -1350,16 +1353,19 @@ export class ReceiptService {
 
 // ——— position: what a job order has been billed, and what it has paid ———
 
-/** Still owed on one invoice, never below zero. All three args are Decimals. */
+/**
+ * Still owed on one invoice, never below zero. All three args are Decimals.
+ *
+ * Positional wrapper over the canonical `openBalanceOf` in money.ts — the
+ * maths has exactly one definition; this is only the shape the call sites in
+ * this file already use.
+ */
 function openBalanceOf(
   amount: string,
   amountPaid: string,
   settledAmount: string
 ): number {
-  return Math.max(
-    toCentavos(amount) - toCentavos(amountPaid) - toCentavos(settledAmount),
-    0
-  );
+  return sharedOpenBalanceOf({ amount, amountPaid, settledAmount });
 }
 
 /**
@@ -1405,27 +1411,10 @@ function positionOf(
     0
   );
 
-  // Money in AGAINST THIS JOB: paid at the counter, plus everything collected
-  // against its invoices since.
-  //
-  // Read off the invoices' settledAmount rather than off this job's own
-  // collection receipts, because a customer-level payment settles invoices
-  // across several job orders at once and is attached to none of them. Summing
-  // the job's own CRs would miss that money entirely — and double-count it
-  // whenever a CR happened to be job-scoped.
-  const collected =
-    liveSales.reduce(
-      (t, s) =>
-        t +
-        toCentavos(s.amountPaid.toString()) +
-        toCentavos(s.settledAmount.toString()),
-      0
-    ) +
-    // Legacy collections written before allocations existed carry no
-    // settledAmount to be found in, so they are counted from their own face.
-    liveCrs
-      .filter((c) => c.allocations.length === 0)
-      .reduce((t, c) => t + toCentavos(c.amount.toString()), 0);
+  // Money in AGAINST THIS JOB. Shared with the Job Order board, which shows
+  // the same figure as a Paid / Partial / Unpaid badge — see money.ts for why
+  // it is read off the invoices rather than off this job's own collections.
+  const collected = joCollectedCentavos({ sales: liveSales, crs: liveCrs });
 
   const openInvoices = liveSales
     .map((sale) => ({
@@ -1820,12 +1809,6 @@ function kindOfBooklet(type: BookletType): ReceiptKind {
 }
 
 /** JO total, falling back to the sum of its line items when total is unset. */
-function joTotalCentavos(jo: JoForReceiptRecord): number {
-  const header = toCentavos(jo.total.toString());
-  if (header > 0) return header;
-  return jo.items.reduce((t, i) => t + toCentavos(i.lineTotal.toString()), 0);
-}
-
 /** Local-day window [00:00, next 00:00) for a YYYY-MM-DD key. */
 // ——— sales report helpers ————————————————————————————————————————————
 
