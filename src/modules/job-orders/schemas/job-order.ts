@@ -284,9 +284,6 @@ export type JobOrderItemsPageDto = {
   nextCursor: string | null;
 };
 
-/** One production-workflow step of an item, for the production printable. */
-export type ProductionStepLine = { name: string; done: boolean };
-
 export type JobOrderDetailDto = {
   id: string;
   joNumber: string;

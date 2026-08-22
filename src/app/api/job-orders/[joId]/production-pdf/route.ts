@@ -14,8 +14,8 @@ export async function GET(
   try {
     const actor = await requireActor();
     const { joId } = await params;
-    const { jo, stepsByItem } = await getJobOrderService().getProductionData(actor, joId);
-    const bytes = await renderJoProductionPdf(jo, stepsByItem);
+    const { jo, fin } = await getJobOrderService().getProductionData(actor, joId);
+    const bytes = await renderJoProductionPdf(jo, fin);
     return new NextResponse(Buffer.from(bytes), {
       headers: {
         "Content-Type": "application/pdf",

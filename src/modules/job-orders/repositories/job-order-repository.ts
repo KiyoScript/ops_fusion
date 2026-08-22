@@ -4,6 +4,12 @@ import { JobOrderStatus } from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
 import { DONE_KEYWORDS } from "../services/production-status";
 
+export type QuoteFinancials = {
+  taxType: "NON_VAT" | "VAT_EXCLUSIVE" | "VAT_INCLUSIVE";
+  downpaymentRate: number;
+  paymentTermLabel: string | null;
+};
+
 // ——— selection shapes (single source of truth for what queries fetch) ———
 
 const listSelect = {
@@ -383,10 +389,6 @@ export interface IJobOrderRepository {
     }[],
     tx?: DbTx
   ): Promise<void>;
-  /** Every production step of a JO's items (for the production printable). */
-  listItemStepsForJob(jobOrderId: string): Promise<
-    { jobOrderItemId: string; name: string; sortOrder: number; doneAt: Date | null }[]
-  >;
   /** Per-step status histories of one JO item (stepId → history text). */
   listStepHistories(
     jobOrderItemId: string
@@ -413,6 +415,7 @@ export interface IJobOrderRepository {
     tx?: DbTx
   ): Promise<void>;
   findDetail(id: string): Promise<JobOrderDetailRecord | null>;
+  findQuoteFinancials(joId: string): Promise<QuoteFinancials | null>;
   existsJoNumber(
     joNumber: string,
     excludeId?: string,
@@ -893,6 +896,26 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     });
   }
 
+  // Tax type + downpayment terms from the JO's source quotation (null for a
+  // walk-in JO with no quote) — drives the print's VAT / DOWNPAYMENT footer.
+  async findQuoteFinancials(joId: string): Promise<QuoteFinancials | null> {
+    const row = await prisma.jobOrder.findUnique({
+      where: { id: joId },
+      select: {
+        quotation: {
+          select: { taxType: true, downpaymentRate: true, paymentTermLabel: true },
+        },
+      },
+    });
+    const q = row?.quotation;
+    if (!q) return null;
+    return {
+      taxType: q.taxType,
+      downpaymentRate: Number(q.downpaymentRate),
+      paymentTermLabel: q.paymentTermLabel,
+    };
+  }
+
   async existsJoNumber(
     joNumber: string,
     excludeId?: string,
@@ -981,14 +1004,6 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     return (tx ?? prisma).jobOrderItem.findFirst({
       where: { id: itemId, jobOrderId },
       include: { product: { select: { name: true } } },
-    });
-  }
-
-  async listItemStepsForJob(jobOrderId: string) {
-    return prisma.jobOrderItemStep.findMany({
-      where: { jobOrderItem: { jobOrderId } },
-      orderBy: [{ jobOrderItemId: "asc" }, { sortOrder: "asc" }],
-      select: { jobOrderItemId: true, name: true, sortOrder: true, doneAt: true },
     });
   }
 
