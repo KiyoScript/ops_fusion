@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { DownloadIcon } from "lucide-react";
+import { ChevronRightIcon, DownloadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,12 +16,16 @@ import {
 import { EmptyState, ErrorState, TableSkeletonRows } from "@/components/data-states";
 import { cn } from "@/lib/utils";
 import {
+  RECEIPT_KIND,
   RECEIPT_KIND_LABEL,
   SALES_GRANULARITY,
   type ReceiptKind,
+  type ReceiptRowDto,
   type SalesGranularity,
+  type SalesPeriodRowDto,
 } from "../schemas/receipt";
 import { salesReportXlsxUrl, useSalesReport } from "../hooks/use-sales-report";
+import { useReceiptsInRange } from "../hooks/use-sales-audit";
 
 const peso = (v: string | number) =>
   `₱${Number(v || 0).toLocaleString("en-PH", {
@@ -72,6 +76,8 @@ export function SalesReportView() {
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [groupBy, setGroupBy] = useState<SalesGranularity>("day");
+  /** Which period row is drilled into. One at a time — the detail is long. */
+  const [openPeriod, setOpenPeriod] = useState<string | null>(null);
 
   const params = { from, to, groupBy };
   const report = useSalesReport(params, Boolean(from && to && from <= to));
@@ -333,34 +339,15 @@ export function SalesReportView() {
                 </TableRow>
               )}
               {(r?.byPeriod ?? []).map((p) => (
-                <TableRow key={p.key}>
-                  <TableCell className="whitespace-nowrap">{p.label}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      {/* One measure, one hue. `collected` is a different
-                          scale and stays a number — drawing both would be a
-                          two-axis chart wearing a table. */}
-                      <div
-                        className="h-2 min-w-0.5 rounded-full bg-primary"
-                        style={{
-                          width: `${Math.max((Number(p.gross) / peakPeriod) * 100, 1)}%`,
-                        }}
-                      />
-                      <span className="shrink-0 font-medium tabular-nums">
-                        {peso(p.gross)}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {p.count}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {peso(p.vatAmount)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {peso(p.collected)}
-                  </TableCell>
-                </TableRow>
+                <PeriodRow
+                  key={p.key}
+                  period={p}
+                  peak={peakPeriod}
+                  open={openPeriod === p.key}
+                  onToggle={() =>
+                    setOpenPeriod(openPeriod === p.key ? null : p.key)
+                  }
+                />
               ))}
             </TableBody>
           </Table>
@@ -418,6 +405,200 @@ export function SalesReportView() {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * One period, with the day's receipts folded underneath it.
+ *
+ * The aggregate stays exactly as the repository computed it over the whole
+ * range. Opening the row fetches the detail separately and never feeds back
+ * into the figures above — summing what happens to be visible is how a report
+ * ends up quietly disagreeing with itself (R7).
+ */
+function PeriodRow({
+  period: p,
+  peak,
+  open,
+  onToggle,
+}: {
+  period: SalesPeriodRowDto;
+  peak: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  // Fetch only once opened, and keep it cached after closing.
+  const detail = useReceiptsInRange(open ? { from: p.from, to: p.to } : null);
+  const rows = detail.data?.rows ?? [];
+
+  return (
+    <>
+      <TableRow
+        className={cn("cursor-pointer hover:bg-muted/40", open && "bg-muted/40")}
+        onClick={onToggle}
+      >
+        <TableCell className="whitespace-nowrap">
+          <button
+            type="button"
+            aria-expanded={open}
+            className="flex items-center gap-1.5 rounded text-left hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                open && "rotate-90"
+              )}
+            />
+            {p.label}
+          </button>
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center gap-3">
+            {/* One measure, one hue. `collected` is a different scale and
+                stays a number — drawing both would be a two-axis chart
+                wearing a table. */}
+            <div
+              className="h-2 min-w-0.5 rounded-full bg-primary"
+              style={{
+                width: `${Math.max((Number(p.gross) / peak) * 100, 1)}%`,
+              }}
+            />
+            <span className="shrink-0 font-medium tabular-nums">
+              {peso(p.gross)}
+            </span>
+          </div>
+        </TableCell>
+        <TableCell className="text-right tabular-nums text-muted-foreground">
+          {p.count}
+        </TableCell>
+        <TableCell className="text-right tabular-nums text-muted-foreground">
+          {peso(p.vatAmount)}
+        </TableCell>
+        <TableCell className="text-right tabular-nums text-muted-foreground">
+          {peso(p.collected)}
+        </TableCell>
+      </TableRow>
+
+      {open && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={5} className="bg-muted/20 p-0">
+            <div className="px-4 py-3">
+              <p className="mb-2 text-xs text-muted-foreground">
+                {p.from === p.to
+                  ? `Receipts on ${p.from}`
+                  : `Receipts from ${p.from} to ${p.to}`}
+              </p>
+
+              {detail.isPending ? (
+                <div className="rounded-md border bg-background">
+                  <Table>
+                    <TableBody>
+                      <TableSkeletonRows cols={7} rows={3} />
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : detail.isError ? (
+                <ErrorState
+                  message={detail.error.message}
+                  onRetry={() => detail.refetch()}
+                />
+              ) : rows.length === 0 ? (
+                <EmptyState title="No receipts in this period" />
+              ) : (
+                <div className="overflow-x-auto rounded-md border bg-background">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Receipt no.</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>JO</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="text-right">VAT</TableHead>
+                        <TableHead>Payment</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((row) => (
+                        <DetailRow key={row.id} row={row} />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {rows.some((row) => row.voidedAt !== null) && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Cancelled receipts are listed so every booklet leaf stays
+                  accounted for, but they are not in the figures above — a
+                  cancelled receipt is not a sale.
+                </p>
+              )}
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}
+
+/** One receipt inside a drilled-open period. Read-only: auditing a receipt
+ *  belongs on the daily log, where the auditor works. */
+function DetailRow({ row }: { row: ReceiptRowDto }) {
+  const cancelled = row.voidedAt !== null;
+  const isCollection = row.kind === RECEIPT_KIND.COLLECTION;
+
+  return (
+    <TableRow className={cn(cancelled && "text-muted-foreground")}>
+      <TableCell className="whitespace-nowrap font-mono text-xs">
+        <span className={cn(cancelled && "line-through")}>
+          {row.documentNo ?? "—"}
+        </span>
+        {cancelled && (
+          <span className="ml-2 rounded border border-destructive/40 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive">
+            Cancelled
+          </span>
+        )}
+        {!row.documentIssued && !cancelled && (
+          <span className="ml-2 text-[10px] uppercase tracking-wide">
+            no CR printed
+          </span>
+        )}
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-sm">
+        {row.kindLabel}
+      </TableCell>
+      <TableCell className="text-sm">{row.customerName}</TableCell>
+      <TableCell className="whitespace-nowrap font-mono text-xs">
+        {row.joNumber ?? "—"}
+      </TableCell>
+      <TableCell
+        className={cn(
+          "text-right tabular-nums",
+          cancelled ? "line-through" : "font-medium",
+          // A collection is cash in, not revenue — never shown as though it
+          // were part of the sales above it (R4).
+          isCollection && "font-normal italic"
+        )}
+      >
+        {peso(row.amount)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums text-muted-foreground">
+        {isCollection ? "—" : peso(row.vatAmount)}
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+        {row.payments.length > 1
+          ? row.payments.map((t) => t.method).join(" + ")
+          : (row.method ?? "—")}
+        {row.methodDetail && (
+          <span className="ml-1 font-mono">{row.methodDetail}</span>
+        )}
+      </TableCell>
+    </TableRow>
   );
 }
 

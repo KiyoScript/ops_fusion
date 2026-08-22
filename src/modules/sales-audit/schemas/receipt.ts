@@ -179,16 +179,33 @@ export const voidReceiptInput = z.object({
   reason: z.string().trim().min(3, "Write the reason for the cancellation.").max(500),
 });
 
-export const receiptListFilters = z.object({
-  q: z.string().trim().max(200).optional(),
-  /** Day view — the legacy daily sales log. Defaults to today. */
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD.")
-    .optional(),
-  cursor: z.string().optional(),
-  take: z.coerce.number().int().min(1).max(100).default(50),
-});
+const isoDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD.");
+
+export const receiptListFilters = z
+  .object({
+    q: z.string().trim().max(200).optional(),
+    /** Day view — the legacy daily sales log. Defaults to today. */
+    date: isoDay.optional(),
+    /**
+     * Range view — the sales report's drill-down. Both inclusive; the service
+     * pushes `to` to the end of that day. `from`/`to` win over `date` when
+     * both are sent, because a range is the more specific request.
+     */
+    from: isoDay.optional(),
+    to: isoDay.optional(),
+    cursor: z.string().optional(),
+    take: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .refine((v) => (v.from === undefined) === (v.to === undefined), {
+    message: "A range needs both from and to.",
+    path: ["to"],
+  })
+  .refine((v) => v.from === undefined || v.to === undefined || v.from <= v.to, {
+    message: "The range ends before it starts.",
+    path: ["to"],
+  });
 
 export type PaymentLineInput = z.infer<typeof paymentLineInput>;
 export type ReceivePaymentInput = z.infer<typeof receivePaymentInput>;
@@ -490,6 +507,17 @@ export type SalesPeriodRowDto = SalesSliceDto & {
   label: string;
   /** Cash collected in the same slice — shown alongside, never added in. */
   collected: string;
+  /**
+   * The days this row actually covers, inclusive — what the drill-down asks
+   * for when the row is opened.
+   *
+   * These are the FIRST and LAST dates carrying a receipt in the bucket, not
+   * the calendar bounds of the week or month. Same rows either way, and it
+   * saves inverting an ISO week key back into dates, which is the kind of
+   * arithmetic that is wrong once a year and silently.
+   */
+  from: string;
+  to: string;
 };
 
 export type SalesCustomerRowDto = SalesSliceDto & {

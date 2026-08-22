@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import {
   BanIcon,
+  ChevronRightIcon,
   PlusIcon,
   ReceiptTextIcon,
   XIcon,
@@ -31,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ColorBadge } from "@/components/color-badge";
 import { ErrorState } from "@/components/data-states";
 import { sanitizeDecimal } from "@/lib/form-numeric";
+import { remainderFor, resolveTenders } from "../services/split-tender";
 import { cn } from "@/lib/utils";
 import { PaymentMethod } from "@/generated/prisma/enums";
 import {
@@ -135,8 +137,6 @@ export function ReceivePaymentDialog({
   const [issueDocument, setIssueDocument] = useState(true);
   // null = follow the amount; true/false = the cashier has decided.
   const [dpOverride, setDpOverride] = useState<boolean | null>(null);
-  // false = the single payment line still mirrors the amount being invoiced.
-  const [paymentTouched, setPaymentTouched] = useState(false);
 
   const kind =
     pickedKind ?? jo?.recommended ?? RECEIPT_KIND.SI_VAT;
@@ -185,7 +185,6 @@ export function ReceivePaymentDialog({
     setPickedKind(null);
     setAmountEdit(null);
     setLines([newLine()]);
-    setPaymentTouched(false);
     setDpOverride(null);
     setNotes("");
     setIssueDocument(true);
@@ -198,13 +197,23 @@ export function ReceivePaymentDialog({
 
   // ——— what the customer handed over ———
   //
-  // Until the cashier touches it, one line mirrors the amount invoiced: the
-  // customer is at the counter paying, and utang is the exception they type
-  // rather than the default they fall into.
-  const tenders =
-    !paymentTouched && !isCharge && lines.length === 1 && lines[0]
-      ? [{ ...lines[0], amount: due.toFixed(2) }]
-      : lines;
+  // One line FOLLOWS the amount being invoiced: it carries whatever the typed
+  // lines leave uncovered, so a split adds up to the document by default. The
+  // follower is simply the last line left blank — typing in a line claims it,
+  // clearing it hands it back.
+  //
+  // A single blank line is the ordinary case, and it mirrors the amount the
+  // way it always has. What changes is that splitting no longer breaks the
+  // link: reduce the cash line and the other one takes up the difference.
+  //
+  // Utang stays reachable and stays deliberate. To leave a balance owing, the
+  // cashier types a smaller figure into every line — a decision, rather than
+  // a box somebody forgot to fill in.
+  const {
+    shown: shownLines,
+    tenders,
+    followerIndex,
+  } = resolveTenders(lines, due, isCharge);
   const received = tenders.reduce((t, l) => t + num(l.amount), 0);
   const cashIn = tenders
     .filter((l) => l.method === PaymentMethod.CASH)
@@ -218,23 +227,26 @@ export function ReceivePaymentDialog({
   const patchLine = (key: string, patch: Partial<Line>) =>
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const addLine = () => {
-    // Splitting is an explicit act, so the mirrored line freezes at what it
-    // was showing — otherwise adding a second method silently zeroes the first.
-    setPaymentTouched(true);
-    setLines((ls) => [
-      ...ls.map((l, i) =>
-        i === 0 && !paymentTouched && ls.length === 1
-          ? { ...l, amount: due.toFixed(2) }
-          : l
-      ),
-      // Offer a different method than the last — a split is by definition paid
-      // two ways, so repeating cash is rarely what's meant.
-      newLine(
-        ls.length && ls[ls.length - 1].method === PaymentMethod.CASH
-          ? PaymentMethod.GCASH
-          : PaymentMethod.CASH
-      ),
-    ]);
+    setLines((ls) => {
+      // The line that was following freezes at what it is showing, and the new
+      // one follows instead — otherwise adding a second method would silently
+      // zero the first. The new line starts at 0.00 because the frozen one is
+      // covering everything; reduce it and the difference lands here.
+      const frozen = ls.map((l, i) =>
+        i === followerIndex ? { ...l, amount: remainderFor(ls, i, due) } : l
+      );
+      return [
+        ...frozen,
+        // Offer a different method than the last — a split is by definition
+        // paid two ways, so repeating cash is rarely what's meant.
+        newLine(
+          frozen.length &&
+            frozen[frozen.length - 1].method === PaymentMethod.CASH
+            ? PaymentMethod.GCASH
+            : PaymentMethod.CASH
+        ),
+      ];
+    });
   };
   const removeLine = (key: string) =>
     setLines((ls) => ls.filter((l) => l.key !== key));
@@ -245,11 +257,10 @@ export function ReceivePaymentDialog({
     // The cap changes with the kind (unbilled vs outstanding), so a typed
     // amount from the previous choice would be measured against the wrong one.
     setAmountEdit(null);
-    if (k === RECEIPT_KIND.SI_CHARGE) setLines([]);
-    else if (lines.length === 0) setLines([newLine()]);
-    // A different receipt kind means a different amount, so the mirror
-    // resumes rather than keeping the last kind's figure.
-    setPaymentTouched(false);
+    // A different receipt kind means a different amount, so the payment lines
+    // start over and follow it rather than carrying the last kind's figures
+    // across to a document they were never typed against.
+    setLines(k === RECEIPT_KIND.SI_CHARGE ? [] : [newLine()]);
     setDpOverride(null);
   };
 
@@ -309,11 +320,16 @@ export function ReceivePaymentDialog({
     return null;
   };
 
+  // Computed once and used for BOTH the disabled button and the sentence
+  // above it. Working it out in the disabled prop alone is what left the
+  // cashier with a dead button and no reason: the toast below can only fire
+  // from a click, and a disabled button never gets one.
+  const blocker = problem();
+
   const submit = () => {
     if (!jobOrderId) return;
-    const err = problem();
-    if (err) {
-      toast.error(err);
+    if (blocker) {
+      toast.error(blocker);
       return;
     }
     const payments = tenders.map((l) => ({
@@ -637,18 +653,20 @@ export function ReceivePaymentDialog({
                                 <Input
                                   inputMode="decimal"
                                   aria-label={`Amount received, line ${i + 1}`}
-                                  value={
-                                    !paymentTouched && lines.length === 1
-                                      ? due.toFixed(2)
-                                      : l.amount
-                                  }
-                                  onChange={(e) => {
-                                    setPaymentTouched(true);
+                                  // The following line shows what it is
+                                  // absorbing, so the figures on screen are
+                                  // the figures that will be recorded.
+                                  value={shownLines[i]?.amount ?? l.amount}
+                                  onChange={(e) =>
                                     patchLine(l.key, {
                                       amount: sanitizeDecimal(e.target.value),
-                                    });
-                                  }}
-                                  placeholder={amountPlaceholder(lines, l, due)}
+                                    })
+                                  }
+                                  // Only reachable on a line the cashier has
+                                  // emptied while another blank line is
+                                  // already following — the hint is what is
+                                  // still uncovered either way.
+                                  placeholder={remainderFor(lines, i, due)}
                                   className="flex-1 text-right font-mono tabular-nums"
                                 />
 
@@ -714,12 +732,26 @@ export function ReceivePaymentDialog({
           </div>
         ) : null}
 
+        {/* Why the button is dead. The same check that disables it already
+            produces a sentence saying what to do about it — and until now
+            nothing rendered that sentence anywhere. Held back until the job
+            order has loaded, so an empty dialog does not accuse the cashier
+            of having nothing left to invoice. */}
+        {jo && !settled && blocker && (
+          <p
+            role="status"
+            className="rounded-md border border-amber-500/40 bg-amber-50/70 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
+          >
+            {blocker}
+          </p>
+        )}
+
         <DialogFooter>
           <Button variant="outline" onClick={reset}>
             {settled ? "Close" : "Cancel"}
           </Button>
           {!settled && (
-            <Button onClick={submit} disabled={busy || !jo || !!problem()}>
+            <Button onClick={submit} disabled={busy || !jo || !!blocker}>
               {busy
                 ? "Issuing…"
                 : !needsNumber
@@ -944,17 +976,131 @@ function OpenInvoices({
   );
 }
 
+
+const METHOD_LABEL: Record<PaymentMethod, string> = Object.fromEntries(
+  METHODS.map((m) => [m.value, m.label])
+) as Record<PaymentMethod, string>;
+
 /**
- * What a blank line should suggest: the part of the amount still uncovered.
- * On a single line that is the whole amount, which is what gets typed nine
- * times out of ten.
+ * What one already-issued receipt actually took in, and how.
+ *
+ * The TENDER LINES are the truth about how the money arrived — the header's
+ * `method` is only the largest of them, which is all the day log and the
+ * printables need but not enough to answer "what did they pay with". A split
+ * shows every line with its own reference, because two cheques are two cheque
+ * numbers.
+ *
+ * The money is shown in the three parts that R3 keeps separate: what the
+ * printed receipt says was handed over at issue (`amountPaid`, frozen),
+ * what has been collected against it since (`settledAmount`), and what is
+ * therefore still owed. Adding them into one "paid" figure is what makes a
+ * receivable look settled when it is not.
  */
-function amountPlaceholder(lines: Line[], self: Line, due: number): string {
-  const others = lines
-    .filter((l) => l.key !== self.key)
-    .reduce((t, l) => t + num(l.amount), 0);
-  const remaining = due - others;
-  return remaining > 0 ? remaining.toFixed(2) : "0.00";
+function ReceiptDetail({ row }: { row: ReceiptRowDto }) {
+  const paid = num(row.amountPaid);
+  const settled = num(row.settledAmount);
+  const owed = num(row.balanceDue);
+  const change = num(row.changeGiven);
+  const tendered = row.cashTendered === null ? null : num(row.cashTendered);
+  const cancelled = row.voidType !== null;
+
+  return (
+    <div className="mt-2 grid gap-4 rounded-md bg-muted/50 p-3 text-sm sm:grid-cols-2">
+      <div className="grid content-start gap-1.5">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          How it was paid
+        </p>
+
+        {row.payments.length > 0 ? (
+          row.payments.map((t, i) => (
+            <div
+              key={`${t.method}-${i}`}
+              className="flex items-baseline justify-between gap-3"
+            >
+              <span>
+                {METHOD_LABEL[t.method] ?? t.method}
+                {t.reference && (
+                  <span className="ml-1.5 font-mono text-xs text-muted-foreground">
+                    {t.reference}
+                  </span>
+                )}
+              </span>
+              <span className="font-mono tabular-nums">
+                {peso(num(t.amount))}
+              </span>
+            </div>
+          ))
+        ) : cent(paid) > 0 ? (
+          // Written before split tender existed: the header method is all the
+          // detail there is, and saying so beats showing an empty panel.
+          <div className="flex items-baseline justify-between gap-3">
+            <span>
+              {row.method ? METHOD_LABEL[row.method] : "Method not recorded"}
+              {row.methodDetail && (
+                <span className="ml-1.5 font-mono text-xs text-muted-foreground">
+                  {row.methodDetail}
+                </span>
+              )}
+            </span>
+            <span className="font-mono tabular-nums">{peso(paid)}</span>
+          </div>
+        ) : (
+          <p className="text-muted-foreground">
+            Nothing was received — this receipt records a sale on credit.
+          </p>
+        )}
+
+        {tendered !== null && cent(change) > 0 && (
+          <div className="mt-1 grid gap-0.5 border-t pt-1.5 text-xs">
+            <Row label="Cash handed over" value={peso(tendered)} />
+            <Row label="Change given" value={peso(change)} />
+          </div>
+        )}
+      </div>
+
+      <div className="grid content-start gap-1.5">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          On this receipt
+        </p>
+        <Row label="Amount" value={peso(num(row.amount))} />
+        {cent(num(row.vatAmount)) > 0 && (
+          <>
+            <Row label="VAT-able" value={peso(num(row.vatableSales))} />
+            <Row label="Output VAT" value={peso(num(row.vatAmount))} />
+          </>
+        )}
+        <Row label="Paid at issue" value={peso(paid)} />
+        {cent(settled) > 0 && (
+          <Row label="Collected since" value={peso(settled)} />
+        )}
+
+        {cancelled ? (
+          <p className="border-t pt-1.5 text-xs text-muted-foreground">
+            Cancelled{row.voidedByName ? ` by ${row.voidedByName}` : ""} — it
+            owes nothing and counts as no sale. The serial stays in the booklet.
+          </p>
+        ) : cent(owed) > 0 ? (
+          <div className="border-t pt-1.5 font-medium text-amber-700 dark:text-amber-400">
+            <Row label="Still owed" value={peso(owed)} />
+          </div>
+        ) : (
+          <p className="border-t pt-1.5 text-xs text-muted-foreground">
+            Settled in full.
+          </p>
+        )}
+
+        {row.dueDate && !cancelled && cent(owed) > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Due {new Date(row.dueDate).toLocaleDateString("en-PH", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -1108,6 +1254,8 @@ function IssuedReceipts({
 }) {
   const live = rows.filter((r) => r.voidType === null);
   const owed = live.reduce((t, r) => t + num(r.balanceDue), 0);
+  /** Which receipt is opened up. One at a time — the list is a summary. */
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <div
@@ -1134,69 +1282,99 @@ function IssuedReceipts({
         {rows.map((r) => {
           const voidType = r.voidType;
           const struck = voidType ? "text-muted-foreground line-through" : "";
+          const open = expanded === r.id;
           return (
             <div
               key={r.id}
-              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-1.5 text-sm first:border-t-0 first:pt-0"
+              className="border-t pt-1.5 first:border-t-0 first:pt-0"
             >
-              <span className={cn("font-mono tabular-nums", struck)}>
-                {r.documentNo ?? "Payment"}
-              </span>
-              <span className="text-muted-foreground">{r.kindLabel}</span>
-              {!r.documentIssued && (
-                <ColorBadge tone="gray" label="no receipt printed" />
-              )}
-              <span className={cn("font-mono tabular-nums", struck)}>
-                {peso(num(r.amount))}
-              </span>
-              {!voidType && cent(num(r.balanceDue)) > 0 && (
-                <ColorBadge
-                  tone="amber"
-                  label={`${peso(num(r.balanceDue))} unpaid`}
-                />
-              )}
-              {!voidType &&
-                cent(num(r.settledAmount)) > 0 &&
-                cent(num(r.balanceDue)) === 0 && (
-                  <ColorBadge tone="green" label="collected" />
+              <div
+                className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded text-sm hover:bg-muted/50"
+                onClick={() => setExpanded(open ? null : r.id)}
+              >
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  aria-label={`${open ? "Hide" : "Show"} what was paid on ${r.documentNo ?? "this payment"}`}
+                  className="rounded"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setExpanded(open ? null : r.id);
+                  }}
+                >
+                  <ChevronRightIcon
+                    className={cn(
+                      "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                      open && "rotate-90"
+                    )}
+                  />
+                </button>
+                <span className={cn("font-mono tabular-nums", struck)}>
+                  {r.documentNo ?? "Payment"}
+                </span>
+                <span className="text-muted-foreground">{r.kindLabel}</span>
+                {!r.documentIssued && (
+                  <ColorBadge tone="gray" label="no receipt printed" />
                 )}
-              <span className="text-xs text-muted-foreground">
-                {new Date(r.receivedAt).toLocaleDateString("en-PH", {
-                  month: "short",
-                  day: "numeric",
-                })}{" "}
-                · {r.createdByName}
-              </span>
-
-              {voidType ? (
-                <span className="flex flex-wrap items-center gap-2">
-                  {/* One word, whatever became of it — that is what the leaf
-                      itself says. The successor beside it is the difference. */}
-                  <ColorBadge tone="red" label={VOID_MARK} />
-                  <span className="text-xs text-muted-foreground">
-                    {r.replacedByDocumentNo
-                      ? `→ ${r.replacedByDocumentNo}`
-                      : r.voidReason}
-                  </span>
+                <span className={cn("font-mono tabular-nums", struck)}>
+                  {peso(num(r.amount))}
                 </span>
-              ) : (
-                canVoid && (
-                  <Button
-                    className="ml-auto"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onVoid(r)}
-                  >
-                    <BanIcon /> Cancel
-                  </Button>
-                )
-              )}
-
-              {r.replacesDocumentNo && (
+                {!voidType && cent(num(r.balanceDue)) > 0 && (
+                  <ColorBadge
+                    tone="amber"
+                    label={`${peso(num(r.balanceDue))} unpaid`}
+                  />
+                )}
+                {!voidType &&
+                  cent(num(r.settledAmount)) > 0 &&
+                  cent(num(r.balanceDue)) === 0 && (
+                    <ColorBadge tone="green" label="collected" />
+                  )}
                 <span className="text-xs text-muted-foreground">
-                  replaces {r.replacesDocumentNo}
+                  {new Date(r.receivedAt).toLocaleDateString("en-PH", {
+                    month: "short",
+                    day: "numeric",
+                  })}{" "}
+                  · {r.createdByName}
                 </span>
-              )}
+
+                {voidType ? (
+                  <span className="flex flex-wrap items-center gap-2">
+                    {/* One word, whatever became of it — that is what the leaf
+                        itself says. The successor beside it is the difference. */}
+                    <ColorBadge tone="red" label={VOID_MARK} />
+                    <span className="text-xs text-muted-foreground">
+                      {r.replacedByDocumentNo
+                        ? `→ ${r.replacedByDocumentNo}`
+                        : r.voidReason}
+                    </span>
+                  </span>
+                ) : (
+                  canVoid && (
+                    <Button
+                      className="ml-auto"
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        // Cancelling is not "tell me more" — the row underneath
+                        // must not open on the way to the confirm dialog.
+                        e.stopPropagation();
+                        onVoid(r);
+                      }}
+                    >
+                      <BanIcon /> Cancel
+                    </Button>
+                  )
+                )}
+
+                {r.replacesDocumentNo && (
+                  <span className="text-xs text-muted-foreground">
+                    replaces {r.replacesDocumentNo}
+                  </span>
+                )}
+              </div>
+
+              {open && <ReceiptDetail row={r} />}
             </div>
           );
         })}

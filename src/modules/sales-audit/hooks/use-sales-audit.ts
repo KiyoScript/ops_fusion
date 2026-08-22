@@ -210,6 +210,31 @@ export function useDailyReceipts(date: string, q: string) {
   });
 }
 
+/**
+ * Every receipt across a span of days — the sales report's drill-down.
+ *
+ * Detail only. The period totals above these rows stay as the repository
+ * computed them over the whole range; nothing here is summed to produce a
+ * figure (R7). Note the rows include CANCELLED receipts, which the report's
+ * totals exclude — the day log has always shown them, because all 50 leaves of
+ * a booklet have to be accountable.
+ */
+export function useReceiptsInRange(
+  range: { from: string; to: string } | null
+) {
+  return useQuery({
+    queryKey: ["receipts", "range", range?.from, range?.to],
+    queryFn: () => {
+      const search = new URLSearchParams({
+        from: range!.from,
+        to: range!.to,
+      });
+      return fetchJson<ReceiptListPageDto>(`/api/receipts?${search}`);
+    },
+    enabled: range !== null,
+  });
+}
+
 export function useDailySummary(date: string) {
   return useQuery({
     queryKey: ["receipts", "summary", date],
