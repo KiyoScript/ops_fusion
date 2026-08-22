@@ -112,8 +112,49 @@ model CrAllocation {
   cr     CollectionReceipt @relation(fields: [crId], references: [id], onDelete: Cascade)
   saleId String
   sale   Sale              @relation(fields: [saleId], references: [id])
+  // What this settles on the invoice — the figure mirrored onto
+  // Sale.settledAmount. It INCLUDES any tax withheld below, because the
+  // invoice is closed by the full amount regardless of how much of it arrived
+  // as cash: a ₱112,000 invoice paid ₱110,000 net of ₱2,000 withholding is
+  // settled, not ₱2,000 short.
   amount Decimal           @db.Decimal(12, 2)
+
+  // How much of `amount` was TAX WITHHELD rather than money received. TWO
+  // separate taxes, because they are credited on two different returns and
+  // evidenced by two different forms (withholding.prisma):
+  //
+  //   ewtWithheld — creditable INCOME tax, 1–2%, BIR Form 2307. Withheld by
+  //                 designated Top Withholding Agents.
+  //   vatWithheld — creditable VALUE-ADDED tax, 5%, BIR Form 2306. Withheld by
+  //                 government, LGUs, public schools and GOCCs.
+  //
+  // A government job carries BOTH: on a ₱112,000 invoice they keep ₱2,000 EWT
+  // and ₱5,000 VAT and pay ₱105,000. Merging them into one figure would close
+  // the receivable correctly and still leave the accountant unable to split
+  // ₱7,000 across the income-tax return and the VAT return.
+  //
+  // Zero on both for everyone else, which is most collections.
+  //
+  // Splitting them out here rather than netting them into `amount` is what
+  // keeps every figure true at once: the invoice closes in full, while the
+  // day's collections count only the cash that actually crossed the counter.
+  // The balancing identity on CollectionReceipt widens to:
+  //
+  //   amount + creditApplied + ewtWithheld + vatWithheld
+  //     = Σ allocations + creditCreated
+  ewtWithheld Decimal @default(0) @db.Decimal(12, 2)
+  vatWithheld Decimal @default(0) @db.Decimal(12, 2)
+
+  // The certificates covering each withholding. Null until the paper arrives —
+  // one certificate usually covers a quarter's worth of payments, so the links
+  // point this way. Never a gate on recording the payment.
+  ewtCertificateId String?
+  ewtCertificate   WithholdingCertificate? @relation("AllocationEwtCertificate", fields: [ewtCertificateId], references: [id])
+  vatCertificateId String?
+  vatCertificate   WithholdingCertificate? @relation("AllocationVatCertificate", fields: [vatCertificateId], references: [id])
 
   @@unique([crId, saleId])
   @@index([saleId])
+  @@index([ewtCertificateId])
+  @@index([vatCertificateId])
 }

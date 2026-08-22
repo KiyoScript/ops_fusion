@@ -12,4 +12,3 @@ CREATE TABLE "GlobalProductionStep" (
 
 -- CreateIndex
 CREATE INDEX "GlobalProductionStep_isActive_idx" ON "GlobalProductionStep"("isActive");
-  

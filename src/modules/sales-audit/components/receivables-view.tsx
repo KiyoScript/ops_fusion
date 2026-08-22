@@ -4,7 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileTextIcon, HandCoinsIcon, SearchIcon, WalletIcon } from "lucide-react";
+import {
+  CalendarClockIcon,
+  FileTextIcon,
+  HandCoinsIcon,
+  SearchIcon,
+  WalletIcon,
+} from "lucide-react";
 import { fetchJson } from "@/lib/api-client";
 import { sanitizeDecimal } from "@/lib/form-numeric";
 import { Label } from "@/components/ui/label";
@@ -68,16 +74,22 @@ export function ReceivablesView({
   const [statementFor, setStatementFor] = useState<string | null>(null);
   const [creditFor, setCreditFor] = useState<ReceivableCustomerDto | null>(null);
   const [collectFor, setCollectFor] = useState<string | null>(null);
+  // Blank = today. A date rewinds the whole ledger to that day.
+  const [asOf, setAsOf] = useState("");
 
   const search = new URLSearchParams();
   if (q.trim()) search.set("q", q.trim());
   if (bucket) search.set("bucket", bucket);
   if (overLimitOnly) search.set("overLimitOnly", "true");
+  if (asOf) search.set("asOf", asOf);
 
   const ledger = useQuery({
-    queryKey: ["receivables", q.trim(), bucket, overLimitOnly],
+    queryKey: ["receivables", q.trim(), bucket, overLimitOnly, asOf],
     queryFn: () =>
       fetchJson<ReceivablesPageDto>(`/api/receivables?${search}`),
+    // Rewinding re-queries; keeping the old rows on screen stops the table
+    // flashing empty and reading as "nothing was owed".
+    placeholderData: (prev) => prev,
   });
 
   if (ledger.isPending) {
@@ -101,6 +113,27 @@ export function ReceivablesView({
 
   return (
     <div className="grid gap-5">
+      {summary.historical && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+          <CalendarClockIcon className="size-4 shrink-0" />
+          <span>
+            Showing what was owed at{" "}
+            <b>{shortDate(summary.asOf)}</b> — invoices settled since are back
+            on the list, and everything is aged to that date. Credit on account
+            is left out of a historical view.
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setAsOf("")}
+          >
+            Back to today
+          </Button>
+        </div>
+      )}
+
       {/* ——— the totals, and the aging bands as filters ——— */}
       <div className="grid gap-3 rounded-lg border p-4">
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
@@ -191,7 +224,23 @@ export function ReceivablesView({
             Over limit only
           </Button>
         )}
-        {(bucket || overLimitOnly || q) && (
+        <div className="flex items-center gap-1.5">
+          <Label
+            htmlFor="ar-as-of"
+            className="text-xs whitespace-nowrap text-muted-foreground"
+          >
+            As at
+          </Label>
+          <Input
+            id="ar-as-of"
+            type="date"
+            className="w-40"
+            value={asOf}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setAsOf(e.target.value)}
+          />
+        </div>
+        {(bucket || overLimitOnly || q || asOf) && (
           <Button
             type="button"
             variant="ghost"
@@ -200,6 +249,7 @@ export function ReceivablesView({
               setQ("");
               setBucket(null);
               setOverLimitOnly(false);
+              setAsOf("");
             }}
           >
             Clear
@@ -339,6 +389,7 @@ export function ReceivablesView({
 
       <StatementDialog
         customerId={statementFor}
+        asOf={asOf}
         onClose={() => setStatementFor(null)}
       />
       <CreditDialog
@@ -501,15 +552,20 @@ function bucketOf(days: number): AgingBucket {
 /** A customer's Statement of Account — printable, one line per open invoice. */
 function StatementDialog({
   customerId,
+  asOf,
   onClose,
 }: {
   customerId: string | null;
+  /** Inherited from the ledger: a statement opened from a June view is June's. */
+  asOf: string;
   onClose: () => void;
 }) {
   const statement = useQuery({
-    queryKey: ["receivables", "statement", customerId],
+    queryKey: ["receivables", "statement", customerId, asOf],
     queryFn: () =>
-      fetchJson<StatementOfAccountDto>(`/api/receivables/${customerId}`),
+      fetchJson<StatementOfAccountDto>(
+        `/api/receivables/${customerId}${asOf ? `?asOf=${asOf}` : ""}`
+      ),
     enabled: customerId !== null,
   });
 

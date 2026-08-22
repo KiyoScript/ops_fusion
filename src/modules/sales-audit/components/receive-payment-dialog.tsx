@@ -140,6 +140,8 @@ export function ReceivePaymentDialog({
   const [lines, setLines] = useState<Line[]>([newLine()]);
   const [notes, setNotes] = useState("");
   const [issueDocument, setIssueDocument] = useState(true);
+  // null = follow the amount; true/false = the cashier has decided.
+  const [dpOverride, setDpOverride] = useState<boolean | null>(null);
 
   const kind =
     pickedKind ?? jo?.recommended ?? RECEIPT_KIND.SI_VAT;
@@ -147,6 +149,7 @@ export function ReceivePaymentDialog({
   const isVat = VAT_KINDS.includes(kind);
   const isCharge = kind === RECEIPT_KIND.SI_CHARGE;
   const isCollection = kind === RECEIPT_KIND.COLLECTION;
+  const isJoReceipt = kind === RECEIPT_KIND.JO_RECEIPT;
 
   // ——— what this document may be raised for ———
   // An invoice is capped by what is left to BILL; a collection by what is left
@@ -247,6 +250,16 @@ export function ReceivePaymentDialog({
   // A collection with no printed receipt needs no booklet number at all.
   const needsNumber = !isCollection || issueDocument;
 
+  // A slip that does not cover the whole job is almost always a downpayment,
+  // so it is ticked by default — but the cashier decides, because a customer
+  // paying the last ₱10,000 of a ₱20,000 job is also paying part of it, and
+  // only the person at the counter knows that is the end of it.
+  const dpSuggested =
+    isJoReceipt && jo !== undefined
+      ? cent(due) > 0 && cent(due) < cent(num(jo.joTotal))
+      : false;
+  const isDownpayment = isJoReceipt && (dpOverride ?? dpSuggested);
+
   const problem = (): string | null => {
     if (blockedReason) return blockedReason;
     if (cent(due) <= 0) {
@@ -304,6 +317,8 @@ export function ReceivePaymentDialog({
       // Only meaningful on a collection; harmless elsewhere. Allocations are
       // left to the server, which applies oldest-invoice-first.
       issueDocument: isCollection ? issueDocument : true,
+      // Only a JO slip can carry it; the service ignores it on anything else.
+      isDownpayment,
     };
 
     const describe = (balance: string, changeGiven: string) =>
@@ -571,6 +586,32 @@ export function ReceivePaymentDialog({
                         {issueDocument
                           ? "Consumes the next CR number from the active booklet."
                           : "The payment is still recorded and the balance still closes — no booklet number is used."}
+                      </span>
+                    </span>
+                  </label>
+                )}
+
+                {/* ——— downpayment, or the whole sale? ——— */}
+                {isJoReceipt && (
+                  <label
+                    htmlFor="rp-is-dp"
+                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm"
+                  >
+                    <input
+                      id="rp-is-dp"
+                      type="checkbox"
+                      checked={isDownpayment}
+                      onChange={(e) => setDpOverride(e.target.checked)}
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
+                    />
+                    <span className="grid gap-0.5">
+                      <span className="font-medium">
+                        This is a downpayment
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {isDownpayment
+                          ? "Money held against work not yet billed — recorded on today's log, but not counted as a sale. More downpayments may follow on this job."
+                          : "The customer paid and is done. This slip is the sale, and its money counts in today's gross sales."}
                       </span>
                     </span>
                   </label>

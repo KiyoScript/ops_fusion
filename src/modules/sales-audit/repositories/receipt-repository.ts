@@ -36,6 +36,7 @@ const saleSelect = {
   id: true,
   documentNo: true,
   type: true,
+  isDownpayment: true,
   amount: true,
   vatableSales: true,
   vatAmount: true,
@@ -116,6 +117,12 @@ const joForReceiptSelect = {
       // decide; the flag is what makes it binding, not the absence of data.
       creditTermDays: true,
       creditLimit: true,
+      // Withholding — needed to suggest the tax on this job's open invoices
+      // when a collection is taken from inside the job-order dialog.
+      isWithholdingAgent: true,
+      ewtRatePct: true,
+      withholdsVat: true,
+      vatWithholdingRatePct: true,
     },
   },
   items: { select: { lineTotal: true } },
@@ -142,6 +149,8 @@ export type SaleCreateData = {
   documentNo: string;
   bookletId: string | null;
   type: SaleType;
+  /** JO_SLIP only — a downpayment books a deposit, not revenue. */
+  isDownpayment?: boolean;
   customerId: string;
   jobOrderId: string | null;
   saleDate: Date;
@@ -169,7 +178,23 @@ export type SaleCreateData = {
 /** Which invoice a collection pays down, and by how much. */
 export type AllocationCreateData = {
   saleId: string;
+  /**
+   * What this settles on the invoice — INCLUDING both withholdings below, so
+   * a ₱112,000 invoice paid ₱105,000 net of ₱2,000 income tax and ₱5,000 VAT
+   * closes in full.
+   */
   amount: string;
+  /**
+   * Creditable INCOME tax withheld (BIR Form 2307) — 1% goods, 2% services.
+   * Omit or "0" for the ordinary case.
+   */
+  ewtWithheld?: string;
+  /**
+   * Creditable VALUE-ADDED tax withheld (BIR Form 2306) — 5%, government and
+   * LGU customers only. Kept apart from `ewtWithheld` because the two are
+   * claimed on different returns.
+   */
+  vatWithheld?: string;
 };
 
 export type CrCreateData = {
@@ -206,6 +231,43 @@ export type AuditCreateData = {
 };
 
 export type ReceiptDayFilter = { from: Date; to: Date; q?: string };
+
+/** `to` is EXCLUSIVE, matching the day filter above. */
+export type SalesRangeQuery = {
+  from: Date;
+  to: Date;
+  customerId?: string | null;
+};
+
+/**
+ * One revenue document, stripped to what a sales report needs.
+ *
+ * Aggregation happens in the service rather than in SQL on purpose. Grouping
+ * by month in Postgres means `date_trunc`, which buckets by the DATABASE's
+ * timezone — and a sale made at 8am in Ormoc is the previous day in UTC, so a
+ * July report would quietly leak its first hours into June. Every other date
+ * boundary in this module is computed in the app's local time, and a report
+ * that disagreed with the daily summary about which month a receipt fell in
+ * would be worse than a slow one.
+ */
+export type SalesRangeRow = {
+  saleDate: Date;
+  type: SaleType;
+  amount: string;
+  vatableSales: string;
+  vatAmount: string;
+  /** JO_SLIP only — true means a deposit, false means the sale itself. */
+  isDownpayment: boolean;
+  customerId: string;
+  customerName: string;
+};
+
+export type CollectionRangeRow = {
+  receivedAt: Date;
+  amount: string;
+  customerId: string;
+  customerName: string;
+};
 
 /** The mark written on a spoiled receipt, plus who signed it off. */
 export type VoidMarkData = {
@@ -263,6 +325,13 @@ export type ReceivableRecord = {
   amount: string;
   amountPaid: string;
   settledAmount: string;
+  /**
+   * VAT-exclusive amount, frozen at issue. The ONLY correct base for expanded
+   * withholding tax — see `computeWithholding` in services/money.ts. Carried on the
+   * receivable rather than recomputed, because the rate must be applied to
+   * what the invoice actually said (R10).
+   */
+  vatableSales: string;
   jobOrderNo: string | null;
   customer: {
     id: string;
@@ -271,6 +340,14 @@ export type ReceivableRecord = {
     tin: string | null;
     creditTermDays: number | null;
     creditLimit: string | null;
+    /** True → withholds creditable INCOME tax and issues a BIR 2307. */
+    isWithholdingAgent: boolean;
+    /** Rate on the VAT-exclusive amount, e.g. "2.00". Null = no default. */
+    ewtRatePct: string | null;
+    /** True → withholds 5% creditable VAT and issues a BIR 2306. Government. */
+    withholdsVat: boolean;
+    /** Usually "5.00". Null = flagged but nothing pre-filled. */
+    vatWithholdingRatePct: string | null;
     /**
      * The billed entity, when this customer is a company contact.
      *
@@ -286,6 +363,113 @@ export type ReceivableRecord = {
     companyName: string | null;
   };
 };
+
+const receivableSelect = {
+  id: true,
+  documentNo: true,
+  type: true,
+  saleDate: true,
+  dueDate: true,
+  amount: true,
+  amountPaid: true,
+  settledAmount: true,
+  vatableSales: true,
+  jobOrder: { select: { joNumber: true } },
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      tin: true,
+      creditTermDays: true,
+      creditLimit: true,
+      isWithholdingAgent: true,
+      ewtRatePct: true,
+      withholdsVat: true,
+      vatWithholdingRatePct: true,
+      companyId: true,
+      companyRef: { select: { name: true, creditLimit: true } },
+    },
+  },
+} as const;
+
+const RECEIVABLE_ORDER = [
+  { saleDate: "asc" as const },
+  { id: "asc" as const },
+];
+
+type ReceivableRow = {
+  id: string;
+  documentNo: string;
+  type: SaleType;
+  saleDate: Date;
+  dueDate: Date | null;
+  amount: unknown;
+  amountPaid: unknown;
+  settledAmount: unknown;
+  vatableSales: unknown;
+  jobOrder: { joNumber: string } | null;
+  customer: {
+    id: string;
+    name: string;
+    address: string | null;
+    tin: string | null;
+    creditTermDays: number | null;
+    creditLimit: unknown;
+    isWithholdingAgent: boolean;
+    ewtRatePct: unknown;
+    withholdsVat: boolean;
+    vatWithholdingRatePct: unknown;
+    companyId: string | null;
+    companyRef: { name: string; creditLimit: unknown } | null;
+  };
+};
+
+/**
+ * `settled` is passed in rather than read off the row: today's ledger uses the
+ * denormalised running total, an as-of report uses only the collections that
+ * had arrived by that date. Everything else about the invoice is the same.
+ */
+function toReceivable(r: ReceivableRow, settled: string): ReceivableRecord {
+  return {
+    id: r.id,
+    documentNo: r.documentNo,
+    type: r.type,
+    saleDate: r.saleDate,
+    dueDate: r.dueDate,
+    amount: String(r.amount),
+    amountPaid: String(r.amountPaid),
+    settledAmount: settled,
+    vatableSales: String(r.vatableSales),
+    jobOrderNo: r.jobOrder?.joNumber ?? null,
+    customer: {
+      id: r.customer.id,
+      name: r.customer.name,
+      address: r.customer.address,
+      tin: r.customer.tin,
+      creditTermDays: r.customer.creditTermDays,
+      isWithholdingAgent: r.customer.isWithholdingAgent,
+      ewtRatePct:
+        r.customer.ewtRatePct === null ? null : String(r.customer.ewtRatePct),
+      withholdsVat: r.customer.withholdsVat,
+      vatWithholdingRatePct:
+        r.customer.vatWithholdingRatePct === null
+          ? null
+          : String(r.customer.vatWithholdingRatePct),
+      // For a contact, the ceiling is read from the COMPANY rather than from
+      // the copy denormalised onto them: the copy drifts if a sync is missed,
+      // and the company row is the one an admin actually edits.
+      creditLimit:
+        r.customer.companyRef?.creditLimit != null
+          ? String(r.customer.companyRef.creditLimit)
+          : r.customer.creditLimit != null
+            ? String(r.customer.creditLimit)
+            : null,
+      companyId: r.customer.companyId,
+      companyName: r.customer.companyRef?.name ?? null,
+    },
+  };
+}
 
 export interface IReceiptRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T>;
@@ -321,7 +505,16 @@ export interface IReceiptRepository {
    * balance. Narrowing it in SQL would need `amount − amountPaid −
    * settledAmount > 0`, a three-column comparison Prisma cannot express.
    */
-  listReceivables(customerId?: string): Promise<ReceivableRecord[]>;
+  /**
+   * `asOf` rewinds the ledger to a past date: invoices issued by then, minus
+   * only the collections that had arrived by then. Aging "as at 30 June" needs
+   * this — filtering today's open invoices by date answers a different and
+   * much smaller question. Omit it for today.
+   */
+  listReceivables(
+    customerId?: string,
+    asOf?: Date
+  ): Promise<ReceivableRecord[]>;
 
   /**
    * Every payment a customer has made, newest first, with the invoices each
@@ -329,6 +522,24 @@ export interface IReceiptRepository {
    * the day log follows: a payment that happened is never hidden.
    */
   listPaymentsForCustomer(customerId: string): Promise<CustomerPaymentRecord[]>;
+
+  /**
+   * Revenue documents over a date range, lean — five columns, no `take` cap.
+   *
+   * Deliberately NOT `listByDay` with a wider window: that one is also the
+   * cancellation log, so it returns voided receipts and caps at 500 rows.
+   * Both are right for a day and wrong for a year — a sales report that counts
+   * spoiled receipts overstates revenue, and one that stops at 500 rows
+   * silently reports a fraction of the month.
+   */
+  listSalesInRange(q: SalesRangeQuery): Promise<SalesRangeRow[]>;
+
+  /**
+   * Cash collected in the range. Reported beside sales and never inside them:
+   * the revenue was booked by the invoice, so counting the collection again
+   * would double it (R4).
+   */
+  listCollectionsInRange(q: SalesRangeQuery): Promise<CollectionRangeRow[]>;
 
   /** Record a collection against invoices and close down their balances. */
   allocate(
@@ -352,7 +563,9 @@ export interface IReceiptRepository {
    * out, so the invoices look more settled than they are about to be, and the
    * replacement would be capped too low.
    */
-  listAllocations(crId: string): Promise<{ saleId: string; amount: string }[]>;
+  listAllocations(
+    crId: string
+  ): Promise<{ saleId: string; amount: string; ewtWithheld: string; vatWithheld: string }[]>;
 }
 
 export class PrismaReceiptRepository implements IReceiptRepository {
@@ -525,72 +738,148 @@ export class PrismaReceiptRepository implements IReceiptRepository {
 
   // ——— accounts receivable ———
 
-  async listReceivables(customerId?: string): Promise<ReceivableRecord[]> {
+  // Oldest first: an A/R ledger is read from the stalest debt down, and that
+  // is also the order collections are applied in.
+  //
+  // By saleDate, NOT dueDate: Postgres sorts NULLs last, so ordering by due
+  // date would push every invoice with no agreed terms below newer dated ones
+  // — the exact opposite of oldest-first.
+
+  async listReceivables(
+    customerId?: string,
+    asOf?: Date
+  ): Promise<ReceivableRecord[]> {
+    // ── LIVE ──────────────────────────────────────────────────────────
+    // Today's ledger reads the denormalised `settledAmount`, and narrows to
+    // UNPAID / PARTIAL as a cheap superset — invoices settled by a later
+    // collection come back too and are dropped by their computed balance.
+    if (!asOf) {
+      const rows = await prisma.sale.findMany({
+        where: {
+          deletedAt: null,
+          voidedAt: null,
+          ...(customerId ? { customerId } : {}),
+          paymentStatus: { in: ["UNPAID", "PARTIAL"] },
+        },
+        select: receivableSelect,
+        orderBy: RECEIVABLE_ORDER,
+      });
+      return rows.map((r) => toReceivable(r, r.settledAmount.toString()));
+    }
+
+    // ── AS OF A PAST DATE ─────────────────────────────────────────────
+    // Aging "as at 30 June" is a RECONSTRUCTION, not a filter. Three things
+    // the live query does are wrong for it, and each one silently understates
+    // what was owed:
+    //
+    //   • `paymentStatus` is today's. An invoice settled in August was still
+    //     owed in June, and the live filter would drop it.
+    //   • `voidedAt: null` is today's. An invoice voided in August was live
+    //     in June — it belongs in June's report.
+    //   • `settledAmount` is today's running total. June's figure counts only
+    //     the collections that had actually arrived by June.
+    //
+    // Known limit, worth stating rather than hiding: cancelling a collection
+    // DELETES its allocation rows (see reverseAllocations), so a June payment
+    // cancelled in August leaves the invoice reading as open in June. That is
+    // the more honest answer for a receivables report — the money never came —
+    // but it does mean this report is not a byte-exact replay of what the
+    // screen showed on the day.
     const rows = await prisma.sale.findMany({
       where: {
         deletedAt: null,
-        voidedAt: null,
         ...(customerId ? { customerId } : {}),
-        paymentStatus: { in: ["UNPAID", "PARTIAL"] },
+        saleDate: { lte: asOf },
+        OR: [{ voidedAt: null }, { voidedAt: { gt: asOf } }],
       },
       select: {
-        id: true,
-        documentNo: true,
-        type: true,
-        saleDate: true,
-        dueDate: true,
-        amount: true,
-        amountPaid: true,
-        settledAmount: true,
-        jobOrder: { select: { joNumber: true } },
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            tin: true,
-            creditTermDays: true,
-            creditLimit: true,
-            companyId: true,
-            companyRef: { select: { name: true, creditLimit: true } },
+        ...receivableSelect,
+        crAllocations: {
+          where: {
+            cr: {
+              deletedAt: null,
+              // A collection cancelled on or before the as-of date had already
+              // stopped paying for anything by then.
+              OR: [{ voidedAt: null }, { voidedAt: { gt: asOf } }],
+              receivedAt: { lte: asOf },
+            },
           },
+          select: { amount: true },
         },
       },
-      // Oldest first: an A/R ledger is read from the stalest debt down, and
-      // that is also the order collections are applied in.
-      //
-      // By saleDate, NOT dueDate: Postgres sorts NULLs last, so ordering by
-      // due date would push every invoice with no agreed terms below newer
-      // dated ones — the exact opposite of oldest-first.
-      orderBy: [{ saleDate: "asc" }, { id: "asc" }],
+      orderBy: RECEIVABLE_ORDER,
     });
 
-    return rows.map((r) => ({
-      id: r.id,
-      documentNo: r.documentNo,
-      type: r.type,
-      saleDate: r.saleDate,
-      dueDate: r.dueDate,
-      amount: r.amount.toString(),
-      amountPaid: r.amountPaid.toString(),
-      settledAmount: r.settledAmount.toString(),
-      jobOrderNo: r.jobOrder?.joNumber ?? null,
-      customer: {
-        id: r.customer.id,
-        name: r.customer.name,
-        address: r.customer.address,
-        tin: r.customer.tin,
-        creditTermDays: r.customer.creditTermDays,
-        // For a contact, the ceiling is read from the COMPANY rather than from
-        // the copy denormalised onto them: the copy drifts if a sync is missed,
-        // and the company row is the one an admin actually edits.
-        creditLimit:
-          r.customer.companyRef?.creditLimit?.toString() ??
-          r.customer.creditLimit?.toString() ??
-          null,
-        companyId: r.customer.companyId,
-        companyName: r.customer.companyRef?.name ?? null,
+    return rows.map((r) => {
+      const settledByThen = r.crAllocations.reduce(
+        (t, a) => t + Math.round(parseFloat(a.amount.toString()) * 100),
+        0
+      );
+      return toReceivable(
+        r,
+        `${Math.floor(settledByThen / 100)}.${String(settledByThen % 100).padStart(2, "0")}`
+      );
+    });
+  }
+
+  async listSalesInRange(q: SalesRangeQuery): Promise<SalesRangeRow[]> {
+    const rows = await prisma.sale.findMany({
+      where: {
+        deletedAt: null,
+        // A voided invoice is not a sale. Unlike the daily log — which IS the
+        // cancellation log and must show them — a revenue report that counted
+        // spoiled receipts would overstate both gross sales and the VAT on it.
+        voidedAt: null,
+        saleDate: { gte: q.from, lt: q.to },
+        ...(q.customerId ? { customerId: q.customerId } : {}),
       },
+      select: {
+        saleDate: true,
+        type: true,
+        amount: true,
+        vatableSales: true,
+        vatAmount: true,
+        isDownpayment: true,
+        customerId: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: [{ saleDate: "asc" }, { id: "asc" }],
+    });
+    return rows.map((r) => ({
+      saleDate: r.saleDate,
+      type: r.type,
+      amount: r.amount.toString(),
+      vatableSales: r.vatableSales.toString(),
+      vatAmount: r.vatAmount.toString(),
+      isDownpayment: r.isDownpayment,
+      customerId: r.customerId,
+      customerName: r.customer.name,
+    }));
+  }
+
+  async listCollectionsInRange(
+    q: SalesRangeQuery
+  ): Promise<CollectionRangeRow[]> {
+    const rows = await prisma.collectionReceipt.findMany({
+      where: {
+        deletedAt: null,
+        voidedAt: null,
+        receivedAt: { gte: q.from, lt: q.to },
+        ...(q.customerId ? { customerId: q.customerId } : {}),
+      },
+      select: {
+        receivedAt: true,
+        amount: true,
+        customerId: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
+    });
+    return rows.map((r) => ({
+      receivedAt: r.receivedAt,
+      amount: r.amount.toString(),
+      customerId: r.customerId,
+      customerName: r.customer.name,
     }));
   }
 
@@ -687,7 +976,15 @@ export class PrismaReceiptRepository implements IReceiptRepository {
         );
       }
       await tx.crAllocation.create({
-        data: { crId, saleId: a.saleId, amount: a.amount },
+        data: {
+          crId,
+          saleId: a.saleId,
+          amount: a.amount,
+          // The withheld parts ride on the same row as the amount they are
+          // part of, so they can never be written apart and disagree.
+          ewtWithheld: a.ewtWithheld ?? "0",
+          vatWithheld: a.vatWithheld ?? "0",
+        },
       });
     }
   }
@@ -710,12 +1007,17 @@ export class PrismaReceiptRepository implements IReceiptRepository {
 
   async listAllocations(
     crId: string
-  ): Promise<{ saleId: string; amount: string }[]> {
+  ): Promise<{ saleId: string; amount: string; ewtWithheld: string; vatWithheld: string }[]> {
     const rows = await prisma.crAllocation.findMany({
       where: { crId },
-      select: { saleId: true, amount: true },
+      select: { saleId: true, amount: true, ewtWithheld: true, vatWithheld: true },
     });
-    return rows.map((r) => ({ saleId: r.saleId, amount: r.amount.toString() }));
+    return rows.map((r) => ({
+      saleId: r.saleId,
+      amount: r.amount.toString(),
+      ewtWithheld: r.ewtWithheld.toString(),
+      vatWithheld: r.vatWithheld.toString(),
+    }));
   }
 
   async countAllocationsForSale(saleId: string): Promise<number> {

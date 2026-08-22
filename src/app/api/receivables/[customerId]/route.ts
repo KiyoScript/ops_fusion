@@ -4,15 +4,24 @@ import { AppError, fail, ok, ValidationError } from "@/lib/errors";
 import { getReceivableService } from "@/modules/sales-audit/services";
 import { setCreditInput } from "@/modules/sales-audit/schemas/receipt";
 
-// GET /api/receivables/:customerId — one customer's Statement of Account.
+// GET /api/receivables/:customerId?asOf=YYYY-MM-DD — one customer's Statement
+// of Account. `asOf` rewinds it: what they owed at that date, aged to it.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ customerId: string }> }
 ) {
   try {
     const actor = await requireActor();
     const { customerId } = await params;
-    const statement = await getReceivableService().statement(actor, customerId);
+    const asOf = new URL(request.url).searchParams.get("asOf");
+    if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
+      throw new ValidationError("Use a YYYY-MM-DD date.");
+    }
+    const statement = await getReceivableService().statement(
+      actor,
+      customerId,
+      asOf ?? undefined
+    );
     return NextResponse.json(ok(statement));
   } catch (err) {
     return NextResponse.json(fail(err), {

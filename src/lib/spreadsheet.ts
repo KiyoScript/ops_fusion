@@ -93,3 +93,65 @@ function cellToString(value: ExcelJS.CellValue): string {
   }
   return String(value).trim();
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// WRITING — the other direction. One workbook, many sheets.
+// ══════════════════════════════════════════════════════════════════════════
+
+export type SheetSpec = {
+  name: string;
+  /** Header row. Rendered bold and frozen. */
+  columns: string[];
+  /**
+   * Body rows. A `number` lands in the cell as a number so Excel can total it;
+   * a money string like "1,234.50" would arrive as text and silently break
+   * every SUM the accountant writes — so pass money as a number.
+   */
+  rows: (string | number | null)[][];
+  /** 1-based column indexes to format as money with thousands separators. */
+  moneyColumns?: number[];
+};
+
+/**
+ * Build an .xlsx in memory. Returns the bytes, ready to stream.
+ *
+ * Column widths are fitted to content because a spreadsheet that opens with
+ * ###### in every money column reads as broken, and the first thing anyone
+ * does is widen them by hand.
+ */
+export async function sheetsToXlsx(sheets: SheetSpec[]): Promise<Uint8Array> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.created = new Date();
+
+  for (const spec of sheets) {
+    // Excel refuses these characters in a sheet name and rejects the file
+    // rather than fixing it, so they are stripped here.
+    const sheet = workbook.addWorksheet(
+      spec.name.replace(/[*?:/\[\]]/g, "").slice(0, 31) || "Sheet"
+    );
+
+    sheet.addRow(spec.columns);
+    const header = sheet.getRow(1);
+    header.font = { bold: true };
+    sheet.views = [{ state: "frozen", ySplit: 1 }];
+
+    for (const row of spec.rows) sheet.addRow(row);
+
+    const money = new Set(spec.moneyColumns ?? []);
+    spec.columns.forEach((label, i) => {
+      const column = sheet.getColumn(i + 1);
+      if (money.has(i + 1)) {
+        column.numFmt = "#,##0.00";
+        column.alignment = { horizontal: "right" };
+      }
+      const widest = spec.rows.reduce(
+        (w, r) => Math.max(w, String(r[i] ?? "").length),
+        label.length
+      );
+      column.width = Math.min(Math.max(widest + 2, 10), 48);
+    });
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return new Uint8Array(buffer);
+}

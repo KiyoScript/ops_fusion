@@ -41,6 +41,7 @@ model User {
   crsVoided           CollectionReceipt[]         @relation("CrVoidedBy")
   apsCreated          AdvancePayment[]            @relation("ApCreatedBy")
   apApplications      AdvancePaymentApplication[] @relation("ApAppliedBy")
+  whtCertsCreated     WithholdingCertificate[]    @relation("WhtCreatedBy")
   drsCreated          DeliveryReceipt[]           @relation("DrCreatedBy")
   auditEntries        AuditEntry[]                @relation("AuditEntryAuditor")
   reconDaysLocked     ReconciliationDay[]         @relation("ReconLockedBy")

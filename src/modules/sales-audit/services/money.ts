@@ -74,6 +74,52 @@ export function splitVat(grossCentavos: number, type: SaleType): VatSplit {
   };
 }
 
+// ——— tax withheld at source (BIR Forms 2307 and 2306) ———
+
+/** Statutory VAT withholding by government / LGUs / GOCCs — RMC 36-2021. */
+export const VAT_WITHHOLDING_RATE_PCT = "5";
+
+/**
+ * Tax a customer keeps back from what they owe us and remits to BIR for us.
+ *
+ * Serves BOTH withholdings, because they share a base and differ only in rate:
+ *   • creditable INCOME tax — 1% goods / 2% services, BIR Form 2307
+ *   • creditable VALUE-ADDED tax — 5% from government, BIR Form 2306
+ *
+ * THE BASE IS THE VAT-EXCLUSIVE AMOUNT — this is the whole reason the function
+ * exists. On a ₱112,000 VAT invoice the base is ₱100,000, so 2% is ₱2,000 and
+ * 5% is ₱5,000 — not the ₱2,240 and ₱5,600 you get from the gross. Computing
+ * either on the gross over-withholds, the invoice never closes, and the shop
+ * chases a customer for money they do not owe.
+ *
+ * `Sale.vatableSales` is that base for EVERY receipt type — splitVat puts the
+ * whole amount there for Non-VAT and JO receipts — so it is the only figure
+ * that should ever be passed in.
+ *
+ * @param vatableSalesCentavos the invoice's VAT-exclusive amount
+ * @param ratePct              e.g. "2" or "5.00". Null → no withholding.
+ * @param cap                  never suggest more than what is still open
+ */
+export function computeWithholding(
+  vatableSalesCentavos: number,
+  ratePct: string | number | null | undefined,
+  cap?: number
+): number {
+  if (ratePct === null || ratePct === undefined || ratePct === "") return 0;
+  const rate =
+    typeof ratePct === "number" ? ratePct : parseFloat(String(ratePct));
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  if (rate > 100) {
+    throw new ValidationError("Withholding rate cannot exceed 100%.");
+  }
+  if (vatableSalesCentavos <= 0) return 0;
+
+  // Round, never truncate: a half-centavo of tax is a centavo, and truncating
+  // leaves the invoice a centavo short of closing.
+  const ewt = Math.round((vatableSalesCentavos * rate) / 100);
+  return cap === undefined ? ewt : Math.min(ewt, Math.max(cap, 0));
+}
+
 // ——— tender: what the customer actually handed over ———
 
 /** A tender line in centavos, as the service works with it. */

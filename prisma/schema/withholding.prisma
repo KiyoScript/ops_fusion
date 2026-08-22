@@ -1,0 +1,93 @@
+// ============================================================
+// SALES / AUDIT — EXPANDED WITHHOLDING TAX (BIR Form 2307)
+// ============================================================
+
+// What kind of tax a certificate covers. TWO different taxes, credited on two
+// different returns, so they are never merged into one figure:
+//
+//   EWT_2307 — creditable INCOME tax. 1% on goods, 2% on services, withheld by
+//              a BIR-designated Top Withholding Agent. Claimed against our
+//              income tax return.
+//   VAT_2306 — creditable VALUE-ADDED tax. 5%, withheld by government, LGUs,
+//              public schools and GOCCs on their purchases. Creditable rather
+//              than final since 1 Jan 2021 (RMC 36-2021, implementing TRAIN
+//              §37). Attached to the VAT return, 2550M / 2550Q.
+//
+// A government customer withholds BOTH and issues BOTH forms.
+enum WithholdingKind {
+  EWT_2307
+  VAT_2306
+}
+
+// A withholding customer does not pay the full invoice: they keep a percentage
+// back, remit it to BIR on our behalf, and hand us a certificate saying so.
+// That withheld peso is NOT a discount and NOT a bad debt — it is tax already
+// paid for us, creditable against our own liability.
+//
+// Without this the receivable never closes: `amount − amountPaid −
+// settledAmount` sits at the withheld figure forever, inflating the aging
+// report and eating the customer's credit limit. See docs/sales-contract.md.
+//
+// BOTH RATES APPLY TO THE VAT-EXCLUSIVE AMOUNT. On a ₱112,000 VAT invoice the
+// base is ₱100,000 — so 2% EWT is ₱2,000 and 5% withholding VAT is ₱5,000, and
+// the customer pays ₱105,000. Computing either on the ₱112,000 gross
+// over-withholds and leaves the invoice permanently short.
+// `Sale.vatableSales` already holds that base for every receipt type (splitVat
+// puts the whole amount there for NON-VAT), which is why it is the only
+// correct thing to multiply.
+model WithholdingCertificate {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  /// Which tax, and therefore which return it is claimed on. See the enum.
+  kind WithholdingKind @default(EWT_2307)
+
+  // The serial on the paper form. Null while the certificate is still
+  // outstanding — the money is withheld at payment time and the document
+  // often follows weeks later, usually quarterly. Collections must not wait
+  // on paperwork, so the withholding is recorded either way.
+  certificateNo String? @unique
+
+  // The quarter the form covers. One certificate commonly covers several
+  // payments, which is why allocations point at it rather than the reverse.
+  periodFrom DateTime? @db.Date
+  periodTo   DateTime? @db.Date
+
+  /// Tax withheld, per the form. Reconciled against the sum of the
+  /// allocations linked to it — a mismatch is a flag, not a silent overwrite.
+  amount Decimal @db.Decimal(12, 2)
+  /// The VAT-exclusive base the rate was applied to, per the form.
+  taxBase Decimal? @db.Decimal(12, 2)
+  /// Rate on the form, e.g. 2.00 — kept because it can differ per income type.
+  ratePct Decimal? @db.Decimal(5, 2)
+
+  /// When the physical form reached us. Null = still outstanding.
+  receivedAt DateTime?
+
+  // The scanned form. Stored in the DB like CustomerAttachment — small files,
+  // atomic with the record, and it is evidence for a tax credit.
+  fileName String?
+  mimeType String?
+  fileSize Int?
+  fileData Bytes?
+
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String
+  createdBy   User      @relation("WhtCreatedBy", fields: [createdById], references: [id])
+
+  // Two separate links, because one collection can carry BOTH kinds against
+  // the same invoice — a government job withholds income tax and VAT at once,
+  // on two different forms. A single link could only ever record one of them.
+  ewtAllocations CrAllocation[] @relation("AllocationEwtCertificate")
+  vatAllocations CrAllocation[] @relation("AllocationVatCertificate")
+
+  @@index([customerId])
+  @@index([kind])
+  @@index([receivedAt])
+  @@index([deletedAt])
+  @@index([createdById])
+}

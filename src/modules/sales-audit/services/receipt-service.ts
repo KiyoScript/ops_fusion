@@ -38,6 +38,10 @@ import {
   type CollectResultDto,
   type CustomerCreditDto,
   type DailySalesSummaryDto,
+  type SalesGranularity,
+  type SalesReportDto,
+  type SalesReportFilters,
+  type JobOrderHistoryDto,
   type OpenInvoiceDto,
   type PaymentLineDto,
   type ReceiptAvailabilityDto,
@@ -52,6 +56,7 @@ import {
 } from "../schemas/receipt";
 import { formatDocumentNo } from "./booklet-service";
 import {
+  computeWithholding,
   dominantTender,
   paymentStatusOf,
   settleTenders,
@@ -186,7 +191,7 @@ export class ReceiptService {
       availability,
       recommended: recommendKind(position, availability, jo.customer.vatRegistered),
       openInvoices: position.openInvoices.map(({ sale, openBalance }) =>
-        toOpenInvoice(sale, openBalance)
+        toOpenInvoice(sale, openBalance, jo.customer)
       ),
       credit,
       nextNumbers,
@@ -654,6 +659,10 @@ export class ReceiptService {
         paymentStatus: paymentStatusOf(settled.applied, amount),
         paymentMethod: header?.method ?? null,
         methodDetail: header?.reference ?? null,
+        // Only a JO slip can be a downpayment. Setting it on an invoice would
+        // be meaningless and would quietly drop that invoice out of revenue.
+        isDownpayment:
+          saleType === SaleType.JO_SLIP ? input.isDownpayment === true : false,
         ...counter,
       },
       tx
@@ -689,6 +698,11 @@ export class ReceiptService {
         credits.reduce((t, c) => t + toCentavos(c.remaining), 0)
       ),
       nextCrNumber: await this.peekNextNumber(BookletType.CR),
+      isWithholdingAgent: customer.isWithholdingAgent,
+      ewtRatePct: customer.ewtRatePct?.toString() ?? null,
+      withholdsVat: customer.withholdsVat,
+      vatWithholdingRatePct:
+        customer.vatWithholdingRatePct?.toString() ?? null,
     };
   }
 
@@ -783,13 +797,20 @@ export class ReceiptService {
         id: i.dto.id,
         documentNo: i.dto.documentNo,
         openBalance: i.openBalance,
+        suggestedEwt: i.suggestedEwt,
+        suggestedVatWht: i.suggestedVatWht,
       })),
       pool,
       input.allocations,
       true
     );
     const applied = allocations.reduce((t, a) => t + toCentavos(a.amount), 0);
-    const excess = pool - applied;
+    // Tax withheld settles invoices without money arriving, so it is not part
+    // of the cash pool and cannot leave anything over. Netting it out here is
+    // what stops a withholding payment looking like an overpayment and
+    // parking phantom credit on the customer's account.
+    const whtTotal = allocations.reduce((t, a) => t + whtOf(a).total, 0);
+    const excess = pool - (applied - whtTotal);
 
     if (creditApplied > 0 && excess > 0) {
       throw new ValidationError(
@@ -979,8 +1000,26 @@ export class ReceiptService {
         const openBalance =
           openBalanceOf(r.amount, r.amountPaid, r.settledAmount) +
           (readded.get(r.id) ?? 0);
+        // Suggested only — the cashier enters what the certificates actually
+        // say. Both rates apply to the same VAT-EXCLUSIVE base, and the pair
+        // is capped TOGETHER at the open balance: a government invoice carries
+        // 2% income tax and 5% VAT at once, and separate caps could suggest
+        // withholding more in total than the invoice still owes.
+        const base = toCentavos(r.vatableSales);
+        const suggestedEwt = r.customer.isWithholdingAgent
+          ? computeWithholding(base, r.customer.ewtRatePct, openBalance)
+          : 0;
+        const suggestedVatWht = r.customer.withholdsVat
+          ? computeWithholding(
+              base,
+              r.customer.vatWithholdingRatePct,
+              Math.max(openBalance - suggestedEwt, 0)
+            )
+          : 0;
         return {
           openBalance,
+          suggestedEwt,
+          suggestedVatWht,
           dto: {
             id: r.id,
             documentNo: r.documentNo,
@@ -991,6 +1030,9 @@ export class ReceiptService {
             openBalance: toAmount(openBalance),
             daysOverdue: daysOverdueOf(r.dueDate),
             joNumber: r.jobOrderNo,
+            vatableSales: r.vatableSales,
+            suggestedEwt: toAmount(suggestedEwt),
+            suggestedVatWht: toAmount(suggestedVatWht),
           },
         };
       })
@@ -1044,13 +1086,30 @@ export class ReceiptService {
     const nonVatRows = bucket(SaleType.SI_NON_VAT);
     const chargeRows = bucket(SaleType.SI_CHARGE);
     const joRows = bucket(SaleType.JO_SLIP);
+    // Every slip is issued for the amount actually paid and books that
+    // amount. The tag says the customer is coming back for the balance; it
+    // does not move the money out of sales.
+    const joDpRows = joRows.filter((s) => s.isDownpayment);
 
     // A Charge Invoice books revenue at point of sale (docs/sales.txt §3.1.3),
     // so it belongs in gross sales even though the money has not arrived. The
     // Collection Receipt that settles it later is excluded instead — that is
     // what stops the same peso being counted twice.
+    //
+    // JO slips ARE in it. Each one is issued for what was handed over and
+    // books exactly that, so a job paid in two goes appears as two sales that
+    // add up to it. Only collections stay out.
     const grossSales =
       sum(vatRows) + sum(nonVatRows) + sum(chargeRows) + sum(joRows);
+
+    // What actually went in the drawer: sales paid at issue, plus deposits,
+    // plus collections. A charge invoice contributes only what was handed over
+    // at the counter, which is normally nothing.
+    const cashIn =
+      vatRows.concat(nonVatRows, chargeRows, joRows).reduce(
+        (t, r) => t + toCentavos(r.amountPaid.toString()),
+        0
+      ) + sum(crs);
 
     // What is still owed on today's receipts, whatever kind they are — net of
     // any collection since, so an invoice paid down today stops counting.
@@ -1091,13 +1150,269 @@ export class ReceiptService {
         ...vatOf(chargeRows),
       },
       joReceipts: { count: joRows.length, gross: toAmount(sum(joRows)) },
+      joDownpayments: { count: joDpRows.length, gross: toAmount(sum(joDpRows)) },
       collections: { count: crs.length, gross: toAmount(sum(crs)) },
       grossSales: toAmount(grossSales),
+      cashIn: toAmount(cashIn),
       receivables: {
         count: owed.length,
         amount: toAmount(owed.reduce((t, d) => t + d, 0)),
       },
       pendingAudit,
+    };
+  }
+
+  /**
+   * Sales over any date range — the daily summary's figures, unpinned.
+   *
+   * Everything is bucketed in local time, the same way `dayRange` does it, so
+   * this report and the daily summary always agree about which day a receipt
+   * fell in. Doing it in SQL with `date_trunc` would bucket by the database's
+   * timezone and put the first hours of every July back in June.
+   */
+  async getSalesReport(
+    actor: Actor,
+    filters: SalesReportFilters
+  ): Promise<SalesReportDto> {
+    assertCan(actor, "read", "Sale");
+
+    const { from, to, days } = rangeOf(filters.from, filters.to);
+    const scope = { from, to, customerId: filters.customerId ?? null };
+
+    const [sales, collections] = await Promise.all([
+      this.receipts.listSalesInRange(scope),
+      this.receipts.listCollectionsInRange(scope),
+    ]);
+
+    // ——— by receipt kind ———
+    const byType = {
+      JO_RECEIPT: emptySlice(),
+      SI_VAT: emptySlice(),
+      SI_NON_VAT: emptySlice(),
+      SI_CHARGE: emptySlice(),
+      // Collections book no revenue, so this stays at zero by construction. It
+      // is present only because the DTO is keyed by ReceiptKind; the cash is
+      // reported in `totals.collected`, which is the one place it belongs.
+      COLLECTION: emptySlice(),
+    } satisfies Record<ReceiptKind, SliceAccumulator>;
+
+    // Deposits are accumulated apart from byType.JO_RECEIPT so that row can
+    // stay what it says it is: JO slips that were sales. Mixing them made the
+    // Summary tab's rows stop adding up to its own total.
+    const joDeposits = emptySlice();
+
+    const byPeriod = new Map<string, SliceAccumulator & { collected: number }>();
+    const byCustomer = new Map<
+      string,
+      SliceAccumulator & { customerId: string; customerName: string }
+    >();
+
+    const total = emptySlice();
+
+    for (const s of sales) {
+      const money = {
+        gross: toCentavos(s.amount),
+        vatableSales: toCentavos(s.vatableSales),
+        vatAmount: toCentavos(s.vatAmount),
+      };
+
+      const kind = SALE_TYPE_TO_KIND[s.type];
+      add(byType[kind], money);
+      // Only a slip TAGGED as a downpayment stays out of the totals. An
+      // untagged one is the walk-in's sale document and its money is revenue,
+      // exactly as the daily summary now treats it.
+      // Descriptive only — the money is in every total either way.
+      if (kind === "JO_RECEIPT" && s.isDownpayment) add(joDeposits, money);
+      add(total, money);
+
+      const key = periodKeyOf(s.saleDate, filters.groupBy);
+      let period = byPeriod.get(key);
+      if (!period) {
+        period = { ...emptySlice(), collected: 0 };
+        byPeriod.set(key, period);
+      }
+      add(period, money);
+
+      let customer = byCustomer.get(s.customerId);
+      if (!customer) {
+        customer = {
+          ...emptySlice(),
+          customerId: s.customerId,
+          customerName: s.customerName,
+        };
+        byCustomer.set(s.customerId, customer);
+      }
+      add(customer, money);
+    }
+
+    // Collections ride along on the period rows so a month's cash can be read
+    // beside its sales — but they are never added into either total.
+    let collected = 0;
+    for (const c of collections) {
+      const cents = toCentavos(c.amount);
+      collected += cents;
+      const key = periodKeyOf(c.receivedAt, filters.groupBy);
+      let period = byPeriod.get(key);
+      if (!period) {
+        period = { ...emptySlice(), collected: 0 };
+        byPeriod.set(key, period);
+      }
+      period.collected += cents;
+    }
+
+    const periods = [...byPeriod.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, v]) => ({
+        key,
+        label: periodLabelOf(key, filters.groupBy),
+        count: v.count,
+        gross: toAmount(v.gross),
+        vatableSales: toAmount(v.vatableSales),
+        vatAmount: toAmount(v.vatAmount),
+        collected: toAmount(v.collected),
+      }));
+
+    const customers = [...byCustomer.values()]
+      .sort((a, b) => b.gross - a.gross)
+      .map((v) => ({
+        customerId: v.customerId,
+        customerName: v.customerName,
+        count: v.count,
+        gross: toAmount(v.gross),
+        vatableSales: toAmount(v.vatableSales),
+        vatAmount: toAmount(v.vatAmount),
+        sharePct:
+          total.gross === 0
+            ? 0
+            : Math.round((v.gross / total.gross) * 1000) / 10,
+      }));
+
+    return {
+      from: filters.from,
+      to: filters.to,
+      groupBy: filters.groupBy,
+      days,
+      byType: {
+        JO_RECEIPT: sliceOf(byType.JO_RECEIPT),
+        SI_VAT: sliceOf(byType.SI_VAT),
+        SI_NON_VAT: sliceOf(byType.SI_NON_VAT),
+        SI_CHARGE: sliceOf(byType.SI_CHARGE),
+        COLLECTION: sliceOf(byType.COLLECTION),
+      },
+      byPeriod: periods,
+      byCustomer: customers,
+      totals: {
+        ...sliceOf(total),
+        collected: toAmount(collected),
+        collectionCount: collections.length,
+        deposits: toAmount(joDeposits.gross),
+        depositCount: joDeposits.count,
+        joSales: toAmount(byType.JO_RECEIPT.gross),
+        joSaleCount: byType.JO_RECEIPT.count,
+        // Divided by calendar days in the range, not by days that had a sale:
+        // a closed Sunday is part of the month's performance.
+        averagePerDay: toAmount(Math.round(total.gross / Math.max(days, 1))),
+      },
+    };
+  }
+
+  /**
+   * Every document ever raised against one job order, in order, with what was
+   * still owed after each. This is the trace: a job may take three
+   * downpayments, an invoice and two collections, each on its own serial, and
+   * no single one of them says what the customer has actually paid.
+   *
+   * Cancelled documents stay in the list, marked (R11). A customer disputing
+   * their balance is shown exactly this, and a history with the awkward rows
+   * quietly removed is not a history.
+   */
+  async getJobOrderHistory(
+    actor: Actor,
+    jobOrderId: string
+  ): Promise<JobOrderHistoryDto> {
+    assertCan(actor, "read", "Sale");
+
+    const jo = await this.receipts.findJobOrder(jobOrderId);
+    if (!jo) throw new NotFoundError("Job order not found.");
+
+    const { sales, crs } = await this.receipts.listByJobOrder(jobOrderId);
+    const joTotal = joTotalCentavos(jo);
+
+    type Row = {
+      id: string;
+      date: Date;
+      documentNo: string | null;
+      kind: ReceiptKind;
+      label: string;
+      amount: number;
+      received: number;
+      voided: boolean;
+      voidReason: string | null;
+    };
+
+    const rows: Row[] = [
+      ...sales.map((s): Row => {
+        const kind = SALE_TYPE_TO_KIND[s.type];
+        const isDp = s.type === SaleType.JO_SLIP && s.isDownpayment;
+        return {
+          id: s.id,
+          date: s.saleDate,
+          documentNo: s.documentNo,
+          kind,
+          label: isDp ? "Downpayment" : RECEIPT_KIND_LABEL[kind],
+          amount: toCentavos(s.amount.toString()),
+          // What came in ON THIS DOCUMENT. Later collections are their own
+          // lines below, so counting settledAmount here would double them.
+          received: toCentavos(s.amountPaid.toString()),
+          voided: s.voidedAt !== null,
+          voidReason: s.voidReason,
+        };
+      }),
+      ...crs.map((c): Row => ({
+        id: c.id,
+        date: c.receivedAt,
+        documentNo: c.crNumber,
+        kind: RECEIPT_KIND.COLLECTION,
+        label: c.crNumber ? "Collection" : "Collection (no receipt issued)",
+        amount: toCentavos(c.amount.toString()),
+        received: toCentavos(c.amount.toString()),
+        voided: c.voidedAt !== null,
+        voidReason: c.voidReason,
+      })),
+    ].sort((a, b) => a.date.getTime() - b.date.getTime() || a.id.localeCompare(b.id));
+
+    let running = 0;
+    const entries = rows.map((r) => {
+      // A cancelled document moved no money, so it does not move the balance —
+      // but it stays on the list so the serial is still accounted for.
+      if (!r.voided) running += r.received;
+      return {
+        id: r.id,
+        date: r.date.toISOString(),
+        documentNo: r.documentNo,
+        kind: r.kind,
+        label: r.label,
+        amount: toAmount(r.amount),
+        received: toAmount(r.received),
+        balanceAfter: toAmount(Math.max(joTotal - running, 0)),
+        voided: r.voided,
+        voidReason: r.voidReason,
+      };
+    });
+
+    const depositsHeld = sales
+      .filter((s) => s.voidedAt === null && s.type === SaleType.JO_SLIP && s.isDownpayment)
+      .reduce((total, s) => total + toCentavos(s.amountPaid.toString()), 0);
+
+    return {
+      jobOrderId: jo.id,
+      joNumber: jo.joNumber,
+      customerName: jo.customer.name,
+      joTotal: toAmount(joTotal),
+      entries,
+      totalReceived: toAmount(running),
+      stillDue: toAmount(Math.max(joTotal - running, 0)),
+      depositsHeld: toAmount(depositsHeld),
     };
   }
 
@@ -1398,8 +1713,18 @@ function assertIssuable(args: {
  */
 function planAllocations(
   invoices: AllocatableInvoice[],
+  /**
+   * CASH available to apply: tender received plus any credit spent. Tax
+   * withheld is deliberately NOT in here — it settles invoices without money
+   * arriving, so it is accounted for per allocation instead.
+   */
   pool: number,
-  requested?: { saleId: string; amount: string }[],
+  requested?: {
+    saleId: string;
+    amount: string;
+    ewtWithheld?: string;
+    vatWithheld?: string;
+  }[],
   /**
    * May the money exceed what the invoices need?
    *
@@ -1433,29 +1758,82 @@ function planAllocations(
           `${toAmount(toCentavos(a.amount))} applied to ${invoice.documentNo}, which only has ${toAmount(invoice.openBalance)} outstanding.`
         );
       }
+      const withheld = whtOf(a);
+      if (withheld.ewt < 0 || withheld.vat < 0) {
+        throw new ValidationError("Tax withheld cannot be negative.");
+      }
+      if (withheld.total > toCentavos(a.amount)) {
+        throw new ValidationError(
+          `${toAmount(withheld.total)} withheld on ${invoice.documentNo} is more than the ${toAmount(toCentavos(a.amount))} being settled against it.`
+        );
+      }
     }
 
     const total = requested.reduce((t, a) => t + toCentavos(a.amount), 0);
-    if (total > pool) {
+    const whtTotal = requested.reduce((t, a) => t + whtOf(a).total, 0);
+    // Withheld tax settles the invoice without any money arriving, so the
+    // cash the allocations actually call for is what is left after it. This
+    // is the balancing identity from docs/sales-contract.md R5, rearranged:
+    //   received + creditApplied + ewtWithheld + vatWithheld
+    //     = Σ allocations + creditCreated
+    const cashRequired = total - whtTotal;
+    if (cashRequired > pool) {
       throw new ValidationError(
-        `The allocations total ${toAmount(total)} but only ${toAmount(pool)} is available to apply.`
+        `The allocations need ${toAmount(cashRequired)} in payment${whtTotal > 0 ? ` (after ${toAmount(whtTotal)} withheld)` : ""} but only ${toAmount(pool)} is available to apply.`
       );
     }
-    if (!allowExcess && total !== pool) {
+    if (!allowExcess && cashRequired !== pool) {
       throw new ValidationError(
-        `The allocations total ${toAmount(total)} but ${toAmount(pool)} was collected — every peso must be applied to an invoice.`
+        `The allocations account for ${toAmount(cashRequired)} but ${toAmount(pool)} was collected — every peso must be applied to an invoice.`
       );
     }
-    return requested.map((a) => ({ saleId: a.saleId, amount: a.amount }));
+    return requested.map((a) => ({
+      saleId: a.saleId,
+      amount: a.amount,
+      ewtWithheld: a.ewtWithheld ?? "0",
+      vatWithheld: a.vatWithheld ?? "0",
+    }));
   }
 
+  // Auto-allocation, oldest invoice first — what the counter does by hand.
+  //
+  // `pool` here is CASH ONLY (received + credit). Withholding is not in it,
+  // because how much is withheld depends on which invoices this payment
+  // reaches, which is what we are working out. So each invoice is measured by
+  // the cash it needs — its open balance LESS the tax the customer keeps back
+  // — and the allocation still records the full balance, which is what closes
+  // it.
   let remaining = pool;
   const out: AllocationCreateData[] = [];
   for (const invoice of invoices) {
     if (remaining <= 0) break;
-    const take = Math.min(remaining, invoice.openBalance);
-    out.push({ saleId: invoice.id, amount: toAmount(take) });
-    remaining -= take;
+    const ewt = invoice.suggestedEwt ?? 0;
+    const vat = invoice.suggestedVatWht ?? 0;
+    const cashToClose = invoice.openBalance - ewt - vat;
+
+    if (remaining >= cashToClose) {
+      // Enough cash to settle it net of withholding: the invoice closes in
+      // full and the withheld parts are recorded rather than left owing.
+      out.push({
+        saleId: invoice.id,
+        amount: toAmount(invoice.openBalance),
+        ewtWithheld: toAmount(ewt),
+        vatWithheld: toAmount(vat),
+      });
+      remaining -= cashToClose;
+    } else {
+      // Not enough to settle this one. A part payment carries NO withholding:
+      // the customer withholds when they settle the invoice, not on account,
+      // and claiming tax against a debt that is still open would close it by
+      // more than was actually paid.
+      out.push({
+        saleId: invoice.id,
+        amount: toAmount(remaining),
+        ewtWithheld: "0",
+        vatWithheld: "0",
+      });
+      remaining = 0;
+    }
   }
   if (remaining > 0 && !allowExcess) {
     // Unreachable on the counter path: assertIssuable already capped the
@@ -1472,7 +1850,22 @@ type AllocatableInvoice = {
   id: string;
   documentNo: string;
   openBalance: number;
+  /**
+   * Creditable INCOME tax this customer is expected to withhold on this
+   * invoice, in centavos. Absent or 0 for everyone who is not a withholding
+   * agent — the ordinary case, which leaves the allocation maths as it was.
+   */
+  suggestedEwt?: number;
+  /** Creditable VAT expected to be withheld (government / LGU), in centavos. */
+  suggestedVatWht?: number;
 };
+
+/** Both withholdings on one requested allocation, in centavos. */
+function whtOf(a: { ewtWithheld?: string; vatWithheld?: string }) {
+  const ewt = a.ewtWithheld ? toCentavos(a.ewtWithheld) : 0;
+  const vat = a.vatWithheld ? toCentavos(a.vatWithheld) : 0;
+  return { ewt, vat, total: ewt + vat };
+}
 
 /** Days past due, floored at 0. Null when the invoice carries no terms. */
 function daysOverdueOf(dueDate: Date | null): number | null {
@@ -1497,7 +1890,33 @@ function toCreditDto(c: {
   return { ...c, receivedAt: c.receivedAt.toISOString() };
 }
 
-function toOpenInvoice(sale: SaleRecord, openBalance: number): OpenInvoiceDto {
+function toOpenInvoice(
+  sale: SaleRecord,
+  openBalance: number,
+  /** The billed customer's withholding standing, when it is known. */
+  withholding?: {
+    isWithholdingAgent: boolean;
+    ewtRatePct: unknown;
+    withholdsVat: boolean;
+    vatWithholdingRatePct: unknown;
+  }
+): OpenInvoiceDto {
+  const vatableSales = sale.vatableSales.toString();
+  const rate = (v: unknown) =>
+    v === null || v === undefined ? null : String(v);
+  const base = toCentavos(vatableSales);
+  const ewt = withholding?.isWithholdingAgent
+    ? computeWithholding(base, rate(withholding.ewtRatePct), openBalance)
+    : 0;
+  // Capped against what the income tax has already taken, so the two together
+  // can never suggest withholding more than the invoice still owes.
+  const vat = withholding?.withholdsVat
+    ? computeWithholding(
+        base,
+        rate(withholding.vatWithholdingRatePct),
+        Math.max(openBalance - ewt, 0)
+      )
+    : 0;
   return {
     id: sale.id,
     documentNo: sale.documentNo,
@@ -1507,6 +1926,9 @@ function toOpenInvoice(sale: SaleRecord, openBalance: number): OpenInvoiceDto {
     amount: sale.amount.toString(),
     openBalance: toAmount(openBalance),
     daysOverdue: daysOverdueOf(sale.dueDate),
+    vatableSales,
+    suggestedEwt: toAmount(ewt),
+    suggestedVatWht: toAmount(vat),
   };
 }
 
@@ -1527,6 +1949,123 @@ function joTotalCentavos(jo: JoForReceiptRecord): number {
 }
 
 /** Local-day window [00:00, next 00:00) for a YYYY-MM-DD key. */
+// ——— sales report helpers ————————————————————————————————————————————
+
+/** How many calendar days a report may cover in one go. */
+const MAX_REPORT_DAYS = 366;
+
+type SliceAccumulator = {
+  count: number;
+  gross: number;
+  vatableSales: number;
+  vatAmount: number;
+};
+
+const emptySlice = (): SliceAccumulator => ({
+  count: 0,
+  gross: 0,
+  vatableSales: 0,
+  vatAmount: 0,
+});
+
+function add(
+  into: SliceAccumulator,
+  money: { gross: number; vatableSales: number; vatAmount: number }
+): void {
+  into.count += 1;
+  into.gross += money.gross;
+  into.vatableSales += money.vatableSales;
+  into.vatAmount += money.vatAmount;
+}
+
+const sliceOf = (s: SliceAccumulator) => ({
+  count: s.count,
+  gross: toAmount(s.gross),
+  vatableSales: toAmount(s.vatableSales),
+  vatAmount: toAmount(s.vatAmount),
+});
+
+/** `Sale.type` → the receipt kind the DTOs are keyed by. */
+const SALE_TYPE_TO_KIND: Record<SaleType, ReceiptKind> = {
+  SI_VAT: "SI_VAT",
+  SI_NON_VAT: "SI_NON_VAT",
+  SI_CHARGE: "SI_CHARGE",
+  JO_SLIP: "JO_RECEIPT",
+};
+
+/**
+ * `from` at local midnight to the local midnight AFTER `to`, so the last day
+ * of the range is included whatever time of day its receipts were written.
+ */
+function rangeOf(
+  fromDate: string,
+  toDate: string
+): { from: Date; to: Date; days: number } {
+  const start = new Date(`${fromDate}T00:00:00`);
+  const end = new Date(`${toDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new ValidationError("Invalid date.");
+  }
+  if (end < start) {
+    throw new ValidationError("The range ends before it starts.");
+  }
+  const from = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const to = new Date(
+    end.getFullYear(),
+    end.getMonth(),
+    end.getDate() + 1
+  );
+  const days = Math.round((to.getTime() - from.getTime()) / 86_400_000);
+  if (days > MAX_REPORT_DAYS) {
+    throw new ValidationError(
+      `That range covers ${days} days. Report a year or less at a time.`
+    );
+  }
+  return { from, to, days };
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * The bucket a receipt falls in, from its LOCAL date — the same reading of
+ * "which day is this" as the daily summary uses. Keys sort lexicographically,
+ * which is what orders the report.
+ */
+function periodKeyOf(d: Date, groupBy: SalesGranularity): string {
+  const y = d.getFullYear();
+  if (groupBy === "month") return `${y}-${pad(d.getMonth() + 1)}`;
+  if (groupBy === "day") {
+    return `${y}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  // ISO week: Monday-based, and the year is the WEEK's year rather than the
+  // date's — 1 January can belong to week 52 of the year before, and keying it
+  // under the wrong year puts it at the wrong end of the report.
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dayOfWeek = (t.getDay() + 6) % 7;
+  t.setDate(t.getDate() - dayOfWeek + 3);
+  const firstThursday = new Date(t.getFullYear(), 0, 4);
+  const firstDow = (firstThursday.getDay() + 6) % 7;
+  firstThursday.setDate(firstThursday.getDate() - firstDow + 3);
+  const week =
+    1 + Math.round((t.getTime() - firstThursday.getTime()) / (7 * 86_400_000));
+  return `${t.getFullYear()}-W${pad(week)}`;
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function periodLabelOf(key: string, groupBy: SalesGranularity): string {
+  if (groupBy === "month") {
+    const [y, m] = key.split("-");
+    return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+  }
+  if (groupBy === "week") return key.replace("-W", " · week ");
+  const [y, m, d] = key.split("-");
+  return `${d} ${MONTH_NAMES[Number(m) - 1]?.slice(0, 3)} ${y}`;
+}
+
 function dayRange(date?: string): { from: Date; to: Date; key: string } {
   const base = date ? new Date(`${date}T00:00:00`) : new Date();
   if (Number.isNaN(base.getTime())) {

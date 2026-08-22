@@ -1,0 +1,940 @@
+<title>Receivables Track Roadmap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..800&family=Roboto+Mono:wght@400;500&family=Roboto:wght@400;500;700&display=swap">
+
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     Palette: Google Material colour roles.
+     Light ground = Grey 50 / white surfaces, Blue 600 accent.
+     ───────────────────────────────────────────────────────────── */
+  :root {
+    --bg:            #f8f9fa;
+    --surface:       #ffffff;
+    --surface-2:     #f1f3f4;
+    --surface-alt:   #e8f0fe;
+    --outline:       #dadce0;
+    --outline-soft:  #e8eaed;
+    --on-surface:    #202124;
+    --on-variant:    #5f6368;
+    --on-faint:      #80868b;
+    --primary:       #1a73e8;
+    --on-primary:    #ffffff;
+    --primary-soft:  #e8f0fe;
+    --good:          #188038;
+    --good-soft:     #e6f4ea;
+    --warn:          #b06000;
+    --warn-soft:     #fef7e0;
+    --crit:          #c5221f;
+    --crit-soft:     #fce8e6;
+    --shadow:        0 1px 2px rgba(60,64,67,.28), 0 1px 3px 1px rgba(60,64,67,.10);
+    --shadow-none:   0 0 0 rgba(0,0,0,0);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:            #131314;
+      --surface:       #1e1f20;
+      --surface-2:     #282a2c;
+      --surface-alt:   #1f2a3d;
+      --outline:       #444746;
+      --outline-soft:  #333537;
+      --on-surface:    #e3e3e3;
+      --on-variant:    #9aa0a6;
+      --on-faint:      #80868b;
+      --primary:       #8ab4f8;
+      --on-primary:    #062e6f;
+      --primary-soft:  #1f2a3d;
+      --good:          #81c995;
+      --good-soft:     #1c2b22;
+      --warn:          #fdd663;
+      --warn-soft:     #2e2612;
+      --crit:          #f28b82;
+      --crit-soft:     #33201e;
+      --shadow:        0 1px 2px rgba(0,0,0,.5), 0 1px 3px 1px rgba(0,0,0,.30);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:            #131314;
+    --surface:       #1e1f20;
+    --surface-2:     #282a2c;
+    --surface-alt:   #1f2a3d;
+    --outline:       #444746;
+    --outline-soft:  #333537;
+    --on-surface:    #e3e3e3;
+    --on-variant:    #9aa0a6;
+    --on-faint:      #80868b;
+    --primary:       #8ab4f8;
+    --on-primary:    #062e6f;
+    --primary-soft:  #1f2a3d;
+    --good:          #81c995;
+    --good-soft:     #1c2b22;
+    --warn:          #fdd663;
+    --warn-soft:     #2e2612;
+    --crit:          #f28b82;
+    --crit-soft:     #33201e;
+    --shadow:        0 1px 2px rgba(0,0,0,.5), 0 1px 3px 1px rgba(0,0,0,.30);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--on-surface);
+    font-family: "Roboto", "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, .display {
+    font-family: "Roboto Flex", "Roboto", Arial, sans-serif;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  /* ── app bar ───────────────────────────────────────────────── */
+  .appbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--surface);
+    border-bottom: 1px solid var(--outline-soft);
+  }
+  .appbar-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 24px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .mark {
+    width: 26px; height: 26px; flex: none;
+    border-radius: 50%;
+    background: conic-gradient(from 200deg, var(--primary) 0 45%, var(--good) 45% 62%, var(--warn) 62% 80%, var(--crit) 80% 100%);
+    -webkit-mask: radial-gradient(circle, transparent 0 42%, #000 43%);
+            mask: radial-gradient(circle, transparent 0 42%, #000 43%);
+  }
+  .appbar-title {
+    font-family: "Roboto Flex", Arial, sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    letter-spacing: .01em;
+  }
+  .appbar-sub {
+    color: var(--on-variant);
+    font-size: 13px;
+    margin-left: auto;
+  }
+  @media (max-width: 640px) { .appbar-sub { display: none; } }
+
+  /* ── layout ────────────────────────────────────────────────── */
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px 96px; }
+  section { margin-top: 56px; }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── masthead ──────────────────────────────────────────────── */
+  .masthead { padding: 56px 0 8px; max-width: 46rem; }
+  .eyebrow {
+    font-family: "Roboto Mono", monospace;
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-size: clamp(2.1rem, 1.4rem + 2.6vw, 3.15rem);
+    font-weight: 400;
+    line-height: 1.12;
+    letter-spacing: -.018em;
+  }
+  .lede {
+    margin: 20px 0 0;
+    font-size: 1.0625rem;
+    color: var(--on-variant);
+    max-width: 40rem;
+  }
+  .meta {
+    margin-top: 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-size: 13px;
+    color: var(--on-faint);
+    font-family: "Roboto Mono", monospace;
+  }
+  .meta b { color: var(--on-variant); font-weight: 500; }
+
+  /* ── section headings ──────────────────────────────────────── */
+  .sec-head { margin-bottom: 20px; }
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 500;
+    letter-spacing: -.01em;
+  }
+  .sec-head p { margin: 8px 0 0; color: var(--on-variant); max-width: 44rem; }
+
+  h3 { font-size: 1.0625rem; font-weight: 500; letter-spacing: -.005em; }
+
+  /* ── tiles ─────────────────────────────────────────────────── */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--outline-soft);
+    border-radius: 16px;
+    padding: 20px;
+  }
+  .tile .n {
+    font-family: "Roboto Flex", Arial, sans-serif;
+    font-size: 2.25rem;
+    font-weight: 300;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile .k {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--on-variant);
+  }
+  .tile.is-crit .n { color: var(--crit); }
+  .tile.is-good .n { color: var(--good); }
+
+  /* ── cards ─────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--outline-soft);
+    border-radius: 16px;
+    padding: 24px 26px;
+  }
+  .card > :first-child { margin-top: 0; }
+
+  .callout {
+    border-radius: 16px;
+    padding: 24px 26px;
+    background: var(--crit-soft);
+    border: 1px solid transparent;
+    border-left: 4px solid var(--crit);
+  }
+  .callout h3 { color: var(--crit); }
+  .callout.is-done { background: var(--good-soft); border-left-color: var(--good); }
+  .callout.is-done h3 { color: var(--good); }
+  .wht {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0 6px;
+    font-size: 14px;
+  }
+  .wht th, .wht td {
+    text-align: left;
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--outline-soft);
+  }
+  .wht tr:last-child td { border-bottom: 0; }
+  .wht th {
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--on-faint);
+    font-weight: 500;
+  }
+  .wht td:first-child { font-family: 'Roboto Mono', ui-monospace, monospace; white-space: nowrap; }
+  .wht .fig { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .callout p { margin: 12px 0 0; }
+  .callout p:first-of-type { margin-top: 10px; }
+
+  /* ── chips ─────────────────────────────────────────────────── */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .01em;
+    white-space: nowrap;
+    background: var(--surface-2);
+    color: var(--on-variant);
+  }
+  .chip.crit { background: var(--crit-soft); color: var(--crit); }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  .chip.good { background: var(--good-soft); color: var(--good); }
+  .chip.info { background: var(--primary-soft); color: var(--primary); }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
+  /* ── built list ────────────────────────────────────────────── */
+  .built {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2px 32px;
+  }
+  .built li {
+    padding: 10px 0 10px 28px;
+    position: relative;
+    border-bottom: 1px solid var(--outline-soft);
+    font-size: 14px;
+  }
+  .built li::before {
+    content: "";
+    position: absolute;
+    left: 2px; top: 17px;
+    width: 13px; height: 7px;
+    border-left: 2px solid var(--good);
+    border-bottom: 2px solid var(--good);
+    transform: rotate(-45deg);
+  }
+  .built li b { font-weight: 500; }
+  .built li span { color: var(--on-variant); }
+
+  /* ── tables ────────────────────────────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--outline-soft);
+    border-radius: 16px;
+    background: var(--surface);
+  }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14px; }
+  thead th {
+    text-align: left;
+    font-family: "Roboto Mono", monospace;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--on-faint);
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--outline);
+    white-space: nowrap;
+  }
+  tbody td { padding: 14px 20px; border-bottom: 1px solid var(--outline-soft); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody td:first-child { font-weight: 500; }
+  td .why { display: block; color: var(--on-variant); font-size: 13px; margin-top: 3px; }
+  td code, p code, li code {
+    font-family: "Roboto Mono", monospace;
+    font-size: .875em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* ── phase stepper ─────────────────────────────────────────── */
+  .steps { display: flex; flex-direction: column; gap: 0; }
+  .step { display: grid; grid-template-columns: 40px 1fr; gap: 22px; }
+  .rail { display: flex; flex-direction: column; align-items: center; }
+  .num {
+    width: 36px; height: 36px; flex: none;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--on-primary);
+    display: grid;
+    place-items: center;
+    font-family: "Roboto Flex", Arial, sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+  }
+  .line { width: 2px; flex: 1; background: var(--outline); margin: 6px 0; min-height: 12px; }
+  .step:last-child .line { display: none; }
+  .step-body { padding-bottom: 40px; min-width: 0; }
+  .step:last-child .step-body { padding-bottom: 0; }
+  .step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px; }
+  .step-goal { margin: 10px 0 16px; color: var(--on-variant); max-width: 44rem; }
+  .deliv { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .deliv li {
+    font-size: 13px;
+    padding: 5px 12px;
+    border: 1px solid var(--outline);
+    border-radius: 8px;
+    color: var(--on-variant);
+  }
+  .deliv li.shipped {
+    border-color: transparent;
+    background: var(--good-soft);
+    color: var(--good);
+  }
+  .deliv li.shipped::before { content: "✓"; margin-right: 6px; font-weight: 700; }
+  .donewhen {
+    margin-top: 18px;
+    padding: 12px 16px;
+    background: var(--surface-2);
+    border-radius: 12px;
+    font-size: 13.5px;
+  }
+  .donewhen b {
+    font-family: "Roboto Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--on-faint);
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+
+  /* ── decisions ─────────────────────────────────────────────── */
+  .qs { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .q {
+    background: var(--surface);
+    border: 1px solid var(--outline-soft);
+    border-radius: 16px;
+    padding: 20px 22px;
+  }
+  .q h3 { margin-bottom: 8px; }
+  .q p { margin: 0; font-size: 14px; color: var(--on-variant); }
+  .q .who {
+    margin-top: 14px;
+    font-family: "Roboto Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--on-faint);
+  }
+
+  /* ── seam ──────────────────────────────────────────────────── */
+  .seam { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 720px) { .seam { grid-template-columns: 1fr; } }
+  .seam .card h3 { display: flex; align-items: center; gap: 10px; }
+  .seam ul { margin: 14px 0 0; padding-left: 20px; font-size: 14px; color: var(--on-variant); }
+  .seam li { margin: 6px 0; }
+  .seam li b { color: var(--on-surface); font-weight: 500; }
+
+  p { margin: 14px 0 0; }
+  a { color: var(--primary); text-decoration: none; border-bottom: 1px solid transparent; }
+  a:hover { border-bottom-color: currentColor; }
+  a:focus-visible, .num:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 3px; }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--outline-soft);
+    font-size: 13px;
+    color: var(--on-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 24px;
+  }
+</style>
+
+<div class="appbar">
+  <div class="appbar-inner">
+    <div class="mark" aria-hidden="true"></div>
+    <span class="appbar-title">OPS Fusion &nbsp;·&nbsp; Receivables Track</span>
+    <span class="appbar-sub">Ormoc Printshoppe</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Finance track · Plan of work</p>
+    <h1>Closing the gap between our receivables and a real set of books</h1>
+    <p class="lede">
+      OPS Fusion already runs the counter better than QuickBooks does — booklet serials,
+      VAT backed out of every invoice, allocations that actually close a receivable. What it
+      cannot yet do is prove itself against a ledger, or answer a question about any date but today.
+      This is the plan to finish that — starting with the withholding-tax defect, which is now fixed.
+    </p>
+    <div class="meta">
+      <span><b>Scope</b> Accounts Receivable &amp; Sales</span>
+      <span><b>Receipts</b> handwritten &mdash; system records, does not print</span>
+      <span><b>Sibling track</b> Ledger &amp; Payables</span>
+      <span><b>Contract</b> docs/sales-contract.md</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="tiles">
+      <div class="tile is-good">
+        <div class="n">144</div>
+        <div class="k">Accounts in the Chart of Accounts — written, validated, delivered</div>
+      </div>
+      <div class="tile is-good">
+        <div class="n">2</div>
+        <div class="k">Withholding taxes now closing receivables — BIR 2307 and 2306</div>
+      </div>
+      <div class="tile">
+        <div class="n">12</div>
+        <div class="k">Gaps to close before QuickBooks can be switched off</div>
+      </div>
+      <div class="tile">
+        <div class="n">5</div>
+        <div class="k">Phases, the first of which depends on nobody</div>
+      </div>
+      <div class="tile is-good">
+        <div class="n">20</div>
+        <div class="k">Capabilities already shipped and verified</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Shipped first: withholding tax</h2>
+      <p>This was the one active defect on the page. It is closed — and closing it turned up a second tax we were not accounting for at all.</p>
+    </div>
+    <div class="callout is-done">
+      <h3>Every peso a customer withholds used to become a receivable that could never close</h3>
+      <p>
+        A customer who is a withholding agent pays ₱98,000 against a ₱100,000 charge invoice and hands
+        over a BIR Form 2307 for the ₱2,000 difference. That ₱2,000 is not a discount and not a bad
+        debt — it is tax already remitted on our behalf, creditable against our own income tax. There was
+        no field for it anywhere in the schema, so the open balance
+        <code>amount − amountPaid − settledAmount</code> sat at ₱2,000 forever: inflated aging,
+        inflated days-sales-outstanding, credit limit eaten, and no way for a cashier to clear it but to
+        record a payment that never happened.
+      </p>
+      <p>
+        <b>Then the harder half.</b> Government, LGU and public-school customers — a real share of our
+        work — withhold <b>twice</b> on the same invoice, on two different forms, claimed back on two
+        different returns. Both rates apply to the <b>VAT-exclusive</b> base, and since 1 January 2021 the
+        5% VAT withheld is creditable rather than final, so it is money we get back rather than money gone.
+      </p>
+      <table class="wht">
+        <thead>
+          <tr><th>Account</th><th>Withheld</th><th>Rate</th><th>Form</th><th>Credited against</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1160</td><td>Income tax</td><td class="fig">1% goods / 2% services</td>
+            <td>2307</td><td>Our income tax</td>
+          </tr>
+          <tr>
+            <td>1161</td><td>VAT</td><td class="fig">5%</td>
+            <td>2306</td><td>Output VAT (2550M/Q)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        On a ₱112,000 LGU job the base is ₱100,000, so ₱2,000 income tax and ₱5,000 VAT are
+        withheld and the customer pays ₱105,000 — and the invoice must still read as fully settled.
+        The two are kept apart on purpose: merged into one figure the receivable still closes, and the
+        accountant is still left unable to split them across two returns.
+      </p>
+      <p>
+        The balancing identity in our own contract widened to admit both:
+      </p>
+      <p style="font-family:'Roboto Mono',ui-monospace,monospace;font-size:13.5px;background:var(--surface);padding:14px 16px;border-radius:12px;">
+        amount + creditApplied + <strong style="color:var(--good)">ewtWithheld</strong> + <strong style="color:var(--good)">vatWithheld</strong> = Σ allocations + creditCreated
+      </p>
+      <p>
+        Both rates are held per customer and auto-computed at the counter, with a cashier override for the
+        job where the agency works it out differently. What is still outstanding is the <b>certificate
+        register</b> — the 2307s and 2306s themselves, which are the paper we file to claim the credit
+        back. That is now built too: certificates are recorded against the collections they cover, a
+        certificate whose total disagrees with those collections is flagged rather than quietly corrected,
+        and every withheld peso with no paper behind it sits on a chase list ordered by how long it has
+        been waiting.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Where we stand</h2>
+      <p>Built, verified by <code>scripts/verify-sales-audit.ts</code>, and staying exactly as it is. The ledger work goes underneath this, not through it.</p>
+    </div>
+    <div class="card">
+      <ul class="built">
+        <li><b>Sales invoice ledger</b> <span>— VAT, Non-VAT, Charge and JO Slip, VAT backed out of a gross amount</span></li>
+        <li><b>BIR booklet serial control</b> <span>— all 50 leaves accountable, no gaps, no reissued numbers</span></li>
+        <li><b>Void / cancel / replace</b> <span>— spoiled receipts voided in place with a supervisor named</span></li>
+        <li><b>Collection receipts &amp; allocations</b> <span>— no floating collections; every peso lands on an invoice</span></li>
+        <li><b>Customer credits</b> <span>— overpayments held as advance payments and drawn down later</span></li>
+        <li><b>A/R aging</b> <span>— bucketed, with statements and oldest-overdue tracking</span></li>
+        <li><b>Credit limits &amp; terms</b> <span>— admin-gated, aggregated company-wide across contacts</span></li>
+        <li><b>Split tender</b> <span>— one row per method, dominant tender kept on the header</span></li>
+        <li><b>Withholding tax, both kinds</b> <span>— 2% income tax and 5% VAT auto-computed on the VAT-exclusive base, overridable, and the invoice closes</span></li>
+        <li><b>Certificate register</b> <span>— 2307s and 2306s on file, matched to the collections they cover, with a chase list of every withheld peso that has no paper behind it</span></li>
+        <li><b>Aging as at any past date</b> <span>— the ledger rewound, not filtered: debts settled since come back, invoices cancelled since return, and everything ages from the report date rather than from today</span></li>
+        <li><b>Sales report over any range</b> <span>— split VAT / Non-VAT / Charge / JO slip, grouped by day, week or month, broken down by customer, with collections reported beside revenue and never inside it</span></li>
+        <li><b>Excel export</b> <span>— three tabs, money written as numbers so the accountant’s own totals work</span></li>
+        <li><b>Unbilled &amp; backlog</b> <span>— the three states of a job’s value kept apart and proved to partition it: on the floor, delivered-but-never-invoiced, and A/R proper</span></li>
+        <li><b>Downpayments, tagged and traceable</b> <span>— a job takes as many part-payments as the customer makes, each on its own serial, each booking the amount handed over, and the tag says on the day&rsquo;s log who is coming back for the balance</span></li>
+        <li><b>Job order transaction history</b> <span>— every document ever raised against one job, in order, with what was still owed after each; cancelled ones kept and marked</span></li>
+        <li><b>Cash in, beside gross sales</b> <span>— what the drawer took and what the books earned, reported as the two different numbers they are</span></li>
+        <li><b>Integer-centavo arithmetic</b> <span>— money never touches a float, receipts always foot</span></li>
+        <li><b>Daily sales summary</b> <span>— split VAT / Non-VAT, collections excluded from revenue</span></li>
+        <li><b>Auditor sign-off</b> <span>— separation of duties between the cashier and the verifier</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>What is missing</h2>
+      <p>Grouped by why it matters. Severity is about consequence, not effort.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Gap</th><th>Severity</th><th>Consequence if we ship without it</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Posting to the General Ledger</td>
+            <td><span class="chip crit"><span class="dot"></span>Critical</span></td>
+            <td>No trial balance, no P&amp;L, no balance sheet. QuickBooks cannot be retired.<span class="why">Depends on the Ledger track</span></td>
+          </tr>
+          <tr>
+            <td>Credit memo / sales return</td>
+            <td><span class="chip warn"><span class="dot"></span>High</span></td>
+            <td>Voiding is all-or-nothing. A partial credit has nowhere to go, so it gets faked.</td>
+          </tr>
+          <tr>
+            <td>Discount on the invoice</td>
+            <td><span class="chip warn"><span class="dot"></span>High</span></td>
+            <td>Quotations carry discounts; invoices do not. A negotiated price cut is unrecordable.</td>
+          </tr>
+          <tr>
+            <td>Zero-rated and VAT-exempt sale types</td>
+            <td><span class="chip warn"><span class="dot"></span>High</span></td>
+            <td>Exempt sales get taxed or misfiled in the VAT return.</td>
+          </tr>
+          <tr>
+            <td>Senior Citizen / PWD discount</td>
+            <td><span class="chip warn"><span class="dot"></span>High</span></td>
+            <td>A statutory 20% plus VAT exemption, with an ID logged. No way to record either.</td>
+          </tr>
+          <tr>
+            <td>Custom date ranges on every report</td>
+            <td><span class="chip crit"><span class="dot"></span>Critical</span></td>
+            <td>Aging is always as-of-today. Daily sales is one day only. Statements and payment history take no range at all.<span class="why">The single biggest reporting gap</span></td>
+          </tr>
+          <tr>
+            <td>Unbilled &amp; backlog report</td>
+            <td><span class="chip warn"><span class="dot"></span>High</span></td>
+            <td>The system computes unbilled per job order, but only inside the Receive Payment dialog. Nothing answers &ldquo;how much work have we done that we have not billed?&rdquo;</td>
+          </tr>
+          <tr>
+            <td>For Delivery report</td>
+            <td><span class="chip warn"><span class="dot"></span>High</span></td>
+            <td>The deliverable-items query exists as a picker, but shows only completed items, with no ageing, no value and no date range. Finished work sitting on a shelf is invisible.</td>
+          </tr>
+          <tr>
+            <td>VAT working papers for the accountant</td>
+            <td><span class="chip info"><span class="dot"></span>Medium</span></td>
+            <td>The raw data exists; nothing assembles it. Smaller than it was — the system is not a registered book, so this is a handover pack, not a filing.</td>
+          </tr>
+          <tr>
+            <td>Statement of Account document</td>
+            <td><span class="chip warn"><span class="dot"></span>High</span></td>
+            <td>Nothing to send a customer who owes money, so the collections chase is manual.<span class="why">Invoices and collection receipts are handwritten on the physical booklet &mdash; the system records them, it does not print them. Only the statement needs producing.</span></td>
+          </tr>
+          <tr>
+            <td>Bounced cheque lifecycle (DAIF / DAUD)</td>
+            <td><span class="chip info"><span class="dot"></span>Medium</span></td>
+            <td>Cancelling the collection does reopen the receivable, but records the cheque as spoiled paper rather than money that arrived and failed. No bank charge, no re-presentation.</td>
+          </tr>
+          <tr>
+            <td>Post-dated cheque register</td>
+            <td><span class="chip info"><span class="dot"></span>Medium</span></td>
+            <td>PDCs sit in a drawer, invisible to the system and to the cash forecast.</td>
+          </tr>
+          <tr>
+            <td>Milestone / instalment terms</td>
+            <td><span class="chip info"><span class="dot"></span>Medium</span></td>
+            <td>Only net-N terms exist. &ldquo;50% down, 50% on delivery&rdquo; — the shop's actual norm — cannot be expressed.</td>
+          </tr>
+          <tr>
+            <td>Recurring invoices</td>
+            <td><span class="chip info"><span class="dot"></span>Medium</span></td>
+            <td>Newspaper clients are re-keyed by hand every cycle.</td>
+          </tr>
+          <tr>
+            <td>Cashier shift close (Z-read)</td>
+            <td><span class="chip info"><span class="dot"></span>Medium</span></td>
+            <td>Reconciliation is per-day, not per-cashier. Declared versus expected cash per shift is unprovable.</td>
+          </tr>
+          <tr>
+            <td>Sales analytics &amp; collections dashboard</td>
+            <td><span class="chip info"><span class="dot"></span>Medium</span></td>
+            <td>Only a daily summary exists. No sales by customer, product or period; no DSO, no top debtors, no credit exposure view.</td>
+          </tr>
+          <tr>
+            <td>Per-job margin</td>
+            <td><span class="chip"><span class="dot"></span>Strategic</span></td>
+            <td>Revenue is known, material cost is captured, nothing joins them. &ldquo;Did this job make money?&rdquo; is unanswerable — and it is the question a print shop lives on.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>The plan</h2>
+      <p>Ordered so that value lands early and nothing waits on the Ledger track longer than it has to. Phase 1 has no external dependency at all.</p>
+    </div>
+
+    <div class="steps">
+
+      <div class="step">
+        <div class="rail"><div class="num">1</div><div class="line"></div></div>
+        <div class="step-body">
+          <div class="step-head">
+            <h3>Close the receivable</h3>
+            <span class="chip crit"><span class="dot"></span>Start now</span>
+            <span class="chip">No dependencies</span>
+          </div>
+          <p class="step-goal">
+            Make it possible for an invoice to reach zero the way it actually gets settled in practice —
+            net of withholding, net of a credit note, net of a negotiated discount.
+          </p>
+          <ul class="deliv">
+            <li class="shipped">Withholding on the allocation</li>
+            <li class="shipped">Second withholding: 5% VAT</li>
+            <li class="shipped">Extended balancing identity</li>
+            <li class="shipped">Aging &amp; DSO corrected</li>
+            <li class="shipped">2307 / 2306 certificate register</li>
+            <li>Credit memo / sales return</li>
+            <li>Discount on the invoice</li>
+          </ul>
+          <div class="donewhen">
+            <b>Done when</b>
+            An LGU invoice paid net of both 2% income tax and 5% VAT closes to a zero balance, the 2307 and
+            2306 are on file against it, and <code>verify-sales-audit.ts</code> asserts the widened identity
+            holds. <b>All but the credit memo and the discount are done</b> — 45 assertions cover them, including that the withheld
+            VAT is exactly 2.5× the withheld income tax, which can only hold if both hit the same base.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="rail"><div class="num">2</div><div class="line"></div></div>
+        <div class="step-body">
+          <div class="step-head">
+            <h3>Reports that take a date range</h3>
+            <span class="chip crit"><span class="dot"></span>Promoted</span>
+            <span class="chip">No dependencies</span>
+          </div>
+          <p class="step-goal">
+            Almost every report we have is locked to today or to a single day. Since OPS Fusion will not
+            be a BIR-registered book, reporting is no longer competing with compliance work — it is the
+            highest-value thing we can build, and it waits on nobody.
+          </p>
+          <ul class="deliv">
+            <li class="shipped">Aging as of any date</li>
+            <li class="shipped">Sales over a date range</li>
+            <li class="shipped">Statement of Account, any date</li>
+            <li>Customer payment ledger</li>
+            <li class="shipped">Unbilled &amp; backlog report</li>
+            <li class="shipped">For Delivery report</li>
+            <li class="shipped">Sales by customer</li>
+            <li class="shipped">Excel export</li>
+          </ul>
+          <div class="donewhen">
+            <b>Done when</b>
+            Every report above runs over a date the user picks, exports to Excel, and a real Statement
+            of Account — opening balance, activity, closing balance — can be sent to a customer.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="rail"><div class="num">3</div><div class="line"></div></div>
+        <div class="step-body">
+          <div class="step-head">
+            <h3>Collections</h3>
+            <span class="chip">No dependencies</span>
+          </div>
+          <p class="step-goal">
+            Handle the ways money actually arrives at a print shop — and the ways it fails to.
+          </p>
+          <ul class="deliv">
+            <li>Post-dated cheque register</li>
+            <li>Bounced cheque lifecycle</li>
+            <li>Milestone / instalment terms</li>
+            <li>Recurring invoices</li>
+            <li>Statement emailing</li>
+          </ul>
+          <div class="donewhen">
+            <b>Done when</b>
+            A bounced cheque reopens the receivable, books the bank charge, and stays visible as a
+            bounced cheque rather than being disguised as a spoiled receipt.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="rail"><div class="num">4</div><div class="line"></div></div>
+        <div class="step-body">
+          <div class="step-head">
+            <h3>Post to the books</h3>
+            <span class="chip warn"><span class="dot"></span>Needs Ledger Phase A</span>
+          </div>
+          <p class="step-goal">
+            Every sales event emits a balanced journal entry inside the same transaction that writes the
+            receipt. Nothing already built changes — the ledger goes underneath it. This is where the
+            job-order downpayment becomes a deposit and delivered-but-unbilled work becomes an asset.
+          </p>
+          <ul class="deliv">
+            <li>Sale &rarr; journal entry</li>
+            <li>Collection &rarr; journal entry</li>
+            <li>JO slip &rarr; customer deposit</li>
+            <li>Delivered &rarr; unbilled receivable</li>
+            <li>Void &rarr; reversing entry</li>
+            <li>Branch dimension reserved</li>
+          </ul>
+          <div class="donewhen">
+            <b>Done when</b>
+            A full cycle — downpayment, delivery, invoice, partial collection, withholding, void, credit
+            note — leaves the trial balance balanced. That single assertion catches nearly everything else.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="rail"><div class="num">5</div><div class="line"></div></div>
+        <div class="step-body">
+          <div class="step-head">
+            <h3>See the business</h3>
+            <span class="chip">Needs Phase 4</span>
+          </div>
+          <p class="step-goal">
+            The payoff phase. Once every peso is on the books with a customer and a job order attached
+            to it, the questions the shop actually cares about become one query each.
+          </p>
+          <ul class="deliv">
+            <li>DSO &amp; collection efficiency</li>
+            <li>Credit exposure dashboard</li>
+            <li>Cashier shift close</li>
+            <li>VAT working papers</li>
+            <li>Zero-rated &amp; exempt types</li>
+            <li>Senior Citizen / PWD discount</li>
+            <li>Per-job margin</li>
+          </ul>
+          <div class="donewhen">
+            <b>Done when</b>
+            We can answer &ldquo;which customers, products and jobs actually made money last quarter&rdquo;
+            in the app — something QuickBooks was never able to tell us.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Where the two tracks meet</h2>
+      <p>The General Ledger is built by the Ledger &amp; Payables track and consumed by this one. The interface is frozen in week one so neither side waits on the other.</p>
+    </div>
+    <div class="card" style="margin-bottom:12px;background:var(--primary-soft);border-color:transparent;">
+      <h3 style="color:var(--primary)">The Chart of Accounts is ours, and it is already written</h3>
+      <p style="margin-top:10px">
+        143 accounts, 118 of them postable, built for a Philippine printing shop — offset, digital,
+        large format, newspaper, walk-in and merchandise revenue lines; VAT and withholding tax on both
+        sides; work-in-process carrying a job order so per-job margin is answerable later. It ships as
+        typed data in <code>src/lib/chart-of-accounts.ts</code>, with a <code>validateChart()</code>
+        self-check that already caught one structural error in its own first draft.
+      </p>
+      <p>
+        The Payables developer seeds from it and posts against it. He does not design it, and he does not
+        edit it to add an account he happens to need — he requests one, so the rollup tree and the
+        statements stay in agreement.
+      </p>
+    </div>
+    <div class="seam">
+      <div class="card">
+        <h3><span class="chip info"><span class="dot"></span>They build</span></h3>
+        <ul>
+          <li><b>Journal entries &amp; the posting engine</b> — balanced, immutable, idempotent</li>
+          <li><b>Fiscal periods</b> — so a filed quarter cannot be re-opened</li>
+          <li><b>Cash &amp; bank accounts</b> — where collections actually land</li>
+          <li><b>Trial balance &amp; General Ledger reports</b> — how both tracks verify their own work</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="chip good"><span class="dot"></span>We consume</span></h3>
+        <ul>
+          <li>We call <b><code>post()</code></b> and nothing else. No module writes a journal line directly.</li>
+          <li>Posting happens <b>inside our transaction</b> — receipt and entry commit together or not at all.</li>
+          <li>Our subledgers stay <b>authoritative for operations</b>; the ledger is authoritative for reporting.</li>
+          <li>Every void calls <b><code>reverse()</code></b>. Entries are corrected, never edited.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Decisions — settled 19 August 2026</h2>
+      <p>These were the questions holding up the design. All but one are now answered, and they are recorded here so nobody re-opens them in code review.</p>
+    </div>
+    <div class="qs">
+      <div class="q">
+        <h3>OPS Fusion will not be BIR-registered</h3>
+        <p>It is an internal management system. No CAS registration, no loose-leaf book formats, no return forms generated here. <b>The <code>IN</code> invoice booklets are still registered documents</b>, though — VAT arithmetic and serial accountability on that series still have to be right.</p>
+        <div class="who">Settled · shrank Phase 4 into working papers</div>
+      </div>
+      <div class="q">
+        <h3>The NV booklets are not registered</h3>
+        <p>So the whole non-VAT revenue branch posts as <code>INTERNAL</code>: it appears in the real P&amp;L and never in anything the accountant sees. The VAT series posts to both.</p>
+        <div class="who">Settled · reporting scope frozen</div>
+      </div>
+      <div class="q">
+        <h3>A JO Slip is an acknowledgement, not a sale</h3>
+        <p>It books no revenue — the downpayment becomes a customer deposit, drawn down when the invoice is issued. The unpaid remainder shows on the customer's account from day one as backlog, becomes an unbilled receivable on delivery, and A/R when invoiced.</p>
+        <div class="who">Settled · three-state model, Phase 4</div>
+      </div>
+      <div class="q">
+        <h3>Calendar fiscal year, cutover 1 January 2027</h3>
+        <p>QuickBooks runs in parallel through Q1 2027 and is retired once the trial balances agree three months running. Since the system is not registered, a slipped cutover costs time and nothing else.</p>
+        <div class="who">Settled · shapes the opening-balance load</div>
+      </div>
+      <div class="q">
+        <h3>Two branches, one ledger, switcher later</h3>
+        <p>Tacloban is planned with a branch switcher — in Ormoc you see only Ormoc. That is a scoped view over one ledger, not separate books. <b>Not being built yet</b>; only the <code>branchId</code> column is reserved now, because adding it after fifty thousand entries means guessing which branch old rows belonged to.</p>
+        <div class="who">Settled · column now, feature later</div>
+      </div>
+      <div class="q">
+        <h3>Still open: which QuickBooks reports are used?</h3>
+        <p>Before building the statements we need to know which reports get run monthly, which go to the accountant, and which nobody has opened in a year. The QuickBooks account list also needs reconciling against our chart — anything that will not map is either an account we are missing or one no longer needed.</p>
+        <div class="who">Owner + accountant · shapes Phases 2 &amp; 5</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>How we will know each phase is finished</h2>
+    </div>
+    <div class="card">
+      <p style="margin-top:0">
+        The house rule does not change: a phase is done when a green end-to-end verify script drives real
+        services against a real database, and <code>npm run check</code> — typecheck, lint, and the sales
+        contract scanner — is clean. Not when the screen looks right.
+      </p>
+      <p>
+        The contract scanner ratchets. Known pre-existing violations are recorded as counts and pass;
+        anything beyond them fails. Debt can shrink, never grow. A fresh violation is never cleared by
+        regenerating the baseline — it is fixed, or opted out in place with a written reason.
+      </p>
+      <p>
+        And one addition for this stretch of work: from Phase 3 onward, every verify script ends by
+        asserting <b>the trial balance balances</b>. If the books do not foot, nothing above it is true.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <span>OPS Fusion — Ormoc Printshoppe</span>
+    <span>Receivables &amp; Sales track</span>
+    <span>Companion documents: docs/sales-contract.md · docs/chart-of-accounts.md · docs/ledger-interface.md · docs/payables-track.md</span>
+  </footer>
+
+</div>

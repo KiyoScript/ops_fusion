@@ -1,0 +1,1013 @@
+<title>Seven Counter Scenarios</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     Carbon copy. The palette is a receipt booklet: cool paper, ink
+     that is not quite black, and the violet a carbon sheet leaves
+     behind. Green is money in, ochre is money still owed — the only
+     two states a peso on this page can be in.
+     ───────────────────────────────────────────────────────────── */
+  :root {
+    --paper:        #fbfbfd;
+    --leaf:         #ffffff;
+    --leaf-2:       #f4f3f8;
+    --rule:         #e4e2ee;
+    --rule-soft:    #eeecf5;
+    --ink:          #191822;
+    --ink-2:        #55516b;
+    --ink-3:        #8a85a0;
+    --carbon:       #58489a;
+    --carbon-soft:  #efecfa;
+    --received:     #2d6a4a;
+    --received-soft:#e6f2ea;
+    --due:          #9c5a1c;
+    --due-soft:     #fbf0e2;
+    --stop:         #a3302c;
+    --stop-soft:    #fbe9e8;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:        #131218;
+      --leaf:         #1b1a23;
+      --leaf-2:       #23212e;
+      --rule:         #35323f;
+      --rule-soft:    #292734;
+      --ink:          #e9e8ef;
+      --ink-2:        #a9a5bd;
+      --ink-3:        #7d7896;
+      --carbon:       #a99ce8;
+      --carbon-soft:  #251f3c;
+      --received:     #6fbf92;
+      --received-soft:#16281e;
+      --due:          #d9a05b;
+      --due-soft:     #2c2113;
+      --stop:         #e88f8b;
+      --stop-soft:    #2e1817;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:        #131218;
+    --leaf:         #1b1a23;
+    --leaf-2:       #23212e;
+    --rule:         #35323f;
+    --rule-soft:    #292734;
+    --ink:          #e9e8ef;
+    --ink-2:        #a9a5bd;
+    --ink-3:        #7d7896;
+    --carbon:       #a99ce8;
+    --carbon-soft:  #251f3c;
+    --received:     #6fbf92;
+    --received-soft:#16281e;
+    --due:          #d9a05b;
+    --due-soft:     #2c2113;
+    --stop:         #e88f8b;
+    --stop-soft:    #2e1817;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Source Sans 3", system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: "Bricolage Grotesque", "Source Sans 3", system-ui, sans-serif;
+    text-wrap: balance;
+    margin: 0;
+    letter-spacing: -.015em;
+  }
+
+  code, .mono, .amt, .serial {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 120px; }
+
+  /* ── masthead ──────────────────────────────────────────────── */
+  .masthead { padding: 72px 0 0; max-width: 44rem; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--carbon);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-size: clamp(2.3rem, 1.5rem + 3vw, 3.4rem);
+    font-weight: 700;
+    line-height: 1.06;
+  }
+  .lede {
+    margin: 22px 0 0;
+    font-size: 1.125rem;
+    color: var(--ink-2);
+  }
+  .meta {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 32px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+  .meta b { color: var(--ink-2); font-weight: 500; }
+
+  section { margin-top: 68px; }
+  .sec-head { margin-bottom: 24px; max-width: 46rem; }
+  h2 { font-size: 1.6rem; font-weight: 700; }
+  .sec-head p { margin: 10px 0 0; color: var(--ink-2); }
+
+  /* ── the governing rule ────────────────────────────────────── */
+  .rule-card {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--carbon);
+    border-radius: 14px;
+    background: var(--leaf);
+    padding: 26px 28px;
+  }
+  .rule-card h3 { font-size: 1.15rem; color: var(--carbon); }
+  .rule-card p { margin: 12px 0 0; color: var(--ink-2); }
+  .rule-card p:last-child { margin-bottom: 0; }
+  .rule-card strong { color: var(--ink); }
+
+  .equation {
+    margin: 18px 0 0;
+    padding: 14px 18px;
+    background: var(--leaf-2);
+    border-radius: 10px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13.5px;
+    color: var(--ink);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* ── document legend ───────────────────────────────────────── */
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .doc-chip {
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    background: var(--leaf);
+    padding: 16px 18px;
+  }
+  .doc-chip .abbr {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    color: var(--carbon);
+  }
+  .doc-chip .name {
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    margin-top: 4px;
+  }
+  .doc-chip .what {
+    margin-top: 6px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+
+  /* ── scenarios ─────────────────────────────────────────────── */
+  .scenario {
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    background: var(--leaf);
+    overflow: hidden;
+    margin-top: 22px;
+  }
+  .scn-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 14px;
+    padding: 20px 26px;
+    border-bottom: 1px solid var(--rule-soft);
+    background: var(--leaf-2);
+  }
+  .scn-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--carbon);
+    letter-spacing: .08em;
+  }
+  .scn-head h3 { font-size: 1.15rem; font-weight: 700; }
+  .scn-sub {
+    font-size: 13.5px;
+    color: var(--ink-3);
+    margin-left: auto;
+    font-family: "IBM Plex Mono", monospace;
+  }
+  .scn-body { padding: 8px 26px 26px; }
+
+  /* one step: the paper on the left, the books on the right */
+  .step {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: 24px;
+    padding: 22px 0;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .step:last-child { border-bottom: 0; padding-bottom: 4px; }
+  @media (max-width: 720px) { .step { grid-template-columns: 1fr; gap: 14px; } }
+
+  .when {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 10px;
+  }
+
+  /* the physical receipt */
+  .paper {
+    border: 1px solid var(--rule);
+    border-top: 2px dashed var(--rule);
+    border-radius: 0 0 10px 10px;
+    background: var(--leaf-2);
+    padding: 16px 18px;
+  }
+  .paper .serial {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--carbon);
+    letter-spacing: .06em;
+  }
+  .paper .title {
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    margin-top: 2px;
+  }
+  .paper .figure {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 1.6rem;
+    font-weight: 500;
+    margin-top: 10px;
+    letter-spacing: -.02em;
+  }
+  .paper .note {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .paper.none {
+    border-top-style: solid;
+    border-radius: 10px;
+    background: transparent;
+    border-style: dashed;
+  }
+  .paper.none .title { color: var(--ink-3); }
+
+  .tag {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    background: var(--due-soft);
+    color: var(--due);
+  }
+  .tag.paid { background: var(--received-soft); color: var(--received); }
+
+  /* what the books do */
+  .books h4 {
+    font-size: 12px;
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+  }
+  .books ul { margin: 0; padding-left: 0; list-style: none; }
+  .books li {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 14px;
+  }
+  .books li:last-child { border-bottom: 0; }
+  .books li span:first-child { color: var(--ink-2); }
+  .books li span:last-child {
+    font-family: "IBM Plex Mono", monospace;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .in  { color: var(--received); font-weight: 500; }
+  .due { color: var(--due); font-weight: 500; }
+  .nil { color: var(--ink-3); }
+
+  .aside {
+    margin-top: 12px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.55;
+  }
+  .aside b { color: var(--ink); }
+
+  /* ── flags ─────────────────────────────────────────────────── */
+  .flag {
+    margin-top: 20px;
+    border-radius: 12px;
+    padding: 18px 20px;
+    font-size: 14.5px;
+    line-height: 1.6;
+    border: 1px solid transparent;
+  }
+  .flag.gap { background: var(--due-soft); color: var(--due); border-color: var(--due); }
+  .flag.stop { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+  .flag b { font-weight: 700; }
+  .flag .head {
+    display: block;
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+
+  /* ── tables ────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--leaf); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--rule-soft); }
+  tr:last-child td { border-bottom: 0; }
+  th {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    background: var(--leaf-2);
+    white-space: nowrap;
+  }
+  td.num { font-family: "IBM Plex Mono", monospace; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .foot {
+    margin-top: 72px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    font-size: 13px;
+    color: var(--ink-3);
+    font-family: "IBM Plex Mono", monospace;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 28px;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">OPS Fusion · Sales &amp; Audit</p>
+    <h1>Seven ways money reaches the counter</h1>
+    <p class="lede">
+      One ₱700 job order, followed through every way a customer can pay for it —
+      what gets written on paper, what the system records, and what each report
+      says afterwards. Every peso figure on this page was computed by the code
+      itself, not worked out by hand.
+    </p>
+    <div class="meta">
+      <span><b>Worked example</b> ₱700 job order</span>
+      <span><b>Receipts</b> handwritten on BIR booklets</span>
+      <span><b>Verified by</b> scripts/verify-sales-audit.ts</span>
+    </div>
+  </header>
+
+  <!-- ─────────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <h2>The one rule underneath all seven</h2>
+    </div>
+    <div class="rule-card">
+      <h3>A receipt is issued for what was handed over, and books exactly that</h3>
+      <p>
+        Not for the job's total. A ₱700 job paid ₱230 now and ₱470 on release is
+        <strong>two documents</strong> — ₱230 of sales today, ₱470 of sales on
+        the day it ships. They add up to the job, and the shop's books follow the
+        money rather than an accrual nobody writes down.
+      </p>
+      <div class="equation">
+        every receipt against a job  →  Σ = the job's total
+      </div>
+      <p>
+        Two consequences worth stating, because both are easy to get backwards.
+        A <strong>downpayment is a sale</strong> of its own amount — it is tagged
+        so the day's log shows who is coming back, but the tag moves no total. And
+        a <strong>Collection Receipt is never a sale</strong> — it settles an
+        invoice whose revenue was already booked, so counting it again would
+        report the same peso twice.
+      </p>
+      <p>
+        One job stays on one series throughout. A walk-in job runs on JO slips
+        start to finish; a VAT customer's job runs on VAT invoices. The counter
+        refuses to mix them, which is why a JO slip cannot be followed by a sales
+        invoice on the same job.
+      </p>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <h2>The five documents</h2>
+      <p>Each one is a leaf out of a numbered booklet, except the DR, which is its own paper.</p>
+    </div>
+    <div class="legend">
+      <div class="doc-chip">
+        <div class="abbr">JO</div>
+        <div class="name">Job Order Slip</div>
+        <div class="what">Cash receipt for a walk-in. Books the amount paid. May be tagged as a downpayment.</div>
+      </div>
+      <div class="doc-chip">
+        <div class="abbr">IN</div>
+        <div class="name">Sales Invoice — VAT</div>
+        <div class="what">VAT backed out of the amount at 12%. Shares its serial series with the Charge Invoice.</div>
+      </div>
+      <div class="doc-chip">
+        <div class="abbr">NV</div>
+        <div class="name">Sales Invoice — Non-VAT</div>
+        <div class="what">Its own series. Carries no VAT; the whole amount is reported as vatable sales.</div>
+      </div>
+      <div class="doc-chip">
+        <div class="abbr">IN</div>
+        <div class="name">Charge Invoice</div>
+        <div class="what">Sells on credit. Books revenue immediately and creates the receivable, with a due date.</div>
+      </div>
+      <div class="doc-chip">
+        <div class="abbr">CR</div>
+        <div class="name">Collection Receipt</div>
+        <div class="what">Acknowledges cash against a Charge Invoice. Never revenue — the invoice already booked it.</div>
+      </div>
+      <div class="doc-chip">
+        <div class="abbr">DR</div>
+        <div class="name">Delivery Receipt</div>
+        <div class="what">Proof the work left the building. Sets delivered quantities; issues no serial from a sales booklet.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ CASH / WALK-IN ═══════════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>Cash and walk-in</h2>
+      <p>
+        ₱700 job, ₱230 down, ₱470 on release. Three variants, differing only in
+        which booklet the paper comes out of — and therefore in how much VAT the
+        shop owes.
+      </p>
+    </div>
+
+    <!-- 1 -->
+    <div class="scenario">
+      <div class="scn-head">
+        <span class="scn-num">01</span>
+        <h3>Walk-in retail — JO slip</h3>
+        <span class="scn-sub">no invoice · no CR</span>
+      </div>
+      <div class="scn-body">
+
+        <div class="step">
+          <div>
+            <div class="when">Day 1 · order taken</div>
+            <div class="paper">
+              <div class="serial">JO-0512</div>
+              <div class="title">Job Order Slip</div>
+              <div class="figure">₱230.00</div>
+              <div class="note">Received from the customer as a downpayment on JO-2608-00042.</div>
+              <span class="tag">tagged · downpayment</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>What the system records</h4>
+            <ul>
+              <li><span>Sale booked</span><span class="in">₱230.00</span></li>
+              <li><span>VAT on it</span><span class="nil">none — JO slips carry no VAT</span></li>
+              <li><span>Cash in</span><span class="in">₱230.00</span></li>
+              <li><span>Still owed on the job</span><span class="due">₱470.00</span></li>
+            </ul>
+            <p class="aside">
+              The day's log shows it as a JO receipt with <b>1 of them a
+              downpayment</b>. Gross sales rises by ₱230 — the shop earned that
+              money, and no further document will restate it.
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div>
+            <div class="when">Day 6 · work finished, customer claims it</div>
+            <div class="paper">
+              <div class="serial">DR-1180</div>
+              <div class="title">Delivery Receipt</div>
+              <div class="figure">₱700.00</div>
+              <div class="note">The whole job leaves the building. Quantities delivered are stamped on each line.</div>
+            </div>
+          </div>
+          <div class="books">
+            <h4>What moves</h4>
+            <ul>
+              <li><span>Sale booked</span><span class="nil">nothing — a DR is not a sale</span></li>
+              <li><span>Delivered value</span><span class="in">₱700.00</span></li>
+              <li><span>Billed so far</span><span>₱230.00</span></li>
+              <li><span>Delivered but not billed</span><span class="due">₱470.00</span></li>
+            </ul>
+            <p class="aside">
+              For this moment the job sits in the <b>Unbilled &amp; Backlog</b>
+              report: work earned, no paper raised for it yet. The customer is
+              standing there, so the moment is short — but on a credit job it can
+              last weeks, which is the whole reason that report exists.
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div>
+            <div class="when">Day 6 · balance paid</div>
+            <div class="paper">
+              <div class="serial">JO-0538</div>
+              <div class="title">Job Order Slip</div>
+              <div class="figure">₱470.00</div>
+              <div class="note">Balance on JO-2608-00042. Not a downpayment — this is the end of it.</div>
+              <span class="tag paid">final payment</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>What the system records</h4>
+            <ul>
+              <li><span>Sale booked</span><span class="in">₱470.00</span></li>
+              <li><span>Cash in</span><span class="in">₱470.00</span></li>
+              <li><span>Still owed on the job</span><span class="nil">₱0.00</span></li>
+              <li><span>Total booked across both slips</span><span class="in">₱700.00</span></li>
+            </ul>
+            <p class="aside">
+              The job leaves the pipeline report entirely: fully delivered, fully
+              billed. <b>No Collection Receipt</b> is issued — there was never a
+              charge invoice for one to settle.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 2 -->
+    <div class="scenario">
+      <div class="scn-head">
+        <span class="scn-num">02</span>
+        <h3>Walk-in — VAT customer</h3>
+        <span class="scn-sub">VAT split on every leaf · no CR</span>
+      </div>
+      <div class="scn-body">
+
+        <div class="step">
+          <div>
+            <div class="when">Day 1 · downpayment</div>
+            <div class="paper">
+              <div class="serial">IN-9014</div>
+              <div class="title">Sales Invoice — VAT</div>
+              <div class="figure">₱230.00</div>
+              <div class="note">Issued for the amount paid, not for the job's total.</div>
+              <span class="tag">tagged · downpayment</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>VAT is backed out of the amount</h4>
+            <ul>
+              <li><span>Gross</span><span class="in">₱230.00</span></li>
+              <li><span>Vatable sales</span><span>₱205.36</span></li>
+              <li><span>Output VAT (12%)</span><span>₱24.64</span></li>
+            </ul>
+            <p class="aside">
+              VAT is taken as the <b>remainder</b>, not recomputed — so
+              ₱205.36 + ₱24.64 lands exactly on ₱230.00 and the printed
+              receipt always foots.
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div>
+            <div class="when">Day 6 · DR, then the balance</div>
+            <div class="paper">
+              <div class="serial">IN-9031</div>
+              <div class="title">Sales Invoice — VAT</div>
+              <div class="figure">₱470.00</div>
+              <div class="note">Final billing. DR-1181 issued for the full ₱700 on release.</div>
+              <span class="tag paid">final payment</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>And the second leaf</h4>
+            <ul>
+              <li><span>Gross</span><span class="in">₱470.00</span></li>
+              <li><span>Vatable sales</span><span>₱419.64</span></li>
+              <li><span>Output VAT (12%)</span><span>₱50.36</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div>
+            <div class="when">The job, totalled</div>
+            <div class="paper none">
+              <div class="title">Two leaves, one job</div>
+              <div class="note">
+                Splitting the job across two invoices does not change a centavo
+                of tax — and the two halves foot to the same figures as a single
+                ₱700 invoice would.
+              </div>
+            </div>
+          </div>
+          <div class="books">
+            <h4>Both invoices together</h4>
+            <ul>
+              <li><span>Gross sales</span><span class="in">₱700.00</span></li>
+              <li><span>Vatable sales</span><span>₱625.00</span></li>
+              <li><span>Output VAT</span><span>₱75.00</span></li>
+              <li><span>Collection Receipt</span><span class="nil">none</span></li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="scenario">
+      <div class="scn-head">
+        <span class="scn-num">03</span>
+        <h3>Walk-in — Non-VAT customer</h3>
+        <span class="scn-sub">NV series · no VAT · no CR</span>
+      </div>
+      <div class="scn-body">
+        <div class="step">
+          <div>
+            <div class="when">Day 1 and day 6</div>
+            <div class="paper">
+              <div class="serial">NV-9600 &nbsp;·&nbsp; NV-9601</div>
+              <div class="title">Sales Invoice — Non-VAT</div>
+              <div class="figure">₱230.00 + ₱470.00</div>
+              <div class="note">Same rhythm as scenario 2, out of a different booklet.</div>
+            </div>
+          </div>
+          <div class="books">
+            <h4>What differs</h4>
+            <ul>
+              <li><span>Gross sales</span><span class="in">₱700.00</span></li>
+              <li><span>Vatable sales</span><span>₱700.00</span></li>
+              <li><span>Output VAT</span><span class="nil">₱0.00</span></li>
+            </ul>
+            <p class="aside">
+              A Non-VAT sale reports its <b>whole</b> amount as vatable sales
+              with zero VAT — that is what makes the two series summable side by
+              side without the tax figures colliding. The NV booklet runs its own
+              numbering, so a Non-VAT sale can never eat a serial out of the
+              IN line.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ CREDIT — DR ONLY ═══════════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>Credit — delivered on a DR, paid later</h2>
+      <p>
+        No downpayment. The work goes out on a Delivery Receipt, and the sales
+        document is written only when the customer comes to settle. Scenarios 4,
+        5 and 6 differ only in which booklet that final document comes from.
+      </p>
+    </div>
+
+    <div class="scenario">
+      <div class="scn-head">
+        <span class="scn-num">04–06</span>
+        <h3>DR charges the customer</h3>
+        <span class="scn-sub">JO slip / Non-VAT / VAT on payment · no CR</span>
+      </div>
+      <div class="scn-body">
+
+        <div class="step">
+          <div>
+            <div class="when">Day 1 · work delivered</div>
+            <div class="paper">
+              <div class="serial">DR-1182</div>
+              <div class="title">Delivery Receipt</div>
+              <div class="figure">₱700.00</div>
+              <div class="note">This is what charges the customer. No sales document exists yet.</div>
+            </div>
+          </div>
+          <div class="books">
+            <h4>What the system records</h4>
+            <ul>
+              <li><span>Sale booked</span><span class="nil">nothing yet</span></li>
+              <li><span>Delivered value</span><span class="in">₱700.00</span></li>
+              <li><span>Delivered but not billed</span><span class="due">₱700.00</span></li>
+              <li><span>On the A/R aging report</span><span class="nil">nothing</span></li>
+            </ul>
+            <p class="aside">
+              The full ₱700 shows in <b>Unbilled &amp; Backlog</b> under
+              “delivered, not billed”. It is real money the shop has earned, and
+              it is visible — but it is not aged, has no due date, and counts
+              against no credit limit, because no invoice exists to carry any of
+              those things.
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div>
+            <div class="when">Day 30 · customer pays against their open DRs</div>
+            <div class="paper">
+              <div class="serial">JO-0561 &nbsp;/&nbsp; NV-9602 &nbsp;/&nbsp; IN-9042</div>
+              <div class="title">Whichever series fits the customer</div>
+              <div class="figure">₱700.00</div>
+              <div class="note">Written when the money arrives, referencing the DR it settles.</div>
+              <span class="tag paid">final payment</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>What moves</h4>
+            <ul>
+              <li><span>Sale booked</span><span class="in">₱700.00</span></li>
+              <li><span>Cash in</span><span class="in">₱700.00</span></li>
+              <li><span>Delivered but not billed</span><span class="nil">₱0.00</span></li>
+              <li><span>Collection Receipt</span><span class="nil">none</span></li>
+            </ul>
+            <p class="aside">
+              No CR, because there was never a Charge Invoice. The sales document
+              <b>is</b> the receipt.
+            </p>
+          </div>
+        </div>
+
+        <div class="flag gap">
+          <span class="head">Known gap — the 29 days in between</span>
+          Between the DR and the payment, that ₱700 is owed to the shop and
+          appears on no aging report. Nobody is chasing it by date, and it does
+          not count against the customer's credit limit — so a DR-only customer
+          can run up any exposure at all without tripping a ceiling. The
+          <b>Unbilled &amp; Backlog</b> report is currently the only place that
+          money is visible. Making DR-only debt age properly is the next piece
+          of work on this track.
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ APPROVED CREDIT ═══════════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>Approved credit — the Charge Invoice</h2>
+      <p>
+        The only scenario that produces a Collection Receipt, and the only one
+        where a receivable is aged from the day it is created.
+      </p>
+    </div>
+
+    <div class="scenario">
+      <div class="scn-head">
+        <span class="scn-num">07</span>
+        <h3>Charge Invoice creates the A/R</h3>
+        <span class="scn-sub">DR + Charge SI · settled by CR</span>
+      </div>
+      <div class="scn-body">
+
+        <div class="step">
+          <div>
+            <div class="when">Day 1 · delivered and billed together</div>
+            <div class="paper">
+              <div class="serial">IN-9043</div>
+              <div class="title">Charge Invoice</div>
+              <div class="figure">₱700.00</div>
+              <div class="note">DR-1183 is the delivery reference. Net 30 — falls due day 31.</div>
+              <span class="tag">unpaid · on credit</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>Revenue now, money later</h4>
+            <ul>
+              <li><span>Sale booked</span><span class="in">₱700.00</span></li>
+              <li><span>Vatable sales</span><span>₱625.00</span></li>
+              <li><span>Output VAT</span><span>₱75.00</span></li>
+              <li><span>Cash in</span><span class="nil">₱0.00</span></li>
+              <li><span>Open on the A/R ledger</span><span class="due">₱700.00</span></li>
+            </ul>
+            <p class="aside">
+              Revenue is booked the day the invoice is written, even though no
+              money has arrived. From here the debt ages, counts against the
+              customer's credit limit, and appears on their Statement of Account.
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div>
+            <div class="when">Day 28 · customer settles</div>
+            <div class="paper">
+              <div class="serial">CR-0348</div>
+              <div class="title">Collection Receipt</div>
+              <div class="figure">₱700.00</div>
+              <div class="note">Applied against IN-9043. Optional — a customer may decline it, and the balance still closes.</div>
+              <span class="tag paid">settles IN-9043</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>Cash, not revenue</h4>
+            <ul>
+              <li><span>Sale booked</span><span class="nil">₱0.00 — already booked on day 1</span></li>
+              <li><span>Cash in</span><span class="in">₱700.00</span></li>
+              <li><span>Open on the A/R ledger</span><span class="nil">₱0.00</span></li>
+            </ul>
+            <p class="aside">
+              This is the double-count the reports are built to avoid: if the CR
+              were added to sales, this one job would show as ₱1,400 of revenue.
+              Collections are reported <b>beside</b> sales, never inside them.
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div>
+            <div class="when">Variant · the customer is a withholding agent</div>
+            <div class="paper">
+              <div class="serial">CR-0349</div>
+              <div class="title">Collection Receipt</div>
+              <div class="figure">₱687.50</div>
+              <div class="note">They keep ₱12.50 back and remit it to BIR for us, handing over a Form 2307.</div>
+              <span class="tag paid">closes ₱700.00</span>
+            </div>
+          </div>
+          <div class="books">
+            <h4>Less cash, same closure</h4>
+            <ul>
+              <li><span>Cash received</span><span class="in">₱687.50</span></li>
+              <li><span>Income tax withheld · 2% of ₱625.00</span><span>₱12.50</span></li>
+              <li><span>Open on the A/R ledger</span><span class="nil">₱0.00</span></li>
+            </ul>
+            <p class="aside">
+              The 2% is computed on the <b>VAT-exclusive</b> ₱625.00, not the
+              ₱700 gross — computing it on the gross over-withholds and leaves the
+              invoice permanently short. A government or LGU customer withholds a
+              second tax on the same base: 5% VAT on Form 2306, kept apart because
+              the two are claimed on different returns.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ GUARDS ═══════════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>What the counter refuses</h2>
+      <p>Each of these is a rule the system enforces rather than trusts, with the mistake it prevents.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>The counter refuses</th><th>Because</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>An invoice on a job that already has a JO slip</td>
+            <td>One job stays on one series. Mixing them would put the same sale in two document lines.</td>
+          </tr>
+          <tr>
+            <td>A JO slip on a job that has already been invoiced</td>
+            <td>The mirror of the above.</td>
+          </tr>
+          <tr>
+            <td>Billing more than the job's unbilled remainder</td>
+            <td>A ₱700 job already billed ₱230 can only be billed ₱470 more. Receipts must sum to the job.</td>
+          </tr>
+          <tr>
+            <td>Collecting more than is outstanding</td>
+            <td>A collection settles an invoice; there is nothing to settle beyond its open balance.</td>
+          </tr>
+          <tr>
+            <td>Two cashiers collecting the same last peso</td>
+            <td>The balance is re-checked inside the same statement that writes it, so the second one fails.</td>
+          </tr>
+          <tr>
+            <td>Issuing past the last leaf of a booklet</td>
+            <td>All fifty leaves stay accountable. A used-up booklet closes rather than overflowing.</td>
+          </tr>
+          <tr>
+            <td>Deleting a spoiled receipt</td>
+            <td>It is voided in place, keeping its serial, so the booklet still reconciles.</td>
+          </tr>
+          <tr>
+            <td>A cashier voiding their own receipt</td>
+            <td>Cancellation needs a supervisor — the person who took the money is not the one who writes it off.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ WHERE FIGURES LAND ═══════════════ -->
+  <section>
+    <div class="sec-head">
+      <h2>Where each figure shows up</h2>
+      <p>
+        The same ₱700, read five different ways. Nothing here is a different
+        number for the same thing — they are answers to different questions.
+      </p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Report</th>
+            <th>Question it answers</th>
+            <th>Counts JO slips</th>
+            <th>Counts CRs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Daily sales — gross sales</b></td>
+            <td>What did the books earn today?</td>
+            <td>Yes</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><b>Daily sales — cash in</b></td>
+            <td>What went in the drawer today?</td>
+            <td>Yes</td>
+            <td>Yes</td>
+          </tr>
+          <tr>
+            <td><b>Sales report</b></td>
+            <td>What did we sell over a range, and to whom?</td>
+            <td>Yes</td>
+            <td>Reported beside, never inside</td>
+          </tr>
+          <tr>
+            <td><b>A/R aging</b></td>
+            <td>Who owes us, and for how long?</td>
+            <td>No — a paid slip owes nothing</td>
+            <td>Reduces what is owed</td>
+          </tr>
+          <tr>
+            <td><b>Unbilled &amp; Backlog</b></td>
+            <td>What is owed to us that no invoice covers?</td>
+            <td>Counts as billing its own amount</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><b>Job order history</b></td>
+            <td>Everything that ever happened on this one job</td>
+            <td>Yes, each on its own line</td>
+            <td>Yes, each on its own line</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span>Figures computed by src/modules/sales-audit/services/money.ts</span>
+    <span>Rules enforced in receipt-service.ts</span>
+    <span>docs/sales-contract.md</span>
+  </div>
+
+</div>

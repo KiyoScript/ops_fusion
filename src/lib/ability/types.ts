@@ -37,6 +37,7 @@ export type AppSubject =
   // ——— Sales & Audit module (Sales-Audit) ———
   | "Sale" // receipts: JO receipt, Sales Invoice, Collection Receipt
   | "Booklet" // the BIR booklets those receipts draw their numbers from
+  | "WithholdingCertificate" // BIR 2307 / 2306 forms behind a withheld peso
   // ——— TODO(SALES-AUDIT-PHASE-NEXT): "Reconciliation" (day locking, deposits)
   // ——— Inventory & Materials module (MACWebApp) ———
   | "Material" // item master

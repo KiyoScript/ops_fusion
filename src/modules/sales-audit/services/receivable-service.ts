@@ -1,6 +1,6 @@
 import { assertCan } from "@/lib/ability";
 import type { Actor } from "@/lib/authz";
-import { NotFoundError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import { resolveEnabledModules } from "@/lib/modules";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
@@ -26,9 +26,10 @@ import {
   type CustomerCreditDto,
   type ReceivablesPageDto,
   type SetCreditInput,
+  type SetWithholdingInput,
   type StatementOfAccountDto,
 } from "../schemas/receipt";
-import { toAmount, toCentavos } from "./money";
+import { VAT_WITHHOLDING_RATE_PCT, toAmount, toCentavos } from "./money";
 
 // ══════════════════════════════════════════════════════════════════════════
 // ACCOUNTS RECEIVABLE — who owes us what, and for how long.
@@ -70,11 +71,38 @@ function openBalanceOf(r: ReceivableRecord): number {
   );
 }
 
-/** Days past due, floored at 0. Null when the invoice carries no terms. */
-function daysOverdueOf(dueDate: Date | null): number | null {
+/**
+ * Days past due, floored at 0. Null when the invoice carries no terms.
+ *
+ * Measured from the REPORT date, not from now: an invoice 90 days overdue
+ * today may have been perfectly current at the date being reported on, and an
+ * aging report that ages everything to today puts every historical debt in the
+ * wrong bucket while still footing to the right total.
+ */
+function daysOverdueOf(dueDate: Date | null, asOf: Date): number | null {
   if (!dueDate) return null;
-  return Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86_400_000));
+  return Math.max(
+    0,
+    Math.floor((asOf.getTime() - dueDate.getTime()) / 86_400_000)
+  );
 }
+
+/**
+ * "2026-06-30" → the last instant of that day, so an invoice raised on the
+ * 30th counts in a report as at the 30th. Undefined → now.
+ */
+function reportDate(asOf: string | undefined): Date {
+  if (!asOf) return new Date();
+  const d = new Date(`${asOf}T00:00:00`);
+  if (Number.isNaN(d.getTime())) {
+    throw new ValidationError("That is not a valid date.");
+  }
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+/** True when the caller asked for a past date rather than today. */
+const isHistorical = (asOf: string | undefined): boolean => Boolean(asOf);
 
 export class ReceivableService {
   constructor(
@@ -100,15 +128,26 @@ export class ReceivableService {
     assertCan(actor, "read", "Sale");
 
     const creditControlEnabled = await this.creditControlEnabled();
+    const asOf = reportDate(filters.asOf);
+    const historical = isHistorical(filters.asOf);
+
     // The repository filter is a superset — invoices settled by a later
     // collection come back too, and are dropped here by their open balance.
-    const open = (await this.receipts.listReceivables()).filter(
-      (r) => openBalanceOf(r) > 0
-    );
+    const open = (
+      await this.receipts.listReceivables(
+        undefined,
+        historical ? asOf : undefined
+      )
+    ).filter((r) => openBalanceOf(r) > 0);
 
     // Credit held FOR customers, keyed the same way. A customer can hold
     // credit while owing nothing, so this also contributes rows of its own.
-    const creditRows = await this.credits.listOpenAll();
+    //
+    // On a historical report this is deliberately skipped rather than shown
+    // as-at-today beside as-at-June debt. A credit balance has no dated trail
+    // to rewind through, and mixing the two would put a credit the customer
+    // only earned in August against what they owed in June.
+    const creditRows = historical ? [] : await this.credits.listOpenAll();
     const creditByCustomer = new Map<string, number>();
     const nameByCustomer = new Map<string, string>();
     for (const c of creditRows) {
@@ -178,7 +217,7 @@ export class ReceivableService {
 
       for (const r of rows) {
         const owed = openBalanceOf(r);
-        const days = daysOverdueOf(r.dueDate);
+        const days = daysOverdueOf(r.dueDate, asOf);
         outstanding += owed;
         aging[bucketFor(days)] += owed;
         if (days !== null && (oldest === null || days > oldest)) oldest = days;
@@ -246,6 +285,8 @@ export class ReceivableService {
 
     return {
       summary: {
+        asOf: asOf.toISOString(),
+        historical,
         totalOutstanding: toAmount(
           customers.reduce((t, c) => t + toCentavos(c.outstanding), 0)
         ),
@@ -265,7 +306,8 @@ export class ReceivableService {
   /** One customer's Statement of Account — every open invoice, oldest first. */
   async statement(
     actor: Actor,
-    customerId: string
+    customerId: string,
+    asOfDate?: string
   ): Promise<StatementOfAccountDto> {
     assertCan(actor, "read", "Sale");
 
@@ -275,14 +317,18 @@ export class ReceivableService {
     const customer = await this.customers.findById(customerId);
     if (!customer) throw new NotFoundError("Customer not found.");
 
-    const rows = (await this.receipts.listReceivables(customerId)).filter(
-      (r) => openBalanceOf(r) > 0
-    );
+    const asOf = reportDate(asOfDate);
+    const rows = (
+      await this.receipts.listReceivables(
+        customerId,
+        isHistorical(asOfDate) ? asOf : undefined
+      )
+    ).filter((r) => openBalanceOf(r) > 0);
 
     const aging = emptyAging();
     const invoices = rows.map((r) => {
       const owed = openBalanceOf(r);
-      const days = daysOverdueOf(r.dueDate);
+      const days = daysOverdueOf(r.dueDate, asOf);
       const bucket = bucketFor(days);
       aging[bucket] += owed;
       return {
@@ -296,6 +342,12 @@ export class ReceivableService {
         daysOverdue: days,
         joNumber: r.jobOrderNo,
         bucket,
+        vatableSales: r.vatableSales,
+        // A statement reports what is owed; it takes no payment, so there is
+        // nothing here to withhold against. The counter suggests the figure at
+        // collection time, where the 2307 is actually handed over.
+        suggestedEwt: "0.00",
+        suggestedVatWht: "0.00",
       };
     });
 
@@ -304,7 +356,7 @@ export class ReceivableService {
       customerName: customer.name,
       customerAddress: customer.address,
       customerTin: customer.tin,
-      asOf: new Date().toISOString(),
+      asOf: asOf.toISOString(),
       invoices,
       totalOutstanding: toAmount(
         rows.reduce((t, r) => t + openBalanceOf(r), 0)
@@ -344,9 +396,12 @@ export class ReceivableService {
 
     const open = rows.filter((r) => openBalanceOf(r) > 0);
     const aging = emptyAging();
+    // The account screen is always live — it is what a cashier reads with the
+    // customer standing there, so it ages to today and nothing else.
+    const now = new Date();
     const invoices = open.map((r) => {
       const owed = openBalanceOf(r);
-      const days = daysOverdueOf(r.dueDate);
+      const days = daysOverdueOf(r.dueDate, now);
       const bucket = bucketFor(days);
       aging[bucket] += owed;
       return {
@@ -360,6 +415,9 @@ export class ReceivableService {
         daysOverdue: days,
         joNumber: r.jobOrderNo,
         bucket,
+        vatableSales: r.vatableSales,
+        suggestedEwt: "0.00",
+        suggestedVatWht: "0.00",
       };
     });
 
@@ -456,6 +514,57 @@ export class ReceivableService {
             ? "no terms"
             : `net ${input.creditTermDays} days`,
         limit: input.creditLimit ?? "no limit",
+      },
+    });
+
+    return customer;
+  }
+
+  /**
+   * Set (or clear) a customer's expanded-withholding-tax standing.
+   *
+   * Same gate as setCredit, and for the same reason: the rate decides what the
+   * counter suggests deducting from every payment this customer makes, so it
+   * is reference data an admin owns — not something the cashier taking the
+   * money adjusts (R8).
+   */
+  async setWithholding(
+    actor: Actor,
+    input: SetWithholdingInput
+  ): Promise<{ id: string; name: string }> {
+    assertCan(actor, "maintain", "Maintenance");
+
+    const customer = await this.customers.setWithholding(input.customerId, {
+      isWithholdingAgent: input.isWithholdingAgent,
+      ewtRatePct:
+        input.ewtRatePct === null ? null : input.ewtRatePct.toFixed(2),
+      withholdsVat: input.withholdsVat,
+      // Government withholding is statutory, so flagging a customer without
+      // naming a rate falls back to it rather than silently suggesting zero.
+      vatWithholdingRatePct: !input.withholdsVat
+        ? null
+        : (input.vatWithholdingRatePct ?? Number(VAT_WITHHOLDING_RATE_PCT))
+            .toFixed(2),
+    });
+
+    // Its own action, not a generic update: changing a withholding rate alters
+    // what every future collection deducts, and must be reconstructable (R12).
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "Customer",
+      entityId: customer.id,
+      action: "set-withholding",
+      payload: {
+        customer: customer.name,
+        withholdingAgent: input.isWithholdingAgent ? "yes" : "no",
+        ewtRate:
+          input.isWithholdingAgent && input.ewtRatePct !== null
+            ? `${input.ewtRatePct}%`
+            : "none",
+        withholdsVat: input.withholdsVat ? "yes" : "no",
+        vatRate: input.withholdsVat
+          ? `${input.vatWithholdingRatePct ?? VAT_WITHHOLDING_RATE_PCT}%`
+          : "none",
       },
     });
 

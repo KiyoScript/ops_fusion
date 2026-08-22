@@ -4,6 +4,7 @@ import { maintenancePolicy } from "./maintenance";
 import { deliveryReceiptPolicy } from "./delivery-receipt";
 import { quotationPolicy } from "./quotation";
 import { salesAuditPolicy } from "./sales-audit";
+import { withholdingPolicy } from "./withholding";
 import { inventoryPolicy } from "./inventory";
 import { materialRequestPolicy } from "./material-request";
 import { customerPolicy } from "./customer";
@@ -17,6 +18,7 @@ export const policies: Policy[] = [
   deliveryReceiptPolicy,
   quotationPolicy,
   salesAuditPolicy,
+  withholdingPolicy,
   inventoryPolicy,
   materialRequestPolicy,
   customerPolicy,

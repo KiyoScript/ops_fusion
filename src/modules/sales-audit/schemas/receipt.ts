@@ -70,7 +70,24 @@ export const paymentLineInput = z.object({
 /** Which invoice a collection pays down, and by how much. */
 export const allocationInput = z.object({
   saleId: z.string().min(1),
+  /**
+   * What this settles on the invoice — INCLUDING both withholdings below. A
+   * ₱112,000 invoice paid ₱105,000 net of ₱2,000 income tax and ₱5,000 VAT
+   * carries amount = 112,000, so the invoice actually closes.
+   */
   amount: money,
+  /**
+   * The part of `amount` withheld as creditable INCOME tax (BIR Form 2307).
+   * Omitted for everyone who is not a designated withholding agent.
+   */
+  ewtWithheld: optionalMoney,
+  /**
+   * The part of `amount` withheld as creditable VALUE-ADDED tax (BIR Form
+   * 2306) — 5%, government and LGU customers. Separate from `ewtWithheld`
+   * because the two are claimed on different returns and evidenced by
+   * different forms; a government job carries both at once.
+   */
+  vatWithheld: optionalMoney,
 });
 
 export const receivePaymentInput = z.object({
@@ -113,6 +130,17 @@ export const receivePaymentInput = z.object({
    * unless explicitly false.
    */
   issueDocument: z.boolean().optional(),
+
+  /**
+   * JO_RECEIPT only — is this slip a DOWNPAYMENT on unfinished work, or the
+   * whole sale?
+   *
+   * A downpayment books a customer deposit and no revenue, and leaves the job
+   * open for more slips and an invoice later. Untagged, the slip is the sale
+   * document for a walk-in who paid and left. Nothing can tell the two apart
+   * after the fact, so the counter asks.
+   */
+  isDownpayment: z.boolean().optional(),
 
   /**
    * COLLECTION only — which invoices the money pays down. Omit and the service
@@ -201,9 +229,69 @@ export type OpenInvoiceDto = {
   openBalance: string;
   /** Days past due — 0 while current, null when the invoice has no terms. */
   daysOverdue: number | null;
+  /**
+   * VAT-exclusive amount — the base withholding is computed on. Exposed so
+   * the counter can show the cashier what the rate was applied to when the
+   * figure is questioned.
+   */
+  vatableSales: string;
+  /**
+   * Suggested creditable INCOME tax on this invoice (BIR 2307): the customer's
+   * rate applied to `vatableSales`, capped at `openBalance`. "0.00" when they
+   * are not a withholding agent. A SUGGESTION — the cashier enters what the
+   * certificate in their hand actually says.
+   */
+  suggestedEwt: string;
+  /**
+   * Suggested creditable VALUE-ADDED tax on this invoice (BIR 2306) — 5% of
+   * `vatableSales` for government and LGU customers, "0.00" for everyone else.
+   * Also a suggestion.
+   */
+  suggestedVatWht: string;
 };
 
 /** What the Receive Payment dialog needs to open: the JO, pre-filled. */
+// ══════════════════════════════════════════════════════════════════════════
+// JOB ORDER HISTORY — every peso that ever moved against one job.
+//
+// A job can take several downpayments, then an invoice, then collections
+// against it. Each of those is a separate document with its own serial, and
+// none of them alone answers "what has this customer actually paid me, and
+// what is left". This does.
+// ══════════════════════════════════════════════════════════════════════════
+
+export type JobOrderHistoryEntryDto = {
+  id: string;
+  date: string;
+  /** Null on a collection the customer declined a receipt for. */
+  documentNo: string | null;
+  kind: ReceiptKind;
+  /** What it was, in the shop's words — "Downpayment", "Collection", … */
+  label: string;
+  amount: string;
+  /** Money that actually came in on this document. */
+  received: string;
+  /** Job total less everything received up to and including this line. */
+  balanceAfter: string;
+  /** Cancelled documents stay in the history, marked — never hidden (R11). */
+  voided: boolean;
+  voidReason: string | null;
+};
+
+export type JobOrderHistoryDto = {
+  jobOrderId: string;
+  joNumber: string;
+  customerName: string;
+  joTotal: string;
+  entries: JobOrderHistoryEntryDto[];
+  /** Everything actually received against this job, across every document. */
+  totalReceived: string;
+  /** Job total less received, floored at zero. */
+  stillDue: string;
+  /** Downpayments taken but not yet billed — a deposit we are holding. */
+  depositsHeld: string;
+};
+
 export type ReceivePaymentOptionsDto = {
   jobOrderId: string;
   joNumber: string;
@@ -320,13 +408,125 @@ export type DailySalesSummaryDto = {
   nonVat: { count: number; gross: string };
   /** Credit sales — revenue at point of sale, money not in yet. */
   charge: { count: number; gross: string; vatableSales: string; vatAmount: string };
+  /**
+   * Job Order slips — ALL of them, downpayments included.
+   *
+   * Every receipt is issued for the amount actually paid, and books that
+   * amount: a ₱700 job taken as ₱230 down and ₱470 on release is two slips,
+   * ₱230 of sales now and ₱470 later. They sum to the job. So a slip is never
+   * excluded from revenue — the shop's books are on the money, not on an
+   * accrual nobody records.
+   */
   joReceipts: { count: number; gross: string };
+  /**
+   * The subset of the above that the cashier tagged as a downpayment. Purely
+   * descriptive — it says the customer is coming back, and it is what makes
+   * the day's log readable. It changes no total.
+   */
+  joDownpayments: { count: number; gross: string };
   /** Cash collected against invoices — NOT revenue, shown separately. */
   collections: { count: number; gross: string };
+  /**
+   * Revenue: VAT + Non-VAT + Charge + every JO slip. Only collections stay
+   * out, because the document they settle already booked that revenue (R4).
+   */
   grossSales: string;
+  /**
+   * Every peso that crossed the counter today, whatever it was for — sales
+   * paid at issue, downpayments, and collections. This is the figure that
+   * should match the drawer; grossSales is the one that should match the
+   * books, and they are different numbers for good reasons.
+   */
+  cashIn: string;
   /** Unsettled across every receipt issued today: what is owed to us. */
   receivables: { count: number; amount: string };
   pendingAudit: number;
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// SALES REPORT — the same figures as the daily summary, over any range.
+//
+// Two rules carry over unchanged, and the report is wrong without either:
+//   • Collection Receipts are NOT revenue (R4). They are reported beside the
+//     sales total, never inside it, or every credit sale is counted twice.
+//   • A voided receipt is not a sale. The daily view lists them because it
+//     doubles as the cancellation log; a revenue report must not.
+// ══════════════════════════════════════════════════════════════════════════
+
+export const SALES_GRANULARITY = ["day", "week", "month"] as const;
+export type SalesGranularity = (typeof SALES_GRANULARITY)[number];
+
+export const salesReportFilters = z
+  .object({
+    from: z.iso.date(),
+    /** Inclusive — the service pushes the boundary to the end of this day. */
+    to: z.iso.date(),
+    groupBy: z.enum(SALES_GRANULARITY).default("day"),
+    /** Narrow to one customer. Omit for the whole shop. */
+    customerId: z.string().nullish(),
+  })
+  .refine((v) => v.from <= v.to, {
+    message: "The range ends before it starts.",
+    path: ["to"],
+  });
+
+export type SalesReportFilters = z.infer<typeof salesReportFilters>;
+
+/** Money for one slice of the report — a type, a period, or a customer. */
+export type SalesSliceDto = {
+  count: number;
+  gross: string;
+  vatableSales: string;
+  vatAmount: string;
+};
+
+export type SalesPeriodRowDto = SalesSliceDto & {
+  /** "2026-07-14", "2026-W29" or "2026-07", by granularity. */
+  key: string;
+  label: string;
+  /** Cash collected in the same slice — shown alongside, never added in. */
+  collected: string;
+};
+
+export type SalesCustomerRowDto = SalesSliceDto & {
+  customerId: string;
+  customerName: string;
+  /** Share of gross sales in the range, 0–100, for the bar in the table. */
+  sharePct: number;
+};
+
+export type SalesReportDto = {
+  from: string;
+  /** Inclusive, as the user typed it. */
+  to: string;
+  groupBy: SalesGranularity;
+  days: number;
+  /** Revenue: the four receipt kinds that book a sale. */
+  byType: Record<ReceiptKind, SalesSliceDto>;
+  byPeriod: SalesPeriodRowDto[];
+  byCustomer: SalesCustomerRowDto[];
+  totals: SalesSliceDto & {
+    /** Cash in over the range. NOT part of gross sales — see R4. */
+    collected: string;
+    collectionCount: number;
+    /**
+     * Downpayments acknowledged on JO slips. Money held against work not yet
+     * billed, so it is a customer deposit and NOT revenue — excluded from
+     * gross for the same reason collections are (decided 2026-08-19).
+     */
+    /**
+      * JO slips tagged as downpayments. Descriptive only: they are inside
+      * `gross` like every other slip, and this says how much of it came from
+      * customers who have not collected their job yet.
+      */
+    deposits: string;
+    depositCount: number;
+    /** Every JO slip, tagged or not. Already inside `gross`. */
+    joSales: string;
+    joSaleCount: number;
+    /** Gross ÷ days, so a 31-day month and a 28-day one are comparable. */
+    averagePerDay: string;
+  };
 };
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -396,6 +596,14 @@ export type ReceivableCustomerDto = {
 };
 
 export type ReceivablesSummaryDto = {
+  /** The date this ledger was reconstructed at. Today unless asked otherwise. */
+  asOf: string;
+  /**
+   * True → a past date was asked for, so the figures are a reconstruction.
+   * The view says so on screen: an aging report with no date on it is the
+   * classic way a June total gets read as a live balance.
+   */
+  historical: boolean;
   totalOutstanding: string;
   customerCount: number;
   invoiceCount: number;
@@ -505,6 +713,17 @@ export type CollectOptionsDto = {
   creditAvailable: string;
   /** Next CR number, or null when no booklet is active. */
   nextCrNumber: string | null;
+  /**
+   * True → withholds creditable INCOME tax, so the dialog shows a 2307
+   * column. False for everyone else, and the counter never sees the field.
+   */
+  isWithholdingAgent: boolean;
+  /** Their rate on the VAT-exclusive amount, e.g. "2.00". Null = none set. */
+  ewtRatePct: string | null;
+  /** True → withholds 5% VAT (government / LGU), so a 2306 column shows. */
+  withholdsVat: boolean;
+  /** Usually "5.00". Null = none set. */
+  vatWithholdingRatePct: string | null;
 };
 
 export type CollectResultDto = {
@@ -538,6 +757,47 @@ export const setCreditInput = z.object({
 });
 
 export type SetCreditInput = z.infer<typeof setCreditInput>;
+
+/**
+ * A customer's withholding standing — BOTH taxes. Admin-only, like the credit
+ * fields above (R8): a cashier does not decide what rate a customer withholds
+ * at, because the rate is what the counter then suggests deducting from every
+ * payment they make.
+ *
+ * The two are independent. An ordinary corporate Top Withholding Agent sets
+ * only the first; a government office, LGU or public school sets both.
+ */
+export const setWithholdingInput = z.object({
+  customerId: z.string().min(1, "Customer is required."),
+  /** Withholds creditable INCOME tax and issues a BIR 2307. */
+  isWithholdingAgent: z.boolean(),
+  /**
+   * Percent applied to the VAT-EXCLUSIVE amount — 1 for goods, 2 for services
+   * under the usual BIR rates. Null = flag the customer but suggest nothing,
+   * so the cashier always types what the 2307 says.
+   */
+  ewtRatePct: z
+    .number()
+    .min(0, "Rate cannot be negative.")
+    .max(100, "Rate cannot exceed 100%.")
+    .nullable(),
+  /**
+   * Withholds creditable VALUE-ADDED tax and issues a BIR 2306. Government,
+   * LGUs, public schools and GOCCs. Creditable rather than final since
+   * 1 Jan 2021 (RMC 36-2021).
+   */
+  withholdsVat: z.boolean().optional().default(false),
+  /** Statutory 5 today. Null = flagged but nothing pre-filled. */
+  vatWithholdingRatePct: z
+    .number()
+    .min(0, "Rate cannot be negative.")
+    .max(100, "Rate cannot exceed 100%.")
+    .nullable()
+    .optional()
+    .default(null),
+});
+
+export type SetWithholdingInput = z.infer<typeof setWithholdingInput>;
 
 /** A payment on the customer's account, and what it went towards. */
 export type CustomerPaymentDto = {
@@ -609,6 +869,12 @@ export const receivableFilters = z.object({
   bucket: z.enum(AGING_BUCKETS).optional(),
   /** Only customers past their credit limit. */
   overLimitOnly: z.coerce.boolean().optional(),
+  /**
+   * Rewind the whole ledger to this date — "what was owed to us at 30 June".
+   * Omit for today. Aging is measured from this date too, so an invoice that
+   * was current then is reported as current, not as 90 days overdue now.
+   */
+  asOf: z.iso.date().optional(),
 });
 
 export type ReceivableFilters = z.infer<typeof receivableFilters>;

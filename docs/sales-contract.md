@@ -126,8 +126,19 @@ receipt is a legal record that must not be rewritten.
 
 Use `openBalanceOf()` from the receivable service. Do not reimplement it.
 
+**A report "as at" a past date is a reconstruction, not a filter.** All three
+inputs above are *today's* values: `paymentStatus` reflects collections that
+have since arrived, `voidedAt` reflects cancellations that have since happened,
+and `settledAmount` is a running total with no date on it. Filtering today's
+open invoices by `saleDate` therefore answers a much smaller question and
+understates every historical figure. Pass `asOf` to
+`listReceivables(customerId, asOf)`, which rewinds all three — and age from the
+report date, never from `Date.now()`, or every historical debt lands in the
+wrong bucket while the total still foots.
+
 > *Prevents:* a paid-off customer showing as delinquent, and a delinquent one
-> showing as settled.
+> showing as settled — and a June aging report that quietly reports June's
+> debt in today's buckets, minus everything collected since.
 
 ### R4 — Revenue is `Sale` and only `Sale`.
 
@@ -321,6 +332,8 @@ Work through this before calling a change done. It is short on purpose.
       inside `_count` (**R2**)
 - [ ] Balances use `amount − amountPaid − settledAmount`, not `paymentStatus`
       (**R3**)
+- [ ] Any "as at <date>" report rewinds via `listReceivables(customerId, asOf)`
+      and ages from that date, not from now (**R3**)
 - [ ] No `CollectionReceipt` is summed into a revenue figure (**R4**)
 - [ ] Customer credit is reported as `remaining`, not `amount` (**R6**)
 - [ ] No money is summed client-side over a `take: N` slice (**R7**)

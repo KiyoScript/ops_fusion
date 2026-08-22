@@ -64,6 +64,16 @@ side. Design Purchasing and Sales-Audit with this seam in mind.
   the file belongs to core dev, and the failures they cause surface as wrong
   VAT reports and uncollectable receivables, not as errors in your module.
   Verify with `npm run check` (typecheck + lint + contract scanner).
+- **The books (General Ledger, Payables) are a third track.** OPS Fusion is
+  growing a double-entry GL so the shop can retire QuickBooks. Chart of
+  Accounts, Journal Entries, Fiscal Periods, Cash & Bank, Expenses and
+  Accounts Payable belong to the **Ledger/Payables track** —
+  [`docs/payables-track.md`](docs/payables-track.md) is that developer's brief.
+  The seam where every other module posts to the ledger is
+  [`docs/ledger-interface.md`](docs/ledger-interface.md): read it before
+  writing code that should hit the books, and never write a `JournalLine`
+  directly — call the posting API. Sales/AR keeps its own track and
+  `docs/sales-contract.md`.
 - **Where things live** — Prisma schema is folder-based: `prisma/schema/`
   (one file per domain; enums live beside their owning model). Permissions:
   `src/lib/ability/policies/` (one CASL policy file per resource, registered

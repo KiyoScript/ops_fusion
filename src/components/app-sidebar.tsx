@@ -105,6 +105,18 @@ const navGroups: { label: string; items: NavItem[] }[] = [
             href: "/sales-audit/receivables",
             module: "receivables",
           },
+          {
+            title: "Withholding Certificates",
+            href: "/sales-audit/withholding",
+          },
+          {
+            title: "Sales Report",
+            href: "/sales-audit/sales-report",
+          },
+          {
+            title: "Unbilled & Backlog",
+            href: "/sales-audit/pipeline",
+          },
         ],
       },
     ],

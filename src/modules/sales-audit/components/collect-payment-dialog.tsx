@@ -101,6 +101,19 @@ export function CollectPaymentDialog({
   const [replaceOnHand, setReplaceOnHand] = useState(false);
   /** Rows the cashier has typed into — null until they take over. */
   const [manual, setManual] = useState<Record<string, string> | null>(null);
+  /**
+   * Withholding the cashier has overridden — null while the suggestion stands.
+   * Kept apart from `manual` so correcting a tax figure to match the 2307 does
+   * not also freeze the payment amounts, and the reverse.
+   */
+  const [manualEwt, setManualEwt] = useState<Record<string, string> | null>(
+    null
+  );
+  /** Same, for the 5% VAT withheld by government customers (BIR 2306). */
+  const [manualVatWht, setManualVatWht] = useState<Record<
+    string,
+    string
+  > | null>(null);
 
   const reset = () => {
     setLines([newLine()]);
@@ -110,6 +123,8 @@ export function CollectPaymentDialog({
     setReplaceReason("");
     setReplaceOnHand(false);
     setManual(null);
+    setManualEwt(null);
+    setManualVatWht(null);
     onClose();
   };
 
@@ -121,24 +136,79 @@ export function CollectPaymentDialog({
   const pool = received + creditUsed;
 
   const invoices = data?.invoices ?? [];
+  // Two independent withholdings. An ordinary Top Withholding Agent has the
+  // first; a government office, LGU or public school has both.
+  const withholdsEwt = data?.isWithholdingAgent ?? false;
+  const withholdsVat = data?.withholdsVat ?? false;
+  const withholds = withholdsEwt || withholdsVat;
 
   // Auto-apply oldest-first until the cashier overrides a row; from then on
   // their numbers stand. Computed in one pass, never mutated during render.
-  const autoApplied = invoices.reduce<{ per: Record<string, number>; left: number }>(
+  //
+  // Mirrors planAllocations on the server exactly, withholding included: a
+  // withholding-agent customer pays each invoice NET of the tax they keep
+  // back, so the cash an invoice needs is its open balance less that tax —
+  // while the allocation still records the whole balance, which is what
+  // closes it.
+  const autoPlan = invoices.reduce<{
+    per: Record<string, { amount: number; ewt: number; vat: number }>;
+    left: number;
+  }>(
     (acc, inv) => {
-      const take = Math.max(Math.min(acc.left, cent(num(inv.openBalance))), 0);
-      acc.per[inv.id] = take;
-      acc.left -= take;
+      const open = cent(num(inv.openBalance));
+      const ewt = withholdsEwt ? cent(num(inv.suggestedEwt)) : 0;
+      const vat = withholdsVat ? cent(num(inv.suggestedVatWht)) : 0;
+      const cashToClose = open - ewt - vat;
+      if (acc.left > 0 && acc.left >= cashToClose) {
+        acc.per[inv.id] = { amount: open, ewt, vat };
+        acc.left -= cashToClose;
+      } else if (acc.left > 0) {
+        // Not enough to settle this one. A part payment carries no tax — the
+        // customer withholds when they settle the invoice, not on account.
+        acc.per[inv.id] = { amount: acc.left, ewt: 0, vat: 0 };
+        acc.left = 0;
+      } else {
+        acc.per[inv.id] = { amount: 0, ewt: 0, vat: 0 };
+      }
       return acc;
     },
     { per: {}, left: cent(pool) }
   ).per;
 
   const appliedFor = (id: string) =>
-    manual ? cent(num(manual[id] ?? "0")) : (autoApplied[id] ?? 0);
+    manual ? cent(num(manual[id] ?? "0")) : (autoPlan[id]?.amount ?? 0);
+  const ewtFor = (id: string) =>
+    !withholdsEwt
+      ? 0
+      : manualEwt
+        ? cent(num(manualEwt[id] ?? "0"))
+        : (autoPlan[id]?.ewt ?? 0);
+  const vatWhtFor = (id: string) =>
+    !withholdsVat
+      ? 0
+      : manualVatWht
+        ? cent(num(manualVatWht[id] ?? "0"))
+        : (autoPlan[id]?.vat ?? 0);
+  /** Both taxes on one invoice — what actually comes off the cash owed. */
+  const whtFor = (id: string) => ewtFor(id) + vatWhtFor(id);
 
   const applied = invoices.reduce((t, inv) => t + appliedFor(inv.id), 0);
-  const toCredit = cent(pool) - applied;
+  // Tax only counts where money is actually being applied — a row the cashier
+  // has zeroed out must not keep contributing withholding.
+  const ewtTotal = invoices.reduce(
+    (t, inv) => t + (appliedFor(inv.id) > 0 ? ewtFor(inv.id) : 0),
+    0
+  );
+  const vatWhtTotal = invoices.reduce(
+    (t, inv) => t + (appliedFor(inv.id) > 0 ? vatWhtFor(inv.id) : 0),
+    0
+  );
+  const whtTotal = ewtTotal + vatWhtTotal;
+  // What the allocations actually call for in CASH. Withheld tax settles an
+  // invoice without money arriving, so netting it out here is what stops a
+  // withholding payment reading as an overpayment.
+  const cashNeeded = applied - whtTotal;
+  const toCredit = cent(pool) - cashNeeded;
 
   const setRow = (id: string, value: string) =>
     setManual((m) => {
@@ -148,7 +218,33 @@ export function CollectPaymentDialog({
         Object.fromEntries(
           invoices.map((inv) => [
             inv.id,
-            ((autoApplied[inv.id] ?? 0) / 100).toFixed(2),
+            ((autoPlan[inv.id]?.amount ?? 0) / 100).toFixed(2),
+          ])
+        );
+      return { ...seed, [id]: value };
+    });
+
+  const setEwtRow = (id: string, value: string) =>
+    setManualEwt((m) => {
+      const seed =
+        m ??
+        Object.fromEntries(
+          invoices.map((inv) => [
+            inv.id,
+            ((autoPlan[inv.id]?.ewt ?? 0) / 100).toFixed(2),
+          ])
+        );
+      return { ...seed, [id]: value };
+    });
+
+  const setVatWhtRow = (id: string, value: string) =>
+    setManualVatWht((m) => {
+      const seed =
+        m ??
+        Object.fromEntries(
+          invoices.map((inv) => [
+            inv.id,
+            ((autoPlan[inv.id]?.vat ?? 0) / 100).toFixed(2),
           ])
         );
       return { ...seed, [id]: value };
@@ -176,11 +272,18 @@ export function CollectPaymentDialog({
       return "Enter a payment, or apply a credit already on file.";
     if (cent(num(creditToApply)) > cent(creditAvailable))
       return `Only ${peso(creditAvailable)} of credit is on this account.`;
-    if (applied > cent(pool))
-      return `${peso(applied / 100)} allocated but only ${peso(pool)} is available to apply.`;
+    if (cashNeeded > cent(pool))
+      return withholds && whtTotal > 0
+        ? `These invoices need ${peso(cashNeeded / 100)} after ${peso(whtTotal / 100)} withheld, but only ${peso(pool)} is available to apply.`
+        : `${peso(applied / 100)} allocated but only ${peso(pool)} is available to apply.`;
     for (const inv of invoices) {
       if (appliedFor(inv.id) > cent(num(inv.openBalance))) {
         return `${peso(appliedFor(inv.id) / 100)} applied to ${inv.documentNo}, which only has ${peso(num(inv.openBalance))} outstanding.`;
+      }
+      if (ewtFor(inv.id) < 0 || vatWhtFor(inv.id) < 0)
+        return "Tax withheld cannot be negative.";
+      if (appliedFor(inv.id) > 0 && whtFor(inv.id) > appliedFor(inv.id)) {
+        return `${peso(whtFor(inv.id) / 100)} withheld on ${inv.documentNo} is more than the ${peso(appliedFor(inv.id) / 100)} being settled against it.`;
       }
     }
     if (cent(received) === 0 && willPrint)
@@ -214,14 +317,25 @@ export function CollectPaymentDialog({
         creditApplied: creditUsed > 0 ? creditUsed.toFixed(2) : undefined,
         // Only sent once the cashier has taken over — otherwise the server
         // applies oldest-first itself, and the two can never drift apart.
-        allocations: manual
-          ? invoices
-              .filter((inv) => appliedFor(inv.id) > 0)
-              .map((inv) => ({
-                saleId: inv.id,
-                amount: (appliedFor(inv.id) / 100).toFixed(2),
-              }))
-          : undefined,
+        //
+        // Withholding always sends them, though: the tax is per invoice, and
+        // the figure that must reach the server is the one on the 2307 in the
+        // cashier's hand, not a rate re-derived at the other end.
+        allocations:
+          manual || manualEwt || manualVatWht || (withholds && whtTotal > 0)
+            ? invoices
+                .filter((inv) => appliedFor(inv.id) > 0)
+                .map((inv) => ({
+                  saleId: inv.id,
+                  amount: (appliedFor(inv.id) / 100).toFixed(2),
+                  ewtWithheld: withholdsEwt
+                    ? (ewtFor(inv.id) / 100).toFixed(2)
+                    : undefined,
+                  vatWithheld: withholdsVat
+                    ? (vatWhtFor(inv.id) / 100).toFixed(2)
+                    : undefined,
+                }))
+            : undefined,
         issueDocument: willPrint,
         notes: notes.trim() || undefined,
         replaces: replaces
@@ -430,12 +544,15 @@ export function CollectPaymentDialog({
             <div className="grid gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Outstanding invoices</Label>
-                {manual && (
+                {(manual || manualEwt) && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setManual(null)}
+                    onClick={() => {
+                      setManual(null);
+                      setManualEwt(null);
+                    }}
                   >
                     Re-apply oldest first
                   </Button>
@@ -449,6 +566,16 @@ export function CollectPaymentDialog({
                       <th className="px-3 py-2 font-medium">Job order</th>
                       <th className="px-3 py-2 font-medium">Due</th>
                       <th className="px-3 py-2 text-right font-medium">Open</th>
+                      {withholdsEwt && (
+                        <th className="px-3 py-2 text-right font-medium">
+                          EWT · 2307
+                        </th>
+                      )}
+                      {withholdsVat && (
+                        <th className="px-3 py-2 text-right font-medium">
+                          VAT wht · 2306
+                        </th>
+                      )}
                       <th className="px-3 py-2 text-right font-medium">Payment</th>
                     </tr>
                   </thead>
@@ -500,6 +627,41 @@ export function CollectPaymentDialog({
                           <td className="px-3 py-2 text-right font-mono tabular-nums">
                             {peso(num(inv.openBalance))}
                           </td>
+                          {withholdsEwt && (
+                            <td className="px-3 py-2 text-right">
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Income tax withheld on ${inv.documentNo}`}
+                                value={(ewtFor(inv.id) / 100).toFixed(2)}
+                                onChange={(e) =>
+                                  setEwtRow(
+                                    inv.id,
+                                    sanitizeDecimal(e.target.value)
+                                  )
+                                }
+                                className="ml-auto h-8 w-28 text-right font-mono tabular-nums"
+                              />
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                on {peso(num(inv.vatableSales))} net
+                              </span>
+                            </td>
+                          )}
+                          {withholdsVat && (
+                            <td className="px-3 py-2 text-right">
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`VAT withheld on ${inv.documentNo}`}
+                                value={(vatWhtFor(inv.id) / 100).toFixed(2)}
+                                onChange={(e) =>
+                                  setVatWhtRow(
+                                    inv.id,
+                                    sanitizeDecimal(e.target.value)
+                                  )
+                                }
+                                className="ml-auto h-8 w-28 text-right font-mono tabular-nums"
+                              />
+                            </td>
+                          )}
                           <td className="px-3 py-2 text-right">
                             <Input
                               inputMode="decimal"
@@ -510,6 +672,11 @@ export function CollectPaymentDialog({
                               }
                               className="ml-auto h-8 w-32 text-right font-mono tabular-nums"
                             />
+                            {withholds && whtFor(inv.id) > 0 && paying > 0 && (
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                {peso((paying - whtFor(inv.id)) / 100)} in cash
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -525,12 +692,38 @@ export function CollectPaymentDialog({
               {creditUsed > 0 && (
                 <Row label="Credit applied" value={peso(creditUsed)} />
               )}
+              {ewtTotal > 0 && (
+                <Row
+                  label="Income tax withheld (2307)"
+                  value={peso(ewtTotal / 100)}
+                />
+              )}
+              {vatWhtTotal > 0 && (
+                <Row
+                  label="VAT withheld (2306)"
+                  value={peso(vatWhtTotal / 100)}
+                />
+              )}
               <div className="flex items-center justify-between border-t pt-1.5 font-semibold">
                 <span>Applied to invoices</span>
                 <span className="font-mono tabular-nums">
                   {peso(applied / 100)}
                 </span>
               </div>
+              {whtTotal > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {peso(cashNeeded / 100)} of this arrives as money; the
+                  remaining {peso(whtTotal / 100)} is tax {data.customerName}{" "}
+                  remits to BIR on our behalf. Collect{" "}
+                  {ewtTotal > 0 && vatWhtTotal > 0
+                    ? "both Form 2307 and Form 2306"
+                    : ewtTotal > 0
+                      ? "the Form 2307"
+                      : "the Form 2306"}{" "}
+                  — {ewtTotal > 0 && vatWhtTotal > 0 ? "they are" : "it is"}{" "}
+                  creditable against what we owe.
+                </span>
+              )}
               {toCredit > 0 && (
                 <div className="grid gap-0.5 border-t pt-1.5">
                   <div className="flex items-center justify-between font-semibold text-emerald-700 dark:text-emerald-300">

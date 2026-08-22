@@ -22,6 +22,14 @@ export type CustomerBillingRecord = {
   vatRegistered: boolean;
   creditTermDays: number | null;
   creditLimit: string | null;
+  /** True → withholds creditable INCOME tax and issues a BIR 2307. */
+  isWithholdingAgent: boolean;
+  /** Rate on the VAT-EXCLUSIVE amount, e.g. "2.00". Null = no default set. */
+  ewtRatePct: string | null;
+  /** True → withholds 5% creditable VAT and issues a BIR 2306. Government. */
+  withholdsVat: boolean;
+  /** Usually "5.00". Null = flagged but nothing pre-filled. */
+  vatWithholdingRatePct: string | null;
 };
 
 export interface ICustomerRepository {
@@ -48,6 +56,22 @@ export interface ICustomerRepository {
   setCredit(
     id: string,
     data: { creditTermDays: number | null; creditLimit: string | null }
+  ): Promise<{ id: string; name: string }>;
+  /**
+   * Withholding standing — BOTH taxes. Admin-gated like setCredit above (R8):
+   * the rates a customer withholds at are reference data, not a counter
+   * decision. Clearing either flag clears its rate too, so a customer who
+   * stops withholding cannot leave a stale rate behind to be silently
+   * reapplied the moment someone re-ticks the box.
+   */
+  setWithholding(
+    id: string,
+    data: {
+      isWithholdingAgent: boolean;
+      ewtRatePct: string | null;
+      withholdsVat: boolean;
+      vatWithholdingRatePct: string | null;
+    }
   ): Promise<{ id: string; name: string }>;
 }
 
@@ -86,9 +110,18 @@ export class PrismaCustomerRepository implements ICustomerRepository {
       select: {
         id: true, name: true, address: true, tin: true,
         vatRegistered: true, creditTermDays: true, creditLimit: true,
+        isWithholdingAgent: true, ewtRatePct: true,
+        withholdsVat: true, vatWithholdingRatePct: true,
       },
     });
-    return c && { ...c, creditLimit: c.creditLimit?.toString() ?? null };
+    return (
+      c && {
+        ...c,
+        creditLimit: c.creditLimit?.toString() ?? null,
+        ewtRatePct: c.ewtRatePct?.toString() ?? null,
+        vatWithholdingRatePct: c.vatWithholdingRatePct?.toString() ?? null,
+      }
+    );
   }
 
   async fillContactDetails(
@@ -167,6 +200,32 @@ export class PrismaCustomerRepository implements ICustomerRepository {
       data: {
         creditTermDays: data.creditTermDays,
         creditLimit: data.creditLimit,
+      },
+      select: { id: true, name: true },
+    });
+  }
+
+  async setWithholding(
+    id: string,
+    data: {
+      isWithholdingAgent: boolean;
+      ewtRatePct: string | null;
+      withholdsVat: boolean;
+      vatWithholdingRatePct: string | null;
+    }
+  ): Promise<{ id: string; name: string }> {
+    return prisma.customer.update({
+      where: { id },
+      data: {
+        // Clearing a flag clears its rate with it. A dormant rate left on a
+        // customer who no longer withholds would start suggesting tax again
+        // the moment someone re-ticked the box.
+        isWithholdingAgent: data.isWithholdingAgent,
+        ewtRatePct: data.isWithholdingAgent ? data.ewtRatePct : null,
+        withholdsVat: data.withholdsVat,
+        vatWithholdingRatePct: data.withholdsVat
+          ? data.vatWithholdingRatePct
+          : null,
       },
       select: { id: true, name: true },
     });

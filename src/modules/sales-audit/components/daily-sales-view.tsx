@@ -88,9 +88,16 @@ export function DailySalesView({ canAudit }: { canAudit: boolean }) {
           }
           count={s?.charge.count}
         />
+        {/* Every slip books what was handed over. The downpayment count is a
+            label on the day's log, not a different kind of money. */}
         <SummaryCard
           label="JO receipts"
           value={s ? peso(s.joReceipts.gross) : "—"}
+          detail={
+            s && s.joDownpayments.count > 0
+              ? `${s.joDownpayments.count} of them a downpayment`
+              : undefined
+          }
           count={s?.joReceipts.count}
         />
         <SummaryCard
@@ -129,6 +136,14 @@ export function DailySalesView({ canAudit }: { canAudit: boolean }) {
                 Gross sales{" "}
                 <strong className="tabular-nums text-foreground">
                   {peso(s.grossSales)}
+                </strong>
+              </span>
+              {/* Two different questions: what the books earned, and what the
+                  drawer took. Deposits and collections separate them. */}
+              <span className="text-muted-foreground">
+                Cash in{" "}
+                <strong className="tabular-nums text-foreground">
+                  {peso(s.cashIn)}
                 </strong>
               </span>
               {s.pendingAudit > 0 && (

@@ -64,6 +64,21 @@ model Sale {
   vatableSales Decimal @default(0) @db.Decimal(12, 2) // net of VAT
   vatAmount    Decimal @default(0) @db.Decimal(12, 2) // 0 for NON_VAT / JO_SLIP
 
+  // JO_SLIP only. A Job Order receipt is TWO different documents wearing one
+  // name, and which one it is decides whether it books revenue:
+  //
+  //   false — the customer paid and walked out. No invoice will follow, so
+  //           this slip IS the sale document and its money IS revenue.
+  //   true  — a downpayment on work not finished. Money held against a job
+  //           that has not been billed: a customer deposit (account 2121),
+  //           no revenue, and more slips may follow on the same job.
+  //
+  // Nothing can infer this after the fact — a ₱5,000 slip on a ₱20,000 job
+  // looks identical whether the customer is coming back or not. So the
+  // cashier tags it at the counter, which is also the only moment anyone
+  // knows. Defaults to false: the legacy JO receipt was the walk-in sale.
+  isDownpayment Boolean @default(false)
+
   // — the counter —
   amountPaid    Decimal        @default(0) @db.Decimal(12, 2) // applied to this document
   cashTendered  Decimal?       @db.Decimal(12, 2) // what the customer handed over

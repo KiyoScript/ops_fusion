@@ -66,6 +66,36 @@ model Customer {
   /// Ceiling on this customer's total open A/R. Null = no ceiling.
   creditLimit    Decimal? @db.Decimal(12, 2)
 
+  // — tax withheld at source (withholding.prisma) —
+  //
+  // TWO independent withholdings, because a customer may do either, both, or
+  // neither. Both rates apply to the VAT-EXCLUSIVE amount.
+  //
+  //   isWithholdingAgent — withholds creditable INCOME tax (1% goods / 2%
+  //     services), issues BIR Form 2307. Only BIR-designated Top Withholding
+  //     Agents do this, not every company.
+  //   withholdsVat — withholds 5% creditable VALUE-ADDED tax, issues BIR Form
+  //     2306. Government agencies, LGUs, public schools and GOCCs. Creditable
+  //     rather than final since 1 Jan 2021 (RMC 36-2021).
+  //
+  // A government customer has BOTH set: on a ₱112,000 job they keep ₱2,000 and
+  // ₱5,000 and pay ₱105,000. Off on both for everyone else, and the counter
+  // never shows a withholding field for them.
+  //
+  // Reference data an admin sets, like the credit fields above — see R8 in
+  // docs/sales-contract.md. The cashier taking the money does not get to
+  // decide what rate a customer withholds at.
+  /// True → the collect screen offers an income-tax withholding line.
+  isWithholdingAgent    Boolean  @default(false)
+  /// e.g. 2.00 for 2%. Null = flagged, but nothing pre-filled — the cashier
+  /// types what the 2307 in their hand actually says.
+  ewtRatePct            Decimal? @db.Decimal(5, 2)
+  /// True → the collect screen offers a VAT withholding line. Government.
+  withholdsVat          Boolean  @default(false)
+  /// Statutory 5.00 today, stored rather than hardcoded so a rate change is a
+  /// maintenance edit and never rewrites what past collections withheld.
+  vatWithholdingRatePct Decimal? @db.Decimal(5, 2)
+
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -81,6 +111,7 @@ model Customer {
   advancePayments    AdvancePayment[]
   deliveryReceipts   DeliveryReceipt[]
   attachments        CustomerAttachment[]
+  whtCertificates    WithholdingCertificate[]
 
   @@index([name])
   @@index([customerType])
