@@ -164,6 +164,7 @@ function buildRules(input: ProductSaveInput): RuleCreateData[] {
     minCharge: rule.minCharge ? parseFloat(rule.minCharge).toFixed(2) : null,
     amount: rule.amount ? parseFloat(rule.amount).toFixed(2) : null,
     pct: rule.pct ? parseFloat(rule.pct).toFixed(2) : null,
+    scope: rule.scope ?? "PER_LINE_ITEM",
     notes: rule.notes || null,
     sortOrder: index,
   }));

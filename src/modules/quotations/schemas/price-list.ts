@@ -24,6 +24,11 @@ export const priceListRuleInput = z
     minCharge: moneyString,
     amount: moneyString,
     pct: moneyString,
+    // ADDON only: does this product fee attach to each line item, the whole
+    // JO, or BOTH (offered in each place). Ignored for VARIANT. Optional (not
+    // .default()) to keep the react-hook-form resolver types aligned; the
+    // service defaults a missing value to PER_LINE_ITEM.
+    scope: z.enum(["PER_LINE_ITEM", "WHOLE_JO", "BOTH"]).optional(),
     notes: z.string().trim().max(500).optional(),
   })
   .check((ctx) => {

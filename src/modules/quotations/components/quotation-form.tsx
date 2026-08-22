@@ -142,10 +142,35 @@ export function QuotationForm({
   // Picking a catalog product prefills price/description without clobbering
   // anything the user already typed.
   const onProductChange = (index: number, productId: string) => {
+    const current = form.getValues(`items.${index}`);
+    // Was the description auto-filled from the PREVIOUS product? Then it's safe
+    // to replace it on a product change; a hand-typed description is kept.
+    const prevProduct = current.productId
+      ? productById.get(current.productId)
+      : undefined;
+    const prevVariant = (current.specs as { variant?: string } | undefined)
+      ?.variant;
+    const prevDerived = prevProduct
+      ? prevVariant
+        ? `${prevProduct.name} — ${prevVariant}`
+        : prevProduct.name
+      : null;
+    const descIsAuto =
+      !current.description ||
+      current.description === prevProduct?.name ||
+      current.description === prevDerived;
+    const setDesc = (text: string) => {
+      if (descIsAuto) {
+        form.setValue(`items.${index}.description`, text, { shouldValidate: true });
+      }
+    };
+
     form.setValue(`items.${index}.productId`, productId);
     const product = productById.get(productId);
     if (!product) return;
-    const current = form.getValues(`items.${index}`);
+    // The old product's variant / add-on picks no longer apply — start fresh.
+    form.setValue(`items.${index}.specs`, {});
+
     // Newspaper is priced from the Newspaper Pricing list (the picker), never
     // from a master base price.
     const isNewspaper = product.name === "Newspaper";
@@ -166,23 +191,19 @@ export function QuotationForm({
       const qty = parseInt(current.qty || "1", 10) || 1;
       const tier = resolveTierPrice(product.rules, label, qty);
       if (tier) {
-        form.setValue(`items.${index}.specs`, {
-          ...(current.specs ?? {}),
-          variant: label,
-        });
+        form.setValue(`items.${index}.specs`, { variant: label });
         applyFees(index, parseFloat(tier.price) || 0, []);
-        if (!current.description) {
-          form.setValue(`items.${index}.description`, product.name);
-        }
+        setDesc(product.name);
         return;
       }
     }
-    if (!isNewspaper && !current.unitPrice && parseFloat(product.basePrice) > 0) {
-      form.setValue(`items.${index}.unitPrice`, product.basePrice);
+    // Reset the unit price to the new product's base (calculators set their own).
+    if (!isNewspaper && !isTarp && !isArea && parseFloat(product.basePrice) > 0) {
+      form.setValue(`items.${index}.unitPrice`, product.basePrice, {
+        shouldValidate: true,
+      });
     }
-    if (!current.description) {
-      form.setValue(`items.${index}.description`, product.name);
-    }
+    setDesc(product.name);
   };
 
   // Variant pick: price from the qty tier, variant recorded in specs, and
@@ -296,9 +317,26 @@ export function QuotationForm({
   // Whole-JO add-ons (delivery fee…): ONE fee line for the whole quotation,
   // toggled below the line items — never repeated per line item. A BOTH-scope
   // add-on is offered here AND on each line item; the user picks where it lands.
-  const wholeJoAddons = (globalAddons.data ?? []).filter(
-    (a) => a.type === "ADDON" && (a.scope === "WHOLE_JO" || a.scope === "BOTH")
-  );
+  // Sources: global add-ons AND any whole-JO/BOTH add-on defined on a product
+  // that's on a line item (deduped by label; global wins).
+  const wholeJoAddons = (() => {
+    const seen = new Set<string>();
+    const out: ProductRuleDto[] = [];
+    const add = (a: ProductRuleDto) => {
+      if (a.type !== "ADDON") return;
+      if (a.scope !== "WHOLE_JO" && a.scope !== "BOTH") return;
+      const key = a.label.trim().toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(a);
+    };
+    for (const a of globalAddons.data ?? []) add(a);
+    for (const it of watched.items ?? []) {
+      const p = it?.productId ? productById.get(it.productId) : undefined;
+      if (p) for (const r of p.rules) add(r);
+    }
+    return out;
+  })();
   const wholeJoChecked = (label: string) =>
     (watched.items ?? []).some(
       (it) =>
@@ -801,6 +839,13 @@ export function QuotationForm({
                 !isNewspaper &&
                 !!product &&
                 AREA_UNITS.has(product.unit.toLowerCase());
+              // The unit price is computed (not hand-typed) when a variant is
+              // selected or a calculator prices the line — lock the field so it
+              // can only change via the qty/variant/calculator.
+              const hasVariant = !!(
+                watchedItem?.specs as { variant?: string } | undefined
+              )?.variant;
+              const priceLocked = hasVariant || isTarp || isArea || isNewspaper;
               return (
               <div key={field.id} className="grid gap-3 rounded-lg border p-3">
                 <div className="grid gap-1 sm:max-w-96">
@@ -851,6 +896,15 @@ export function QuotationForm({
                     id={`item-price-${index}`}
                     inputMode="decimal"
                     placeholder="0.00"
+                    readOnly={priceLocked}
+                    className={
+                      priceLocked ? "bg-muted/50 text-muted-foreground" : undefined
+                    }
+                    title={
+                      priceLocked
+                        ? "Priced automatically — change the qty or variant to adjust."
+                        : undefined
+                    }
                     aria-invalid={!!errors.items?.[index]?.unitPrice}
                     {...form.register(`items.${index}.unitPrice`)}
                   />

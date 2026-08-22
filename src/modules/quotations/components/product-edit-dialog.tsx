@@ -5,7 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +44,7 @@ const EMPTY_RULE: ProductSaveInput["rules"][number] = {
   minCharge: "",
   amount: "",
   pct: "",
+  scope: "PER_LINE_ITEM",
   notes: "",
 };
 
@@ -73,6 +75,7 @@ export function ProductEditDialog({ product }: { product?: ProductOptionDto }) {
             minCharge: rule.minCharge ?? "",
             amount: rule.amount ?? "",
             pct: rule.pct ?? "",
+            scope: rule.scope,
             notes: rule.notes ?? "",
           })),
         }
@@ -242,6 +245,7 @@ export function ProductEditDialog({ product }: { product?: ProductOptionDto }) {
                       </Select>
                     )}
                   />
+                  <div className="grid gap-2">
                   <div className="grid gap-2 sm:grid-cols-[1fr_6rem_5rem_6rem]">
                     <Input
                       placeholder="Label (e.g. White Mug, Rush fee)"
@@ -286,6 +290,19 @@ export function ProductEditDialog({ product }: { product?: ProductOptionDto }) {
                         />
                       </>
                     )}
+                  </div>
+                  {type === "ADDON" && (
+                    <Controller
+                      control={form.control}
+                      name={`rules.${index}.scope`}
+                      render={({ field: sf }) => (
+                        <ScopeChecks
+                          value={sf.value ?? "PER_LINE_ITEM"}
+                          onChange={sf.onChange}
+                        />
+                      )}
+                    />
+                  )}
                   </div>
                   <Button
                     type="button"
@@ -334,5 +351,59 @@ export function ProductEditDialog({ product }: { product?: ProductOptionDto }) {
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+type Scope = "PER_LINE_ITEM" | "WHOLE_JO" | "BOTH";
+
+/** "Applies to" for a product add-on — two checkboxes mapping to the single
+ *  scope value (per line / whole JO / both). At least one stays checked. */
+function ScopeChecks({
+  value,
+  onChange,
+}: {
+  value: Scope;
+  onChange: (v: Scope) => void;
+}) {
+  const perLine = value !== "WHOLE_JO";
+  const wholeJo = value !== "PER_LINE_ITEM";
+  const set = (pl: boolean, wj: boolean) => {
+    if (!pl && !wj) return;
+    onChange(pl && wj ? "BOTH" : pl ? "PER_LINE_ITEM" : "WHOLE_JO");
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Applies to">
+      <span className="text-xs text-muted-foreground">Applies to:</span>
+      {(
+        [
+          ["Per line", perLine, (on: boolean) => set(on, wholeJo)],
+          ["Whole JO", wholeJo, (on: boolean) => set(perLine, on)],
+        ] as const
+      ).map(([label, on, toggle]) => (
+        <button
+          key={label}
+          type="button"
+          role="checkbox"
+          aria-checked={on}
+          onClick={() => toggle(!on)}
+          className={cn(
+            "flex items-center gap-1.5 rounded border px-1.5 py-1 text-xs transition-colors",
+            on ? "border-primary bg-primary/5" : "border-input hover:bg-accent/40"
+          )}
+        >
+          <span
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center rounded border",
+              on
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-muted-foreground/40"
+            )}
+          >
+            {on && <CheckIcon className="size-2.5" />}
+          </span>
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
