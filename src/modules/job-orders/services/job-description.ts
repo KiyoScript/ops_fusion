@@ -75,8 +75,20 @@ export function composeJobDescription(input: ComposeInput): string {
     if (rate && sqftPerPc) {
       pricing.push(`${peso(rate)}/sqft × ${trimNum(round2(sqftPerPc * input.qty))} sqft`);
     }
-    if (specs.rush) pricing.push(`Rush ${peso(asNum(specs.rushFee) ?? 0)}`);
-    if (specs.design) pricing.push(`Design ${peso(asNum(specs.designFee) ?? 0)}`);
+    // Current shape: specs.addons = [{ label, fee }]. Legacy: rush/design.
+    const addons = Array.isArray(specs.addons)
+      ? (specs.addons as { label?: unknown; fee?: unknown }[])
+      : [];
+    if (addons.length > 0) {
+      for (const a of addons) {
+        const label = asStr(a?.label);
+        const fee = asNum(a?.fee);
+        if (label) pricing.push(`${label}${fee != null ? ` ${peso(fee)}` : ""}`);
+      }
+    } else {
+      if (specs.rush) pricing.push(`Rush ${peso(asNum(specs.rushFee) ?? 0)}`);
+      if (specs.design) pricing.push(`Design ${peso(asNum(specs.designFee) ?? 0)}`);
+    }
   } else if (calc === "generic") {
     const variant = asStr(specs.variant);
     if (variant) attributes.push(variant);

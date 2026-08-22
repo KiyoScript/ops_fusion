@@ -77,29 +77,44 @@ export function VariantPicker({
                 if (tier) onPick(label, tier.price);
               }}
               className={cn(
-                "flex items-center justify-between gap-3 rounded-lg border bg-background p-3 text-left transition-colors",
+                "grid gap-1.5 rounded-lg border bg-background p-3 text-left transition-colors",
                 selected
                   ? "border-primary ring-1 ring-primary"
                   : "hover:bg-accent/40"
               )}
             >
-              <span className="grid gap-0.5">
-                <span className="text-sm font-semibold">{label}</span>
-                {tiers.length > 1 && (
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {tiers
-                      .map(
-                        (t) =>
-                          `₱${t.unitPrice}${t.minQty > 1 ? ` @${t.minQty}+` : ""}`
-                      )
-                      .join(" · ")}
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-sm font-semibold wrap-break-word">
+                  {label}
+                </span>
+                {tier && (
+                  <span className="shrink-0 text-base font-bold tabular-nums text-primary">
+                    ₱{tier.price}
                   </span>
                 )}
-              </span>
-              {tier && (
-                <span className="shrink-0 text-sm font-bold tabular-nums text-primary">
-                  ₱{tier.price}
-                </span>
+              </div>
+              {tiers.length > 1 && (
+                // Qty tiers as an aligned mini-grid (qty → price); the tier that
+                // matches the current qty is highlighted so it reads at a glance.
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-x-3 gap-y-0.5 border-t border-border/60 pt-1.5 text-xs tabular-nums">
+                  {tiers.map((t) => {
+                    const active = tier != null && t.minQty === tier.minQty;
+                    return (
+                      <span
+                        key={t.minQty}
+                        className={cn(
+                          "flex items-baseline justify-between gap-1",
+                          active
+                            ? "font-semibold text-primary"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        <span>{t.minQty > 1 ? `${t.minQty}+` : "1+"}</span>
+                        <span>₱{t.unitPrice}</span>
+                      </span>
+                    );
+                  })}
+                </div>
               )}
             </button>
           );

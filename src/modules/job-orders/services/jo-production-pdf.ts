@@ -114,8 +114,21 @@ function decodeItem(item: JobOrderItemDto, index: number): PrintRow {
         : lineTotal;
     const chargeAmt = round2(lineTotal - base);
     const chargeParts: string[] = [];
-    if (specs.rush) chargeParts.push(`Rush ${money(num(specs.rushFee) ?? 0)}`);
-    if (specs.design) chargeParts.push(`Design ${money(num(specs.designFee) ?? 0)}`);
+    // Current shape: specs.addons = [{ label, fee }]. Legacy tarp lines used
+    // rush/design booleans — fall back to those.
+    const addons = Array.isArray(specs.addons)
+      ? (specs.addons as { label?: unknown; fee?: unknown }[])
+      : [];
+    if (addons.length > 0) {
+      for (const a of addons) {
+        const label = typeof a?.label === "string" ? a.label : null;
+        const fee = num(a?.fee);
+        if (label) chargeParts.push(`${label}${fee != null ? ` ${money(fee)}` : ""}`);
+      }
+    } else {
+      if (specs.rush) chargeParts.push(`Rush ${money(num(specs.rushFee) ?? 0)}`);
+      if (specs.design) chargeParts.push(`Design ${money(num(specs.designFee) ?? 0)}`);
+    }
     const bits = [
       w != null && h != null ? `${trimNum(w)} x ${trimNum(h)}${unit ? " " + unit : ""}` : null,
       eyelet && eyelet.toLowerCase() !== "no eyelet" ? eyelet.toLowerCase() : null,

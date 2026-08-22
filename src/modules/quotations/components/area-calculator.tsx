@@ -71,7 +71,8 @@ export function AreaCalculator({
     rules
       .filter((r) => r.type === "VARIANT" && r.label === label && r.unitPrice)
       .sort((a, b) => a.minQty - b.minQty)[0] ?? null;
-  const fees = rules.filter((r) => r.type === "ADDON");
+  // Per-line add-ons only; whole-JO ones live in the quotation-wide section.
+  const fees = rules.filter((r) => r.type === "ADDON" && r.scope !== "WHOLE_JO");
 
   const saved = (initialSpecs ?? {}) as Partial<AreaSpecs>;
   const [variant, setVariant] = useState<string | null>(

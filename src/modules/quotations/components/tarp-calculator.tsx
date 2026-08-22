@@ -5,13 +5,14 @@ import { CheckIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import type { ProductRuleDto } from "@/modules/shared/hooks/use-products";
 
 // Tarpaulin calculator — the pilot port of the legacy Tarpauline.html wizard:
 // W × H with unit conversion, rate per sqft, eyelets (spec only — no price
-// effect, per legacy calcTarpTotal), rush and design fees. Shares the design
-// language of the area calculator (unit pills, fee cards) so the two read as
-// one system. Auto-applies live: the composed description, computed unit price,
-// and structured specs are written into the line item on every change.
+// effect, per legacy calcTarpTotal), and the PRODUCT's own per-line add-on
+// fees (whatever the Tarpaulin product / global add-ons define — Art Work,
+// Rush, etc.). Auto-applies live: the composed description, computed unit
+// price, and structured specs are written into the line item on every change.
 
 const UNITS = [
   { value: "ft", label: "Feet", toFt: 1 },
@@ -22,12 +23,9 @@ const UNITS = [
 
 const EYELETS = ["With Eyelets", "No Eyelet"] as const;
 
-// Fallbacks when the Tarpaulin product has no price rules (legacy Banner
-// tab defaults) — normally the seeded PriceRules override these.
-const RUSH_FEE = 150;
-const DESIGN_FEE = 250;
-
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+export type TarpAddon = { label: string; fee: number };
 
 export type TarpSpecs = {
   calculator: "tarpaulin";
@@ -37,10 +35,8 @@ export type TarpSpecs = {
   sqftPerPc: number;
   ratePerSqft: number;
   eyelet: string;
-  rush: boolean;
-  rushFee: number;
-  design: boolean;
-  designFee: number;
+  /** Chosen per-line add-ons (label + the money each added). */
+  addons: TarpAddon[];
 };
 
 export function TarpCalculator({
@@ -54,13 +50,8 @@ export function TarpCalculator({
   qty: number;
   /** Rate per sqft prefill (the Tarpaulin product's base price). */
   defaultRate: number;
-  /** Tarpaulin PriceRules: VARIANT rate + rush/design ADDON amounts. */
-  rules?: {
-    type: "VARIANT" | "ADDON";
-    label: string;
-    unitPrice: string | null;
-    amount: string | null;
-  }[];
+  /** Tarpaulin price rules (VARIANT rate + the product's / global ADDON fees). */
+  rules?: ProductRuleDto[];
   /** Round-trips a previously applied calculation when editing. */
   initialSpecs?: Record<string, unknown> | null;
   onApply: (result: {
@@ -70,21 +61,31 @@ export function TarpCalculator({
   }) => void;
 }) {
   const ruleRate = rules?.find((r) => r.type === "VARIANT" && r.unitPrice);
-  const ruleAddon = (pattern: RegExp) =>
-    rules?.find((r) => r.type === "ADDON" && pattern.test(r.label) && r.amount);
-  const rushFee = parseFloat(ruleAddon(/rush/i)?.amount ?? "") || RUSH_FEE;
-  const designFee = parseFloat(ruleAddon(/design/i)?.amount ?? "") || DESIGN_FEE;
   const baseRate =
     parseFloat(ruleRate?.unitPrice ?? "") || (defaultRate > 0 ? defaultRate : 50);
+  // The per-line add-on fees offered for this product (whole-JO ones live in the
+  // quotation-wide "Quotation add-ons" section, not here).
+  const addonRules = (rules ?? []).filter(
+    (r) => r.type === "ADDON" && r.scope !== "WHOLE_JO" && (r.amount || r.pct)
+  );
 
-  const saved = (initialSpecs ?? {}) as Partial<TarpSpecs>;
+  const saved = (initialSpecs ?? {}) as Partial<TarpSpecs> & {
+    rush?: boolean;
+    design?: boolean;
+  };
   const [width, setWidth] = useState(saved.width ? String(saved.width) : "");
   const [height, setHeight] = useState(saved.height ? String(saved.height) : "");
   const [unit, setUnit] = useState(saved.unit ?? "ft");
   const [rate, setRate] = useState(String(saved.ratePerSqft ?? baseRate));
   const [eyelet, setEyelet] = useState<string>(saved.eyelet ?? "With Eyelets");
-  const [rush, setRush] = useState(saved.rush ?? false);
-  const [design, setDesign] = useState(saved.design ?? false);
+  // Checked add-on labels; migrate legacy rush/design specs from older lines.
+  const [checked, setChecked] = useState<string[]>(() => {
+    if (Array.isArray(saved.addons)) return saved.addons.map((a) => a.label);
+    const legacy: string[] = [];
+    if (saved.rush) legacy.push("Rush");
+    if (saved.design) legacy.push("Design fee");
+    return legacy;
+  });
 
   const toFt = UNITS.find((u) => u.value === unit)?.toFt ?? 1;
   const w = parseFloat(width) || 0;
@@ -92,9 +93,16 @@ export function TarpCalculator({
   const r = parseFloat(rate) || 0;
   const safeQty = qty > 0 ? qty : 1;
   const sqftPerPc = round2(w * toFt * (h * toFt));
-  const lineTotal = round2(
-    sqftPerPc * safeQty * r + (rush ? rushFee : 0) + (design ? designFee : 0)
-  );
+  const base = round2(sqftPerPc * safeQty * r);
+  const feeOf = (rule: ProductRuleDto): number =>
+    rule.pct
+      ? round2(base * (parseFloat(rule.pct) / 100))
+      : parseFloat(rule.amount ?? "") || 0;
+  const chosenAddons: TarpAddon[] = addonRules
+    .filter((a) => checked.includes(a.label))
+    .map((a) => ({ label: a.label, fee: feeOf(a) }));
+  const addonsTotal = chosenAddons.reduce((s, a) => s + a.fee, 0);
+  const lineTotal = round2(base + addonsTotal);
   const unitPrice = round2(lineTotal / safeQty);
   const ready = sqftPerPc > 0 && r > 0;
 
@@ -106,17 +114,13 @@ export function TarpCalculator({
     sqftPerPc,
     ratePerSqft: r,
     eyelet,
-    rush,
-    rushFee: rush ? rushFee : 0,
-    design,
-    designFee: design ? designFee : 0,
+    addons: chosenAddons,
   };
   const parts = [
     `Tarpaulin ${w} × ${h} ${unit} (${sqftPerPc.toFixed(2)} sqft/pc)`,
     eyelet === "With Eyelets" ? "With eyelets" : "No eyelets",
   ];
-  if (rush) parts.push("Rush");
-  if (design) parts.push("With design");
+  for (const a of chosenAddons) parts.push(a.label);
   const result = {
     description: parts.join(" · "),
     unitPrice: unitPrice.toFixed(2),
@@ -140,12 +144,12 @@ export function TarpCalculator({
     if (ready) onApplyRef.current(result);
     // `result` is derived from these values; re-run only when they change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [w, h, r, unit, eyelet, rush, design, safeQty, ready]);
+  }, [w, h, r, unit, eyelet, checked.join("|"), safeQty, ready]);
 
-  const fees = [
-    { key: "rush", label: "Rush", fee: rushFee, on: rush, toggle: () => setRush((v) => !v) },
-    { key: "design", label: "Design fee", fee: designFee, on: design, toggle: () => setDesign((v) => !v) },
-  ];
+  const toggle = (label: string) =>
+    setChecked((c) =>
+      c.includes(label) ? c.filter((x) => x !== label) : [...c, label]
+    );
 
   return (
     <div className="grid gap-3 rounded-lg bg-muted/50 p-3">
@@ -227,45 +231,51 @@ export function TarpCalculator({
         </div>
       </div>
 
-      <div className="grid gap-1.5">
-        <Label className="text-xs">Add-ons / fees (optional)</Label>
-        <div
-          role="group"
-          aria-label="Add-on fees"
-          className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
-        >
-          {fees.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              role="checkbox"
-              aria-checked={f.on}
-              onClick={f.toggle}
-              className={cn(
-                "flex items-center justify-between gap-2 rounded-lg border bg-background p-3 text-left text-sm transition-colors",
-                f.on ? "border-primary ring-1 ring-primary" : "hover:bg-accent/40"
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <span
+      {addonRules.length > 0 && (
+        <div className="grid gap-1.5">
+          <Label className="text-xs">Add-ons / fees (optional)</Label>
+          <div
+            role="group"
+            aria-label="Add-on fees"
+            className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
+          >
+            {addonRules.map((a) => {
+              const on = checked.includes(a.label);
+              const fee = feeOf(a);
+              return (
+                <button
+                  key={a.label}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  onClick={() => toggle(a.label)}
                   className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded border",
-                    f.on
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-muted-foreground/40"
+                    "flex items-center justify-between gap-2 rounded-lg border bg-background p-3 text-left text-sm transition-colors",
+                    on ? "border-primary ring-1 ring-primary" : "hover:bg-accent/40"
                   )}
                 >
-                  {f.on && <CheckIcon className="size-3" />}
-                </span>
-                <span className="font-medium">{f.label}</span>
-              </span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">
-                +₱{f.fee}
-              </span>
-            </button>
-          ))}
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded border",
+                        on
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-muted-foreground/40"
+                      )}
+                    >
+                      {on && <CheckIcon className="size-3" />}
+                    </span>
+                    <span className="font-medium">{a.label}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {a.pct ? `+${a.pct}%` : `+₱${fee}`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {ready && (
         <div className="flex items-center justify-between rounded-md bg-primary/5 px-4 py-2 text-sm">
