@@ -66,7 +66,7 @@ export const globalAddonInput = z
     label: z.string().trim().min(1, "Label is required").max(200),
     amount: moneyString,
     pct: moneyString,
-    scope: z.enum(["PER_LINE_ITEM", "WHOLE_JO"]).default("PER_LINE_ITEM"),
+    scope: z.enum(["PER_LINE_ITEM", "WHOLE_JO", "BOTH"]).default("PER_LINE_ITEM"),
     notes: z.string().trim().max(500).optional(),
   })
   .check((ctx) => {

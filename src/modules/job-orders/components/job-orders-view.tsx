@@ -39,6 +39,7 @@ import { BoardMetrics } from "./board-metrics";
 import { ImportDialog } from "./import-dialog";
 import { ItemEditDialog } from "./item-edit-dialog";
 import { JoEditDialog } from "./jo-edit-dialog";
+import { ReorderDialog } from "./reorder-dialog";
 import { ItemStatusBadge } from "./status-badge";
 
 const VIEWS = [
@@ -49,6 +50,7 @@ const VIEWS = [
   { value: "custApproval", label: "Customers Approval" },
   { value: "smAlarming", label: "S&M Alarming" },
   { value: "smOverdue", label: "S&M Overdue" },
+  { value: "review", label: "For review" },
   { value: "done", label: "Archived (done)" },
   { value: "all", label: "All" },
 ] as const;
@@ -60,11 +62,13 @@ export function JobOrdersView({
   canImport,
   canReceivePayment = false,
   canVoidReceipt = false,
+  canReview = false,
 }: {
   canWrite: boolean;
   canImport: boolean;
   canReceivePayment?: boolean;
   canVoidReceipt?: boolean;
+  canReview?: boolean;
 }) {
   // Filters live in the URL so views are shareable and back-button friendly.
   const [q, setQ] = useQueryState("q", { defaultValue: "" });
@@ -117,6 +121,7 @@ export function JobOrdersView({
         </Select>
         <div className="ml-auto flex items-center gap-2">
           {canImport && <ImportDialog />}
+          {canWrite && <ReorderDialog />}
           {canWrite && (
             <Button nativeButton={false} render={<Link href="/job-orders/new" />}>
               <PlusIcon /> New Non-JO
@@ -304,6 +309,8 @@ export function JobOrdersView({
         jobOrderId={editingJoId}
         canDelete={canImport}
         canReceivePayment={canReceivePayment}
+        canReview={canReview}
+        canResubmit={canWrite}
         onClose={() => setEditingJoId(null)}
       />
       <ReceivePaymentDialog

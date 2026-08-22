@@ -30,6 +30,7 @@ import { computeTotals } from "../services/totals";
 import { useInvalidateQuotations } from "../hooks/use-quotations";
 import { useInvalidateInquiries } from "../hooks/use-inquiries";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
+import { CustomerCreateDialog } from "@/modules/customers/components/customer-create-dialog";
 import { ContactField, isValidPhContact } from "@/components/validated-fields";
 import {
   mergeGlobalAddons,
@@ -111,6 +112,9 @@ export function QuotationForm({
   const [medium, setMedium] = useState<string>(initialMedium ?? "WALK_IN");
   const [loggingInquiry, setLoggingInquiry] = useState(false);
   const [savingInquiry, setSavingInquiry] = useState(false);
+  // Inline "create customer" from the customer picker (when not found).
+  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
+  const [createCustomerName, setCreateCustomerName] = useState("");
   const form = useForm<QuotationCreateInput>({
     resolver: zodResolver(quotationCreateInput),
     defaultValues: {
@@ -250,9 +254,10 @@ export function QuotationForm({
   };
 
   // Whole-JO add-ons (delivery fee…): ONE fee line for the whole quotation,
-  // toggled below the line items — never repeated per line item.
+  // toggled below the line items — never repeated per line item. A BOTH-scope
+  // add-on is offered here AND on each line item; the user picks where it lands.
   const wholeJoAddons = (globalAddons.data ?? []).filter(
-    (a) => a.type === "ADDON" && a.scope === "WHOLE_JO"
+    (a) => a.type === "ADDON" && (a.scope === "WHOLE_JO" || a.scope === "BOTH")
   );
   const wholeJoChecked = (label: string) =>
     (watched.items ?? []).some(
@@ -512,6 +517,11 @@ export function QuotationForm({
                       });
                     }
                   }}
+                  // Not found → open the inline create flow, prefilled.
+                  onCreateNew={(query) => {
+                    setCreateCustomerName(query);
+                    setCreateCustomerOpen(true);
+                  }}
                   invalid={!!errors.customerName}
                 />
               )}
@@ -521,6 +531,19 @@ export function QuotationForm({
                 {errors.customerName.message}
               </p>
             )}
+            <CustomerCreateDialog
+              open={createCustomerOpen}
+              initialName={createCustomerName}
+              onOpenChange={setCreateCustomerOpen}
+              onCreated={(c) => {
+                form.setValue("customerName", c.name, { shouldValidate: true });
+                if (c.contactNumber) {
+                  form.setValue("contactNumber", c.contactNumber, {
+                    shouldValidate: true,
+                  });
+                }
+              }}
+            />
           </div>
 
           <div className="grid gap-2">
@@ -867,7 +890,8 @@ export function QuotationForm({
                       product.rules,
                       globalAddons.data
                     ).filter(
-                      (r) => r.type !== "ADDON" || r.scope === "PER_LINE_ITEM"
+                      // per-line picker: line-scoped add-ons + BOTH-scope ones
+                      (r) => r.type !== "ADDON" || r.scope !== "WHOLE_JO"
                     )}
                     checked={
                       (watchedItem?.specs as { addons?: string[] } | undefined)

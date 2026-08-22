@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { PlusIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useCustomerSearch } from "@/modules/shared/hooks/use-customer-search";
@@ -19,6 +20,7 @@ export function CustomerCombobox({
   value,
   onChange,
   onPick,
+  onCreateNew,
   invalid,
   id,
 }: {
@@ -27,6 +29,9 @@ export function CustomerCombobox({
   /** Fired when an EXISTING customer is picked — carries the full record so
    *  the caller can auto-fill contact/email/company. */
   onPick?: (customer: CustomerSuggestion) => void;
+  /** When set, a "Create '<query>'" row shows in the dropdown while the typed
+   *  name has no exact match — lets a caller open an inline create flow. */
+  onCreateNew?: (query: string) => void;
   invalid?: boolean;
   id?: string;
 }) {
@@ -38,6 +43,13 @@ export function CustomerCombobox({
   const options = (search.data ?? []).filter(
     (o) => o.name.toLowerCase() !== value.trim().toLowerCase()
   );
+  // Whether the typed name already matches an existing customer exactly — the
+  // "Create '<query>'" affordance only offers when it doesn't.
+  const hasExact = (search.data ?? []).some(
+    (o) => o.name.toLowerCase() === value.trim().toLowerCase()
+  );
+  const canOfferCreate =
+    !!onCreateNew && value.trim().length >= 2 && !hasExact && !search.isFetching;
   // Open once there's a query — even with zero matches, so a "No results" hint
   // shows instead of silently nothing.
   const open = focused && !dismissed && value.trim().length >= 2;
@@ -136,9 +148,29 @@ export function CustomerCombobox({
               </li>
             );
           })}
-          {options.length === 0 && (
+          {options.length === 0 && !canOfferCreate && (
             <li className="px-2 py-1.5 text-sm text-muted-foreground">
               {search.isFetching ? "Searching…" : "No customers found."}
+            </li>
+          )}
+          {canOfferCreate && (
+            <li className="mt-1 border-t border-border/60 pt-1">
+              <button
+                type="button"
+                tabIndex={-1}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-primary hover:bg-accent"
+                // onMouseDown so it fires before the input's blur closes the list
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onCreateNew!(value.trim());
+                  setFocused(false);
+                }}
+              >
+                <PlusIcon className="size-3.5 shrink-0" />
+                <span className="wrap-break-word">
+                  Create &ldquo;{value.trim()}&rdquo; as a new customer
+                </span>
+              </button>
             </li>
           )}
         </ul>

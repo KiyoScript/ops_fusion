@@ -13,6 +13,7 @@ export type AppAction =
   | "import"
   | "move-deadline"
   | "approve" // JO: record the customer's approval; Quotation: supervisor sign-off; Booklet: activate into service
+  | "review" // JO: admin-side gate releasing a reorder from PENDING_REVIEW into production
   | "send" // mark a quotation as sent to the customer
   | "convert" // turn an approved quotation into a Job Order
   | "issue" // issue a delivery receipt

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ export type AddonDto = {
   label: string;
   amount: string | null;
   pct: string | null;
-  scope: "PER_LINE_ITEM" | "WHOLE_JO";
+  scope: "PER_LINE_ITEM" | "WHOLE_JO" | "BOTH";
   notes: string | null;
 };
 
@@ -28,7 +29,7 @@ type AddonRow = {
   label: string;
   mode: "FIXED" | "PCT";
   value: string;
-  scope: "PER_LINE_ITEM" | "WHOLE_JO";
+  scope: "PER_LINE_ITEM" | "WHOLE_JO" | "BOTH";
   notes: string;
 };
 
@@ -53,6 +54,15 @@ export function AddonsMaintenanceView({
 
   const setRow = (i: number, patch: Partial<AddonRow>) =>
     setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
+
+  // "Applies to" is two independent checkboxes (per line / whole JO) that map to
+  // the single scope value; at least one must stay checked.
+  const setScope = (i: number, perLine: boolean, wholeJo: boolean) => {
+    if (!perLine && !wholeJo) return;
+    setRow(i, {
+      scope: perLine && wholeJo ? "BOTH" : perLine ? "PER_LINE_ITEM" : "WHOLE_JO",
+    });
+  };
 
   const save = async () => {
     setSaving(true);
@@ -80,8 +90,10 @@ export function AddonsMaintenanceView({
           <p className="text-sm text-muted-foreground">
             Fees offered on every product. <strong>Per line item</strong> add-ons
             (e.g. design fee) attach to each quote line; <strong>Whole JO</strong>{" "}
-            add-ons (e.g. delivery fee) apply once to the whole quotation. A global
-            add-on overrides a product&apos;s own add-on of the same name.
+            add-ons (e.g. delivery fee) apply once to the whole quotation. Tick{" "}
+            <strong>both</strong> to offer the fee in either place — you choose
+            where it lands per quotation. A global add-on overrides a
+            product&apos;s own add-on of the same name.
           </p>
           {canMaintain && (
             <Button onClick={save} disabled={saving} size="sm">
@@ -140,22 +152,40 @@ export function AddonsMaintenanceView({
                     readOnly={!canMaintain}
                     className="tabular-nums"
                   />
-                  <Select
-                    value={r.scope}
-                    onValueChange={(v) =>
-                      canMaintain &&
-                      setRow(i, { scope: (v as AddonRow["scope"]) ?? "PER_LINE_ITEM" })
-                    }
-                    disabled={!canMaintain}
-                  >
-                    <SelectTrigger aria-label="Applies to">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PER_LINE_ITEM">Per line item</SelectItem>
-                      <SelectItem value="WHOLE_JO">Whole JO</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="flex flex-col gap-1" role="group" aria-label="Applies to">
+                    {(
+                      [
+                        ["Per line", r.scope !== "WHOLE_JO", (on: boolean) => setScope(i, on, r.scope !== "PER_LINE_ITEM")],
+                        ["Whole JO", r.scope !== "PER_LINE_ITEM", (on: boolean) => setScope(i, r.scope !== "WHOLE_JO", on)],
+                      ] as const
+                    ).map(([label, on, toggle]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={on}
+                        disabled={!canMaintain}
+                        onClick={() => canMaintain && toggle(!on)}
+                        className={cn(
+                          "flex items-center gap-1.5 rounded border px-1.5 py-1 text-left text-xs transition-colors",
+                          on ? "border-primary bg-primary/5" : "border-input hover:bg-accent/40",
+                          !canMaintain && "cursor-default opacity-70"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex size-3.5 shrink-0 items-center justify-center rounded border",
+                            on
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-muted-foreground/40"
+                          )}
+                        >
+                          {on && <CheckIcon className="size-2.5" />}
+                        </span>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   <Input
                     value={r.notes}
                     onChange={(e) => setRow(i, { notes: e.target.value })}

@@ -37,6 +37,8 @@ import type {
   JobOrderListPageDto,
   JobOrderListRowDto,
   JobOrderUpdateInput,
+  ReorderCreateInput,
+  ReorderItemDto,
 } from "../schemas/job-order";
 import {
   appendHistory,
@@ -522,6 +524,264 @@ export class JobOrderService {
 
       return { id: created.id };
     });
+  }
+
+  /** Distinct things a customer has ordered before (latest price/qty), for the
+   *  reorder picker. Deduped by normalized description + specs; most-ordered
+   *  first, then most-recent. */
+  async getReorderItems(
+    actor: Actor,
+    customerId: string
+  ): Promise<ReorderItemDto[]> {
+    assertCan(actor, "read", "JobOrder");
+    const rows = await this.jobOrders.listCustomerReorderItems(customerId);
+    const byKey = new Map<string, ReorderItemDto>();
+    for (const r of rows) {
+      const specs =
+        r.specs && typeof r.specs === "object" && !Array.isArray(r.specs)
+          ? (r.specs as Record<string, unknown>)
+          : null;
+      const key = `${r.description.trim().toLowerCase()}|${JSON.stringify(specs ?? {})}`;
+      const existing = byKey.get(key);
+      if (existing) {
+        // rows are newest-first, so the first seen is the latest price/qty
+        existing.timesOrdered += 1;
+        continue;
+      }
+      const price = parseFloat(r.unitPrice.toString());
+      byKey.set(key, {
+        key,
+        description: r.description,
+        jobDescription: composeJobDescription({
+          productName: r.productName,
+          specs: r.specs,
+          qty: r.qty,
+          unitPrice: r.unitPrice.toString(),
+          lineTotal: money(price * r.qty),
+          fallback: r.description,
+        }),
+        specs,
+        productId: r.productId,
+        service: r.productName,
+        category: r.category,
+        isLFP: r.isLFP,
+        lfpWidth: r.lfpWidth,
+        lfpHeight: r.lfpHeight,
+        lfpUnit: r.lfpUnit,
+        unitPrice: r.unitPrice.toString(),
+        lastQty: r.qty,
+        timesOrdered: 1,
+        lastOrderedAt: r.createdAt.toISOString(),
+        lastJoNumber: r.joNumber,
+      });
+    }
+    return [...byKey.values()].sort(
+      (a, b) =>
+        b.timesOrdered - a.timesOrdered ||
+        b.lastOrderedAt.localeCompare(a.lastOrderedAt)
+    );
+  }
+
+  /** Create a JO from picked reorder items. Lands in PENDING_REVIEW: it needs
+   *  the customer's sign-off (attach proof) AND an admin review before it
+   *  enters production. Specs are carried verbatim so the JO behaves like a
+   *  normal one (composed description, tarp decode, production steps). */
+  async createReorder(
+    actor: Actor,
+    input: ReorderCreateInput
+  ): Promise<{ id: string }> {
+    assertCan(actor, "create", "JobOrder");
+
+    return this.jobOrders.withTransaction(async (tx) => {
+      const joNumber = await this.generateJoNumber(tx);
+      const deadline = parseDate(input.deadline);
+      const items: ItemCreateData[] = input.items.map((it, i) => {
+        const qty = parseInt(it.qty, 10);
+        const price = parseFloat(it.unitPrice);
+        const specs =
+          it.specs && typeof it.specs === "object" && !Array.isArray(it.specs)
+            ? (it.specs as ItemCreateData["specs"])
+            : undefined;
+        return {
+          productId: it.productId ?? null,
+          description: it.description,
+          qty,
+          unitPrice: money(price),
+          lineTotal: money(price * qty),
+          specs,
+          deadline,
+          category: it.category ?? null,
+          isLFP: it.isLFP,
+          lfpWidth: it.isLFP ? it.lfpWidth ?? null : null,
+          lfpHeight: it.isLFP ? it.lfpHeight ?? null : null,
+          lfpUnit: it.isLFP ? it.lfpUnit ?? "ft" : null,
+          isRush: false,
+          lineItemId: `${joNumber}-${String(i + 1).padStart(2, "0")}`,
+          sortOrder: i,
+        };
+      });
+      // LFP is a product attribute — sync from the catalog, like create().
+      const lfpMap = await this.jobOrders.getProductLFPMap(
+        items.map((i) => i.productId).filter((id): id is string => !!id)
+      );
+      for (const it of items) {
+        if (it.productId) it.isLFP = lfpMap.get(it.productId) ?? false;
+      }
+      const header = deriveHeader(items);
+      const created = await this.jobOrders.createWithItems(
+        {
+          joNumber,
+          isPO: false,
+          isNonJo: false,
+          customerId: input.customerId,
+          status: JobOrderStatus.PENDING_REVIEW,
+          deadline: header.deadline,
+          planDateStart: null,
+          planDateEnd: null,
+          isLFP: header.isLFP,
+          subtotal: header.total,
+          total: header.total,
+          notes: null,
+          createdById: actor.id,
+          items,
+        },
+        tx
+      );
+      await getProductionWorkflowService().applyStandardWorkflow(created.id, tx);
+      await this.jobOrders.addJoStatusHistory(
+        {
+          jobOrderId: created.id,
+          fromStatus: null,
+          toStatus: JobOrderStatus.PENDING_REVIEW,
+          changedById: actor.id,
+          remarks: "Reorder — awaiting customer + admin approval",
+        },
+        tx
+      );
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: created.id,
+          action: "reorder-create",
+          payload: { joNumber, items: items.length },
+        },
+        tx
+      );
+      return { id: created.id };
+    });
+  }
+
+  /** Reorder lifecycle transitions:
+   *   - approve  (review gate): PENDING_REVIEW → IN_PROGRESS, requires the
+   *     customer's sign-off (isApprovedByCustomer) to be recorded first.
+   *   - reject   (review gate): PENDING_REVIEW → DRAFT — sent back to the
+   *     creator to edit and resubmit (NOT cancelled; the serial is kept).
+   *   - resubmit (creator):     DRAFT → PENDING_REVIEW, after edits. */
+  async reviewReorder(
+    actor: Actor,
+    joId: string,
+    action: "approve" | "reject" | "resubmit",
+    reason?: string
+  ): Promise<void> {
+    const detail = await this.jobOrders.findDetail(joId);
+    if (!detail) throw new NotFoundError("Job order not found.");
+
+    // Resubmit is the CREATOR's action (create ability), not the admin gate.
+    if (action === "resubmit") {
+      assertCan(actor, "create", "JobOrder");
+      if (detail.status !== JobOrderStatus.DRAFT) {
+        throw new ValidationError("Only a draft reorder can be resubmitted.");
+      }
+      await this.jobOrders.withTransaction(async (tx) => {
+        await this.jobOrders.setJoStatus(joId, JobOrderStatus.PENDING_REVIEW, null, tx);
+        await this.jobOrders.addJoStatusHistory(
+          {
+            jobOrderId: joId,
+            fromStatus: JobOrderStatus.DRAFT,
+            toStatus: JobOrderStatus.PENDING_REVIEW,
+            changedById: actor.id,
+            remarks: "Reorder resubmitted for review",
+          },
+          tx
+        );
+        await this.activity.log(
+          {
+            userId: actor.id,
+            entityType: "JobOrder",
+            entityId: joId,
+            action: "reorder-resubmit",
+            payload: { joNumber: detail.joNumber },
+          },
+          tx
+        );
+      });
+      return;
+    }
+
+    // approve / reject — the admin review gate.
+    assertCan(actor, "review", "JobOrder");
+    if (detail.status !== JobOrderStatus.PENDING_REVIEW) {
+      throw new ValidationError("This job order is not awaiting review.");
+    }
+
+    if (action === "approve") {
+      if (!detail.isApprovedByCustomer) {
+        throw new ValidationError(
+          "Attach the customer's approval first, then approve."
+        );
+      }
+      await this.jobOrders.withTransaction(async (tx) => {
+        await this.jobOrders.setJoStatus(joId, JobOrderStatus.IN_PROGRESS, null, tx);
+        await this.jobOrders.addJoStatusHistory(
+          {
+            jobOrderId: joId,
+            fromStatus: JobOrderStatus.PENDING_REVIEW,
+            toStatus: JobOrderStatus.IN_PROGRESS,
+            changedById: actor.id,
+            remarks: "Reorder approved — released to production",
+          },
+          tx
+        );
+        await this.activity.log(
+          {
+            userId: actor.id,
+            entityType: "JobOrder",
+            entityId: joId,
+            action: "reorder-approved",
+            payload: { joNumber: detail.joNumber },
+          },
+          tx
+        );
+      });
+    } else {
+      // reject → back to DRAFT for edits (kept, not cancelled).
+      await this.jobOrders.withTransaction(async (tx) => {
+        await this.jobOrders.setJoStatus(joId, JobOrderStatus.DRAFT, null, tx);
+        await this.jobOrders.addJoStatusHistory(
+          {
+            jobOrderId: joId,
+            fromStatus: JobOrderStatus.PENDING_REVIEW,
+            toStatus: JobOrderStatus.DRAFT,
+            changedById: actor.id,
+            remarks: reason
+              ? `Sent back for edits: ${reason}`
+              : "Sent back for edits",
+          },
+          tx
+        );
+        await this.activity.log(
+          {
+            userId: actor.id,
+            entityType: "JobOrder",
+            entityId: joId,
+            action: "reorder-sent-back",
+            payload: { joNumber: detail.joNumber, reason: reason ?? null },
+          },
+          tx
+        );
+      });
+    }
   }
 
   async update(actor: Actor, input: JobOrderUpdateInput): Promise<void> {
