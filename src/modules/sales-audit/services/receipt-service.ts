@@ -907,7 +907,12 @@ export class ReceiptService {
     filters: ReceiptListFilters
   ): Promise<ReceiptListPageDto> {
     assertCan(actor, "read", "Sale");
-    const { from, to } = dayRange(filters.date);
+    // One day, or the span the sales report drilled into. A range wins over
+    // `date` when both arrive — it is the more specific request.
+    const { from, to } =
+      filters.from && filters.to
+        ? spanRange(filters.from, filters.to)
+        : dayRange(filters.date);
     const { sales, crs } = await this.receipts.listByDay({
       from,
       to,
@@ -1063,7 +1068,14 @@ export class ReceiptService {
     // Summary tab's rows stop adding up to its own total.
     const joDeposits = emptySlice();
 
-    const byPeriod = new Map<string, SliceAccumulator & { collected: number }>();
+    // `firstDay`/`lastDay` are the local YYYY-MM-DD of the earliest and latest
+    // receipt in the bucket — the range the drill-down asks for when the row
+    // is opened. Tracked as receipts arrive rather than derived from the key,
+    // so a week bucket never has to be turned back into calendar dates.
+    const byPeriod = new Map<
+      string,
+      SliceAccumulator & { collected: number; firstDay: string; lastDay: string }
+    >();
     const byCustomer = new Map<
       string,
       SliceAccumulator & { customerId: string; customerName: string }
@@ -1088,11 +1100,13 @@ export class ReceiptService {
       add(total, money);
 
       const key = periodKeyOf(s.saleDate, filters.groupBy);
+      const day = dayKeyOf(s.saleDate);
       let period = byPeriod.get(key);
       if (!period) {
-        period = { ...emptySlice(), collected: 0 };
+        period = { ...emptySlice(), collected: 0, firstDay: day, lastDay: day };
         byPeriod.set(key, period);
       }
+      widenDays(period, day);
       add(period, money);
 
       let customer = byCustomer.get(s.customerId);
@@ -1114,11 +1128,16 @@ export class ReceiptService {
       const cents = toCentavos(c.amount);
       collected += cents;
       const key = periodKeyOf(c.receivedAt, filters.groupBy);
+      const day = dayKeyOf(c.receivedAt);
       let period = byPeriod.get(key);
       if (!period) {
-        period = { ...emptySlice(), collected: 0 };
+        period = { ...emptySlice(), collected: 0, firstDay: day, lastDay: day };
         byPeriod.set(key, period);
       }
+      // A period whose only activity was a collection still opens onto that
+      // day — otherwise the drill-down would come back empty on exactly the
+      // rows where the sales column reads zero and the cash column does not.
+      widenDays(period, day);
       period.collected += cents;
     }
 
@@ -1132,6 +1151,8 @@ export class ReceiptService {
         vatableSales: toAmount(v.vatableSales),
         vatAmount: toAmount(v.vatAmount),
         collected: toAmount(v.collected),
+        from: v.firstDay,
+        to: v.lastDay,
       }));
 
     const customers = [...byCustomer.values()]
@@ -1829,6 +1850,20 @@ const emptySlice = (): SliceAccumulator => ({
   vatAmount: 0,
 });
 
+/** Local YYYY-MM-DD — the same reading of "which day" as periodKeyOf. */
+function dayKeyOf(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Stretch a bucket's day bounds to include one more receipt. */
+function widenDays(
+  period: { firstDay: string; lastDay: string },
+  day: string
+): void {
+  if (day < period.firstDay) period.firstDay = day;
+  if (day > period.lastDay) period.lastDay = day;
+}
+
 function add(
   into: SliceAccumulator,
   money: { gross: number; vatableSales: number; vatAmount: number }
@@ -1936,6 +1971,23 @@ function dayRange(date?: string): { from: Date; to: Date; key: string } {
   const to = new Date(from.getTime() + 86_400_000);
   const key = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`;
   return { from, to, key };
+}
+
+/**
+ * A span of whole local days, `to` EXCLUSIVE — the same convention dayRange
+ * uses, so the repository's `gte from, lt to` filter reads identically for one
+ * day and for a month. Both inputs are inclusive as the user typed them, which
+ * is why the end is pushed forward a day rather than used as-is.
+ */
+function spanRange(fromDate: string, toDate: string): { from: Date; to: Date } {
+  const start = new Date(`${fromDate}T00:00:00`);
+  const end = new Date(`${toDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new ValidationError("Invalid date.");
+  }
+  const from = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  return { from, to: new Date(lastDay.getTime() + 86_400_000) };
 }
 
 /** Prisma Decimal → the string form every DTO carries money in. */
