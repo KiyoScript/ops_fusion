@@ -126,6 +126,10 @@ const joForReceiptSelect = {
     },
   },
   items: { select: { lineTotal: true } },
+  // The downpayment agreed on the quotation this job came from. The counter
+  // pre-fills from it, so what was quoted and what is collected cannot drift
+  // apart through somebody re-typing a percentage from memory.
+  quotation: { select: { downpaymentRate: true, paymentTermLabel: true } },
 } satisfies Prisma.JobOrderSelect;
 
 export type SaleRecord = Prisma.SaleGetPayload<{ select: typeof saleSelect }>;

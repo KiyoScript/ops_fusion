@@ -14,18 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import { ReceiptVoidType } from "@/generated/prisma/enums";
-import {
-  VOID_TYPE_HINT,
-  VOID_TYPE_LABEL,
-  type ReceiptKind,
-} from "../schemas/receipt";
+import { type ReceiptKind } from "../schemas/receipt";
 import { useVoidReceipt } from "../hooks/use-sales-audit";
 import { OnHandCheck } from "./on-hand-check";
-
-/** CANCELLED and VOID are terminal here; REPLACED runs through Receive Payment. */
-const CHOICES = [ReceiptVoidType.CANCELLED, ReceiptVoidType.VOID] as const;
 
 /**
  * The minimum this dialog needs to cancel something. Deliberately not
@@ -42,11 +33,15 @@ export type VoidTarget = {
 };
 
 /**
- * Cancel or void an issued receipt — docs/sales.txt §5.
+ * Cancel an issued receipt — docs/sales.txt §5.
  *
  * Deliberately blunt about what does NOT happen: the receipt keeps its serial
  * number and stays in the booklet. Cashiers who expect "delete" need to see
  * that this is a mark on the face of the document, not a removal.
+ *
+ * There is no mark to choose. The shop writes CANCELLED on every cancelled
+ * leaf, so asking the cashier to pick one would be asking them to classify
+ * something the paper does not classify.
  */
 export function VoidReceiptDialog({
   receipt,
@@ -58,14 +53,10 @@ export function VoidReceiptDialog({
   onVoided?: () => void;
 }) {
   const voidReceipt = useVoidReceipt();
-  const [type, setType] = useState<(typeof CHOICES)[number]>(
-    ReceiptVoidType.CANCELLED
-  );
   const [reason, setReason] = useState("");
   const [onHand, setOnHand] = useState(false);
 
   const reset = () => {
-    setType(ReceiptVoidType.CANCELLED);
     setReason("");
     setOnHand(false);
     onClose();
@@ -84,11 +75,11 @@ export function VoidReceiptDialog({
       return;
     }
     voidReceipt.mutate(
-      { receiptId: receipt.id, kind: receipt.kind, type, reason },
+      { receiptId: receipt.id, kind: receipt.kind, reason },
       {
         onSuccess: (r) => {
           toast.success(
-            `${r.documentNo ?? "The payment"} marked ${VOID_TYPE_LABEL[type]}.`,
+            `${r.documentNo ?? "The payment"} marked Cancelled.`,
             {
               description: r.documentNo
                 ? "The number stays in the booklet. The balance it settled reopens."
@@ -118,34 +109,6 @@ export function VoidReceiptDialog({
         </DialogHeader>
 
         <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label>Mark it as</Label>
-            {CHOICES.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setType(c)}
-                aria-pressed={type === c}
-                className={cn(
-                  "grid gap-0.5 rounded-md border p-3 text-left transition-colors",
-                  type === c
-                    ? "border-primary bg-primary/5 ring-1 ring-primary"
-                    : "hover:bg-muted/50"
-                )}
-              >
-                <span className="text-sm font-medium">{VOID_TYPE_LABEL[c]}</span>
-                <span className="text-xs text-muted-foreground">
-                  {VOID_TYPE_HINT[c]}
-                </span>
-              </button>
-            ))}
-            <p className="text-xs text-muted-foreground">
-              To reissue a corrected receipt instead, close this and use{" "}
-              <strong>Replace</strong> — that keeps the two serial numbers
-              linked to each other.
-            </p>
-          </div>
-
           <div className="grid gap-1.5">
             <Label htmlFor="vr-reason">
               Reason <span className="text-destructive">*</span>
@@ -162,8 +125,8 @@ export function VoidReceiptDialog({
           {/* The part people get wrong. Say it before they click, not after. */}
           <p className="rounded-md border border-amber-500/40 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
             {receipt?.documentNo
-              ? `${receipt.documentNo} keeps its number and stays attached to this job order, marked ${VOID_TYPE_LABEL[type].toLowerCase()}.`
-              : `This payment stays on the ledger, marked ${VOID_TYPE_LABEL[type].toLowerCase()}.`}{" "}
+              ? `${receipt.documentNo} keeps its number and stays attached to this job order, marked cancelled.`
+              : "This payment stays on the ledger, marked cancelled."}{" "}
             It stops counting towards sales and the job order&rsquo;s balance
             reopens, so a new receipt can be issued against it.
           </p>
@@ -196,9 +159,7 @@ export function VoidReceiptDialog({
               (Boolean(receipt?.documentNo) && !onHand)
             }
           >
-            {voidReceipt.isPending
-              ? "Cancelling…"
-              : `Mark ${VOID_TYPE_LABEL[type]}`}
+            {voidReceipt.isPending ? "Cancelling…" : "Mark Cancelled"}
           </Button>
         </DialogFooter>
       </DialogContent>

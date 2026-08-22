@@ -25,7 +25,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ColorBadge } from "@/components/color-badge";
 import { ErrorState } from "@/components/data-states";
-import { OnHandCheck } from "./on-hand-check";
 import { sanitizeDecimal } from "@/lib/form-numeric";
 import { cn } from "@/lib/utils";
 import { PaymentMethod } from "@/generated/prisma/enums";
@@ -81,12 +80,9 @@ const newLine = (method: PaymentMethod = PaymentMethod.CASH): Line => ({
  */
 export function CollectPaymentDialog({
   customerId,
-  replaces,
   onClose,
 }: {
   customerId: string | null;
-  /** Reissuing a spoiled Collection Receipt — §5.1: void and reissue together. */
-  replaces?: { id: string; documentNo: string; amount: string } | null;
   onClose: () => void;
 }) {
   const options = useCollectOptions(customerId);
@@ -97,8 +93,6 @@ export function CollectPaymentDialog({
   const [creditToApply, setCreditToApply] = useState("");
   const [notes, setNotes] = useState("");
   const [issueDocument, setIssueDocument] = useState(true);
-  const [replaceReason, setReplaceReason] = useState("");
-  const [replaceOnHand, setReplaceOnHand] = useState(false);
   /** Rows the cashier has typed into — null until they take over. */
   const [manual, setManual] = useState<Record<string, string> | null>(null);
   /**
@@ -120,8 +114,6 @@ export function CollectPaymentDialog({
     setCreditToApply("");
     setNotes("");
     setIssueDocument(true);
-    setReplaceReason("");
-    setReplaceOnHand(false);
     setManual(null);
     setManualEwt(null);
     setManualVatWht(null);
@@ -290,10 +282,6 @@ export function CollectPaymentDialog({
       return "This payment is funded entirely by credit, so no money is received. Untick the Collection Receipt.";
     if (creditUsed > 0 && toCredit > 0)
       return `This spends ${peso(creditUsed)} of credit and would leave ${peso(toCredit / 100)} back on the account. Apply only what the invoices need.`;
-    if (replaces && replaceReason.trim().length < 3)
-      return "Write the reason for the replacement.";
-    if (replaces && !replaceOnHand)
-      return `Confirm that ${replaces.documentNo} is on hand before reissuing it.`;
     return null;
   };
 
@@ -338,18 +326,11 @@ export function CollectPaymentDialog({
             : undefined,
         issueDocument: willPrint,
         notes: notes.trim() || undefined,
-        replaces: replaces
-          ? { receiptId: replaces.id, reason: replaceReason }
-          : undefined,
       },
       {
         onSuccess: (r) => {
           const bits = [
-            r.replacedDocumentNo
-              ? `${r.replacedDocumentNo} replaced by ${r.documentNo}.`
-              : r.documentNo
-                ? `${r.documentNo} issued.`
-                : "Payment recorded.",
+            r.documentNo ? `${r.documentNo} issued.` : "Payment recorded.",
             r.invoicesClosed > 0 &&
               `${r.invoicesClosed} invoice${r.invoicesClosed === 1 ? "" : "s"} closed.`,
             cent(num(r.creditCreated)) > 0 &&
@@ -373,7 +354,7 @@ export function CollectPaymentDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HandCoinsIcon className="size-5" />
-            {replaces ? "Replace Collection Receipt" : "Receive Payment"}
+            Receive Payment
           </DialogTitle>
           <DialogDescription>
             {data
@@ -394,40 +375,6 @@ export function CollectPaymentDialog({
           />
         ) : data ? (
           <div className="grid gap-5">
-            {/* ——— reissue mode ——— */}
-            {replaces && (
-              <div className="grid gap-3 rounded-md border border-amber-500/40 bg-amber-50 p-3 text-sm dark:bg-amber-500/10">
-                <span className="font-medium text-amber-900 dark:text-amber-200">
-                  Replacing {replaces.documentNo} · {peso(num(replaces.amount))}
-                </span>
-                <p className="text-xs text-amber-900/80 dark:text-amber-200/80">
-                  Issuing below marks {replaces.documentNo} REPLACED and writes
-                  the two serial numbers on each other. Both happen together —
-                  neither can be left half-done. Everything{" "}
-                  {replaces.documentNo} settled reopens first, so the invoices
-                  below already show what it was paying for.
-                </p>
-                <div className="grid gap-1.5">
-                  <Label htmlFor="cp-replace-reason">
-                    Reason <span className="text-destructive">*</span>
-                  </Label>
-                  <Textarea
-                    id="cp-replace-reason"
-                    value={replaceReason}
-                    onChange={(e) => setReplaceReason(e.target.value)}
-                    rows={2}
-                    placeholder="e.g. wrong amount encoded"
-                  />
-                </div>
-                <OnHandCheck
-                  id="cp-replace-onhand"
-                  checked={replaceOnHand}
-                  onChange={setReplaceOnHand}
-                  documentNo={replaces.documentNo}
-                />
-              </div>
-            )}
-
             {/* ——— what they handed over ——— */}
             <div className="grid gap-2">
               <div className="flex items-center justify-between gap-2">

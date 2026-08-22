@@ -221,9 +221,16 @@ and raise it.
 ### R11 — Voiding is not deleting.
 
 A spoiled receipt keeps its row, its serial, and its booklet position. Mark
-`voidType` (`CANCELLED` / `VOID` / `REPLACED`), `voidReason`, `voidedAt`,
-`voidedById`. Never `deletedAt` a receipt to make it go away, and never reissue
-its number.
+`voidType`, `voidReason`, `voidedAt`, `voidedById`. Never `deletedAt` a receipt
+to make it go away, and never reissue its number.
+
+The shop writes one word on the leaf — **CANCELLED** — in every case, so the
+cashier is never asked to pick a mark and the UI never shows another one.
+Cancelling is also the only action: reissuing a corrected receipt is cancel
+(which reopens the balance) followed by an ordinary issue, exactly as it is on
+paper. `CANCELLED` is the only value anything writes; `VOID` and `REPLACED`
+appear on legacy rows only. Never branch a rule on the value — every financial
+filter keys on `voidedAt` (**R2**).
 
 > *Prevents:* a gap in booklet accountability, which is a BIR finding.
 

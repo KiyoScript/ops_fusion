@@ -138,6 +138,11 @@ async function cleanup() {
   await prisma.sale.deleteMany({ where: { OR: [jo, ours] } });
   await prisma.collectionReceipt.deleteMany({ where: { OR: [jo, ours] } });
   await prisma.jobOrder.deleteMany({ where: { joNumber: { startsWith: PREFIX } } });
+  // Quotations hold a customer FK too, and the job orders that pointed at
+  // them are already gone by here.
+  await prisma.quotation.deleteMany({
+    where: { quoteNumber: { startsWith: PREFIX } },
+  });
   // Certificates hold a customer FK of their own — they go before the customer.
   await prisma.withholdingCertificate.deleteMany({
     where: { customer: { name: { startsWith: CUSTOMER } } },
@@ -475,16 +480,6 @@ async function main() {
   const afterQuiet = await receipts.getPaymentOptions(cashier, jo2.id);
   check("the receivable still closes", afterQuiet.outstanding === "500.00", afterQuiet.outstanding);
 
-  // A payment with no serial cannot be "replaced" — there is nothing to supersede.
-  let replaceQuiet = "";
-  try {
-    await receipts.replaceReceipt(actor, {
-      receiptId: quiet.id, kind: "COLLECTION", reason: "Trying to replace nothing.",
-      replacement: { ...base, jobOrderId: jo2.id, kind: "COLLECTION", amount: "344.00" },
-    });
-  } catch (e) { replaceQuiet = (e as Error).message; }
-  check("an undocumented payment cannot be replaced", replaceQuiet.includes("no document to replace"), replaceQuiet);
-
   // ─────────────────────────────────────────────────────────────────────
   console.log("\nDownpayment — two invoices, never a partial one");
 
@@ -791,14 +786,14 @@ async function main() {
   try {
     await receipts.voidReceipt(cashier, {
       receiptId: doomed.id, kind: "SI_VAT",
-      type: "CANCELLED", reason: "Customer changed their mind.",
+      reason: "Customer changed their mind.",
     });
   } catch (e) { cashierVoid = (e as Error).constructor.name; }
   check("a cashier cannot void a receipt (needs a supervisor)", cashierVoid === "ForbiddenError", cashierVoid);
 
   await receipts.voidReceipt(actor, {
     receiptId: doomed.id, kind: "SI_VAT",
-    type: "CANCELLED", reason: "Customer changed their mind.",
+    reason: "Customer changed their mind.",
   });
 
   const voided = await prisma.sale.findUniqueOrThrow({
@@ -822,7 +817,7 @@ async function main() {
   let twice = "";
   try {
     await receipts.voidReceipt(actor, {
-      receiptId: doomed.id, kind: "SI_VAT", type: "VOID", reason: "Again.",
+      receiptId: doomed.id, kind: "SI_VAT", reason: "Again.",
     });
   } catch (e) { twice = (e as Error).message; }
   check("cancelling the same receipt twice is refused", twice.includes("already been cancelled"), twice);
@@ -831,7 +826,7 @@ async function main() {
   const beforeUncollect = await receipts.getPaymentOptions(actor, jo2.id);
   await receipts.voidReceipt(actor, {
     receiptId: crRow.id, kind: "COLLECTION",
-    type: "CANCELLED", reason: "GCash payment bounced.",
+    reason: "GCash payment bounced.",
   });
   const afterUncollect = await receipts.getPaymentOptions(actor, jo2.id);
   check("cancelling a collection REOPENS the receivable",
@@ -848,85 +843,10 @@ async function main() {
   try {
     await receipts.voidReceipt(actor, {
       receiptId: uncollected.id, kind: "SI_CHARGE",
-      type: "CANCELLED", reason: "Trying to cancel a collected invoice.",
+      reason: "Trying to cancel a collected invoice.",
     });
   } catch (e) { voidCollected = (e as Error).message; }
   check("an invoice with collections applied cannot be cancelled", voidCollected.includes("collection"), voidCollected);
-
-  // ─────────────────────────────────────────────────────────────────────
-  console.log("\nReplace a receipt — void + reissue in one transaction");
-
-  const jo9 = await makeJo(9, "300");
-  const wrong = await receipts.receivePayment(cashier, {
-    ...base, jobOrderId: jo9.id, kind: "SI_VAT", amount: "250.00",
-    payments: [{ method: "CASH", amount: "250.00", reference: undefined }],
-  });
-
-  const replaced = await receipts.replaceReceipt(actor, {
-    receiptId: wrong.id, kind: "SI_VAT",
-    reason: "Wrong amount encoded — should be 260.00.",
-    replacement: {
-      ...base, jobOrderId: jo9.id, kind: "SI_VAT", amount: "260.00",
-      payments: [{ method: "CASH", amount: "300.00", reference: undefined }],
-    },
-  });
-  check("replacing reports both serials", replaced.replacedDocumentNo === wrong.documentNo, replaced.replacedDocumentNo);
-  check("the replacement takes the NEXT number", replaced.documentNo !== wrong.documentNo, replaced.documentNo);
-  check("the replacement's own change is computed: 300 − 260 = 40.00", replaced.changeGiven === "40.00", replaced.changeGiven);
-
-  const oldRow = await prisma.sale.findUniqueOrThrow({
-    where: { documentNo: wrong.documentNo! },
-    include: { replacedBy: { select: { documentNo: true } } },
-  });
-  const newRow = await prisma.sale.findUniqueOrThrow({
-    where: { documentNo: replaced.documentNo! },
-    include: { replaces: { select: { documentNo: true } } },
-  });
-  check("the spoiled receipt is marked REPLACED", oldRow.voidType === "REPLACED", oldRow.voidType);
-  check("the reason is kept", oldRow.voidReason?.includes("Wrong amount") ?? false, oldRow.voidReason);
-  check("the old points at the new", oldRow.replacedBy?.documentNo === replaced.documentNo, oldRow.replacedBy?.documentNo);
-  check("the new points back at the old", newRow.replaces?.documentNo === wrong.documentNo, newRow.replaces?.documentNo);
-
-  // ——— what the AUDITOR sees on the day log ———
-  // §5.1 wants both halves: the two serials written on each other (step 3) and
-  // the reason on the face of the receipt (step 2). A replaced receipt that
-  // shows its successor but not why it was spoiled fails the audit.
-  const trail = await receipts.listDay(actor, { take: 200 });
-  const spoiled = trail.rows.find((r) => r.documentNo === wrong.documentNo)!;
-  const successor = trail.rows.find((r) => r.documentNo === replaced.documentNo)!;
-  check("the day log shows the spoiled receipt", spoiled !== undefined);
-  check("…marked REPLACED", spoiled.voidType === "REPLACED", spoiled.voidType);
-  check("…naming the receipt issued in its place",
-    spoiled.replacedByDocumentNo === replaced.documentNo, spoiled.replacedByDocumentNo);
-  check("…AND keeping the reason (not dropped for the link)",
-    spoiled.voidReason?.includes("Wrong amount") ?? false, spoiled.voidReason);
-  check("…and who approved it", spoiled.voidedByName === admin.name, spoiled.voidedByName);
-  check("the replacement points back at what it superseded",
-    successor.replacesDocumentNo === wrong.documentNo, successor.replacesDocumentNo);
-
-  // Looking one up must surface BOTH, or the pairing is invisible in a search.
-  const paired = await receipts.listDay(actor, { take: 200, q: wrong.documentNo! });
-  check("searching a serial returns its replacement too",
-    paired.rows.some((r) => r.documentNo === wrong.documentNo) &&
-      paired.rows.some((r) => r.documentNo === replaced.documentNo),
-    paired.rows.map((r) => r.documentNo));
-  const pairedBack = await receipts.listDay(actor, { take: 200, q: replaced.documentNo! });
-  check("…and searching the replacement returns the original",
-    pairedBack.rows.some((r) => r.documentNo === wrong.documentNo),
-    pairedBack.rows.map((r) => r.documentNo));
-  // The superseded receipt must not count against its own successor's cap.
-  check("a replacement is not blocked by the receipt it supersedes", newRow.amount.toString() === "260", newRow.amount.toString());
-
-  let crossKind = "";
-  try {
-    await receipts.replaceReceipt(actor, {
-      receiptId: newRow.id, kind: "SI_VAT", reason: "Trying to cross series.",
-      replacement: { ...base, jobOrderId: jo9.id, kind: "COLLECTION", amount: "260.00" },
-    });
-  } catch (e) { crossKind = (e as Error).message; }
-  check("a replacement cannot switch receipt type", crossKind.includes("same receipt type"), crossKind);
-  const strayStill = await prisma.sale.findUniqueOrThrow({ where: { id: newRow.id } });
-  check("a refused replacement leaves the original untouched", strayStill.voidType === null, strayStill.voidType);
 
   // ─────────────────────────────────────────────────────────────────────
   console.log("\nCredit control (behind the credit-control flag)");
@@ -1136,7 +1056,7 @@ async function main() {
 
   await receipts.voidReceipt(actor, {
     receiptId: willVoid.id, kind: "COLLECTION",
-    type: "CANCELLED", reason: "Cheque bounced.",
+    reason: "Cheque bounced.",
   });
   const unwound = await receipts.getCollectOptions(cashier, customer.id);
   check("cancelling reopens the invoice", unwound.totalOutstanding === "400.00", unwound.totalOutstanding);
@@ -1166,60 +1086,11 @@ async function main() {
   try {
     await receipts.voidReceipt(actor, {
       receiptId: maker.id, kind: "COLLECTION",
-      type: "CANCELLED", reason: "Trying to unwind spent credit.",
+      reason: "Trying to unwind spent credit.",
     });
   } catch (e) { lockedCredit = (e as Error).message; }
   check("a payment whose credit has been spent cannot be cancelled",
     lockedCredit.includes("already been spent"), lockedCredit);
-
-  // ─────────────────────────────────────────────────────────────────────
-  console.log("\nReplacing a customer-level Collection Receipt");
-
-  const joR = await makeJo(550, "900");
-  await receipts.receivePayment(cashier, {
-    ...base, jobOrderId: joR.id, kind: "SI_CHARGE", amount: "900.00", payments: [],
-  });
-  const mistyped = await receipts.collectFromCustomer(cashier, {
-    customerId: customer.id,
-    payments: [{ method: "CASH", amount: "500.00", reference: undefined }],
-    issueDocument: true,
-  });
-
-  const fixed = await receipts.collectFromCustomer(actor, {
-    customerId: customer.id,
-    payments: [{ method: "CASH", amount: "600.00", reference: undefined }],
-    issueDocument: true,
-    replaces: { receiptId: mistyped.id, reason: "Wrong amount encoded — 600, not 500." },
-  });
-  check("the replacement reports both serials",
-    fixed.replacedDocumentNo === mistyped.documentNo, fixed.replacedDocumentNo);
-  check("…and takes the next number", fixed.documentNo !== mistyped.documentNo, fixed.documentNo);
-  check("the corrected amount is applied", fixed.applied === "600.00", fixed.applied);
-
-  const oldCr = await prisma.collectionReceipt.findUniqueOrThrow({
-    where: { id: mistyped.id },
-    include: { replacedBy: { select: { crNumber: true } }, allocations: true },
-  });
-  const newCr = await prisma.collectionReceipt.findUniqueOrThrow({
-    where: { id: fixed.id },
-    include: { replaces: { select: { crNumber: true } } },
-  });
-  check("the spoiled receipt is marked REPLACED", oldCr.voidType === "REPLACED", oldCr.voidType);
-  check("the old points at the new", oldCr.replacedBy?.crNumber === fixed.documentNo, oldCr.replacedBy?.crNumber);
-  check("the new points back at the old", newCr.replaces?.crNumber === mistyped.documentNo, newCr.replaces?.crNumber);
-  check("the superseded receipt no longer pays for anything", oldCr.allocations.length === 0, oldCr.allocations.length);
-
-  // The invoice must reflect the REPLACEMENT only — not both, and not neither.
-  const joRInvoice = await prisma.sale.findFirstOrThrow({
-    where: { jobOrder: { joNumber: `${PREFIX}JO-550` }, type: "SI_CHARGE" },
-  });
-  check("the invoice is settled by the replacement alone",
-    joRInvoice.settledAmount.toString() === "600", joRInvoice.settledAmount.toString());
-
-  // A replacement is not blocked by the debt its own predecessor was paying.
-  check("replacing did not double-count the old payment",
-    toCentavos((await receipts.getCollectOptions(cashier, customer.id)).totalOutstanding) === toCentavos("300.00"),
-    (await receipts.getCollectOptions(cashier, customer.id)).totalOutstanding);
 
   // ─────────────────────────────────────────────────────────────────────
   console.log("\nExpanded withholding tax (BIR 2307) — the receivable must CLOSE");
@@ -1361,7 +1232,7 @@ async function main() {
   // Cancelling must take the tax back with the cash, or the invoice reopens
   // for 11,000 only and 200 of debt quietly disappears.
   await receipts.voidReceipt(actor, {
-    receiptId: wPaid.id, kind: "COLLECTION", type: "CANCELLED",
+    receiptId: wPaid.id, kind: "COLLECTION",
     reason: "Withholding reversal check.",
   });
   const wReopened = await prisma.sale.findUniqueOrThrow({ where: { id: wInv.id } });
@@ -1777,7 +1648,7 @@ async function main() {
     ));
   await receipts.voidReceipt(actor, {
     receiptId: regCr.id, kind: "COLLECTION",
-    type: "CANCELLED", reason: "Verify — collection reversed.",
+    reason: "Verify — collection reversed.",
   });
   const noGhost = await wht.getRegister(actor, forCustomer);
   check("CANCELLING THE COLLECTION TAKES ITS WITHHOLDING OFF THE LIST TOO",
@@ -2013,11 +1884,11 @@ async function main() {
   // ——— an invoice VOIDED since was still live back then ———
   await receipts.voidReceipt(actor, {
     receiptId: histPaid.id, kind: "COLLECTION",
-    type: "CANCELLED", reason: "Verify — reopen for the void test.",
+    reason: "Verify — reopen for the void test.",
   });
   await receipts.voidReceipt(actor, {
     receiptId: oldInv.id, kind: "SI_CHARGE",
-    type: "CANCELLED", reason: "Verify — cancelled after the fact.",
+    reason: "Verify — cancelled after the fact.",
   });
   const at90Voided = await ar.list(actor, { asOf: asOfDay(90) });
   const line90Voided = at90Voided.customers.find(
@@ -2145,7 +2016,7 @@ async function main() {
     withSpoiled.totals.gross);
   await receipts.voidReceipt(actor, {
     receiptId: rptSpoiled.id, kind: "SI_VAT",
-    type: "CANCELLED", reason: "Verify — rptSpoiled receipt.",
+    reason: "Verify — rptSpoiled receipt.",
   });
   const withoutSpoiled = await receipts.getSalesReport(actor, only);
   check("A CANCELLED RECEIPT IS NOT A SALE",
@@ -2343,7 +2214,7 @@ async function main() {
   });
   await receipts.voidReceipt(actor, {
     receiptId: pipeSales[0]!.id, kind: "SI_CHARGE",
-    type: "CANCELLED", reason: "Verify — billed in error.",
+    reason: "Verify — billed in error.",
   });
   const pVoided = await jobOf();
   check("A CANCELLED INVOICE PUTS THE WORK BACK ON THE LIST",
@@ -2492,6 +2363,255 @@ async function main() {
     !(await getBacklogService().getPipeline(actor, {
       state: "ALL", customerId: null, search: null,
     })).jobs.some((j) => j.joNumber === `${PREFIX}JO-961`));
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nJO slip on utang — a walk-in sale taken on credit");
+
+  // The shop sells on utang across the counter without raising a Charge
+  // Invoice. A JO slip may therefore be issued for the whole job with only
+  // part of it paid, and the balance is a receivable like any other: aged,
+  // chased, and counted against the customer's limit.
+  const utangJo = await makeJo(970, "4720.80");
+  const utangSlip = await receipts.receivePayment(cashier, {
+    ...base, jobOrderId: utangJo.id, kind: "JO_RECEIPT", amount: "4720.80",
+    payments: [{ method: "CASH", amount: "2000.00", reference: undefined }],
+  });
+  const utangRow = await prisma.sale.findUniqueOrThrow({
+    where: { id: utangSlip.id },
+    select: { amount: true, amountPaid: true, settledAmount: true, paymentStatus: true, dueDate: true, type: true },
+  });
+  check("A JO SLIP MAY BE ISSUED ON UTANG — part paid, the rest owing",
+    utangRow.type === "JO_SLIP" &&
+      toCentavos(utangRow.amount.toString()) === toCentavos("4720.80") &&
+      toCentavos(utangRow.amountPaid.toString()) === toCentavos("2000.00"),
+    { amount: utangRow.amount.toString(), paid: utangRow.amountPaid.toString() });
+  check("…its open balance is the unpaid part",
+    toCentavos(utangRow.amount.toString()) -
+      toCentavos(utangRow.amountPaid.toString()) -
+      toCentavos(utangRow.settledAmount.toString()) === toCentavos("2720.80"));
+  check("…and it is marked PARTIAL, not PAID",
+    utangRow.paymentStatus === "PARTIAL", utangRow.paymentStatus);
+
+  const utangCustomerId = (await prisma.jobOrder.findUniqueOrThrow({
+    where: { id: utangJo.id }, select: { customerId: true },
+  })).customerId;
+  const utangLedger = await ar.list(actor, {});
+  const utangLine = utangLedger.customers.find(
+    (c) => c.customerId === utangCustomerId
+  );
+  check("THE UTANG LANDS ON THE A/R LEDGER",
+    utangLine !== undefined &&
+      toCentavos(utangLine.outstanding) >= toCentavos("2720.80"),
+    utangLine?.outstanding);
+
+  // ——— and it can be collected like any other receivable ———
+  const utangOpts = await receipts.getCollectOptions(cashier, utangCustomerId);
+  check("…and shows as an open invoice a collection can settle",
+    utangOpts.invoices.some(
+      (i) => toCentavos(i.openBalance) === toCentavos("2720.80")
+    ),
+    utangOpts.invoices.map((i) => i.openBalance));
+
+  const utangInv = utangOpts.invoices.find(
+    (i) => toCentavos(i.openBalance) === toCentavos("2720.80")
+  )!;
+  await receipts.collectFromCustomer(cashier, {
+    customerId: utangCustomerId,
+    payments: [{ method: "CASH", amount: "2720.80", reference: undefined }],
+    allocations: [{ saleId: utangInv.id, amount: "2720.80" }],
+    issueDocument: false,
+  });
+  const utangClosed = await prisma.sale.findUniqueOrThrow({
+    where: { id: utangSlip.id },
+    select: { amount: true, amountPaid: true, settledAmount: true },
+  });
+  check("…and a collection closes it, exactly like a charge invoice",
+    toCentavos(utangClosed.amount.toString()) -
+      toCentavos(utangClosed.amountPaid.toString()) -
+      toCentavos(utangClosed.settledAmount.toString()) === 0);
+
+  // ——— the whole slip is still revenue on the day it was issued ———
+  check("the slip booked its FULL face value as revenue, not just the cash",
+    toCentavos(utangRow.amount.toString()) === toCentavos("4720.80"));
+
+  // ——— a Sales Invoice is still not allowed to be short-paid ———
+  const strictJo = await makeJo(971, "1000");
+  check("a SALES INVOICE still may not be short-paid",
+    await throws(() =>
+      receipts.receivePayment(cashier, {
+        ...base, jobOrderId: strictJo.id, kind: "SI_VAT", amount: "1000.00",
+        payments: [{ method: "CASH", amount: "400.00", reference: undefined }],
+      })));
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nQuotation downpayment → first payment at the counter");
+
+  // The quotation only AGREES a downpayment; no money moves there. The
+  // agreement travels to the counter, where the customer is asked for it and
+  // a receipt is issued against it. What must not happen is the agreed figure
+  // and the collected one drifting apart.
+  const quoteCustomer = await prisma.customer.findFirstOrThrow({
+    where: { name: CUSTOMER },
+  });
+  const quote = await prisma.quotation.create({
+    data: {
+      quoteNumber: `${PREFIX}Q-001`,
+      customerId: quoteCustomer.id,
+      status: "APPROVED",
+      taxType: "NON_VAT",
+      subtotal: "4720.80",
+      total: "4720.80",
+      downpaymentRate: "0.5",
+      paymentTermLabel: "50% Downpayment",
+      createdById: admin.id,
+    },
+    select: { id: true },
+  });
+  const quotedJo = await makeJo(980, "4720.80");
+  await prisma.jobOrder.update({
+    where: { id: quotedJo.id }, data: { quotationId: quote.id },
+  });
+
+  const quotedOpts = await receipts.getPaymentOptions(cashier, quotedJo.id);
+  check("THE AGREED DOWNPAYMENT REACHES THE COUNTER",
+    quotedOpts.agreedDownpayment !== null &&
+      toCentavos(quotedOpts.agreedDownpayment.amount) === toCentavos("2360.40"),
+    quotedOpts.agreedDownpayment);
+  check("…carrying the label the quotation used",
+    quotedOpts.agreedDownpayment?.label === "50% Downpayment",
+    quotedOpts.agreedDownpayment?.label);
+  check("…and no money has moved yet — the quotation collected nothing",
+    toCentavos(quotedOpts.totalReceived) === 0 &&
+      toCentavos(quotedOpts.outstanding) === 0,
+    { received: quotedOpts.totalReceived, outstanding: quotedOpts.outstanding });
+
+  // The customer pays it, and a receipt is issued for exactly that.
+  const dpReceipt = await receipts.receivePayment(cashier, {
+    ...base,
+    jobOrderId: quotedJo.id,
+    kind: "JO_RECEIPT",
+    amount: quotedOpts.agreedDownpayment!.amount,
+    isDownpayment: true,
+    payments: [
+      { method: "CASH", amount: quotedOpts.agreedDownpayment!.amount, reference: undefined },
+    ],
+  });
+  const dpRow = await prisma.sale.findUniqueOrThrow({
+    where: { id: dpReceipt.id },
+    select: { amount: true, amountPaid: true, isDownpayment: true, documentNo: true },
+  });
+  check("THE DOWNPAYMENT IS COLLECTED AND A RECEIPT ISSUED FOR IT",
+    toCentavos(dpRow.amount.toString()) === toCentavos("2360.40") &&
+      toCentavos(dpRow.amountPaid.toString()) === toCentavos("2360.40") &&
+      dpRow.isDownpayment === true &&
+      dpRow.documentNo !== null,
+    { no: dpRow.documentNo, amount: dpRow.amount.toString(), paid: dpRow.amountPaid.toString() });
+  check("…it is settled in full, leaving no utang",
+    toCentavos(dpRow.amount.toString()) === toCentavos(dpRow.amountPaid.toString()));
+
+  const afterDpOpts = await receipts.getPaymentOptions(cashier, quotedJo.id);
+  check("…the balance of the job stays INVOICEABLE, not receivable",
+    toCentavos(afterDpOpts.unbilled) === toCentavos("2360.40") &&
+      toCentavos(afterDpOpts.outstanding) === 0,
+    { unbilled: afterDpOpts.unbilled, outstanding: afterDpOpts.outstanding });
+  check("…and the suggestion is SPENT — it is not offered again on the balance",
+    afterDpOpts.agreedDownpayment === null ||
+      toCentavos(afterDpOpts.unbilled) !== toCentavos(afterDpOpts.joTotal),
+    { agreed: afterDpOpts.agreedDownpayment, unbilled: afterDpOpts.unbilled });
+
+  // The balance is billed by a second receipt, and the two add up.
+  await receipts.receivePayment(cashier, {
+    ...base, jobOrderId: quotedJo.id, kind: "JO_RECEIPT", amount: "2360.40",
+    payments: [{ method: "CASH", amount: "2360.40", reference: undefined }],
+  });
+  const quotedHistory = await receipts.getJobOrderHistory(actor, quotedJo.id);
+  check("THE TWO RECEIPTS ADD UP TO THE QUOTED JOB",
+    quotedHistory.entries.length === 2 &&
+      toCentavos(quotedHistory.totalReceived) === toCentavos("4720.80") &&
+      toCentavos(quotedHistory.stillDue) === 0,
+    { entries: quotedHistory.entries.length, received: quotedHistory.totalReceived });
+  check("…and the first one is on the history as a downpayment",
+    quotedHistory.entries[0]!.label === "Downpayment",
+    quotedHistory.entries.map((e) => e.label));
+
+  // A job with no quotation suggests nothing rather than guessing.
+  const plainJo = await makeJo(981, "1000");
+  check("a job with no quotation suggests no downpayment",
+    (await receipts.getPaymentOptions(cashier, plainJo.id)).agreedDownpayment === null);
+  // ─────────────────────────────────────────────────────────────────────
+  console.log("\nWhat is still to pay on a part-paid job");
+
+  // The counter shows "still to pay" straight off getPaymentOptions, so the
+  // arithmetic behind it has to hold at every stage. A receipt settling in
+  // full says nothing about whether the JOB is settled — that was the reading
+  // that made the dialog confusing.
+  const balJo = await makeJo(990, "4720.80");
+  const stillToPay = async () => {
+    const o = await receipts.getPaymentOptions(cashier, balJo.id);
+    return {
+      total: toCentavos(o.joTotal),
+      paid: toCentavos(o.totalReceived),
+      left: toCentavos(o.joTotal) - toCentavos(o.totalReceived),
+      toBill: toCentavos(o.unbilled),
+      onLedger: toCentavos(o.outstanding),
+    };
+  };
+
+  const bal0 = await stillToPay();
+  check("nothing paid yet — the whole job is still to pay",
+    bal0.left === toCentavos("4720.80") && bal0.paid === 0, bal0);
+
+  // 50% downpayment, settled in full as a document.
+  await receipts.receivePayment(cashier, {
+    ...base, jobOrderId: balJo.id, kind: "JO_RECEIPT", amount: "2360.40",
+    isDownpayment: true,
+    payments: [{ method: "CASH", amount: "2360.40", reference: undefined }],
+  });
+  const bal1 = await stillToPay();
+  check("A RECEIPT SETTLED IN FULL DOES NOT MEAN THE JOB IS",
+    bal1.left === toCentavos("2360.40"), bal1);
+  check("…the money in is exactly what was handed over",
+    bal1.paid === toCentavos("2360.40"), bal1.paid);
+  check("…the rest is still to BILL, and nothing is on the A/R ledger",
+    bal1.toBill === toCentavos("2360.40") && bal1.onLedger === 0, bal1);
+  check("…and still-to-pay always equals total minus paid",
+    bal1.left === bal1.total - bal1.paid);
+
+  // Part of the balance billed and only part paid — utang on top.
+  await receipts.receivePayment(cashier, {
+    ...base, jobOrderId: balJo.id, kind: "JO_RECEIPT", amount: "2360.40",
+    payments: [{ method: "CASH", amount: "1000.00", reference: undefined }],
+  });
+  const bal2 = await stillToPay();
+  check("UTANG STILL COUNTS AS STILL-TO-PAY",
+    bal2.left === toCentavos("1360.40"), bal2);
+  check("…nothing is left to bill — the whole job has been invoiced",
+    bal2.toBill === 0, bal2.toBill);
+  check("…and the unpaid part sits on the A/R ledger",
+    bal2.onLedger === toCentavos("1360.40"), bal2.onLedger);
+  check("…so left-to-bill plus on-the-ledger accounts for it all",
+    bal2.toBill + bal2.onLedger === bal2.left, bal2);
+
+  // Collect the utang and the job is done.
+  const balCustomer = (await prisma.jobOrder.findUniqueOrThrow({
+    where: { id: balJo.id }, select: { customerId: true },
+  })).customerId;
+  const balOpts = await receipts.getCollectOptions(cashier, balCustomer);
+  const balInv = balOpts.invoices.find(
+    (i) => toCentavos(i.openBalance) === toCentavos("1360.40")
+  )!;
+  await receipts.collectFromCustomer(cashier, {
+    customerId: balCustomer,
+    payments: [{ method: "CASH", amount: "1360.40", reference: undefined }],
+    allocations: [{ saleId: balInv.id, amount: "1360.40" }],
+    issueDocument: false,
+  });
+  const bal3 = await stillToPay();
+  check("THE JOB IS FULLY PAID ONCE THE UTANG IS COLLECTED",
+    bal3.left === 0 && bal3.onLedger === 0 && bal3.toBill === 0, bal3);
+  check("…and everything received adds up to the job",
+    bal3.paid === toCentavos("4720.80"), bal3.paid);
+
+
+
 
 
 

@@ -51,7 +51,6 @@ import {
   type ReceiptRowDto,
   type ReceivePaymentInput,
   type ReceivePaymentOptionsDto,
-  type ReplaceReceiptInput,
   type VoidReceiptInput,
 } from "../schemas/receipt";
 import { formatDocumentNo } from "./booklet-service";
@@ -185,6 +184,7 @@ export class ReceiptService {
         vatRegistered: jo.customer.vatRegistered,
       },
       joTotal: toAmount(position.joTotal),
+      agreedDownpayment: agreedDownpaymentOf(jo, position.joTotal),
       totalReceived: toAmount(position.collected),
       unbilled: toAmount(position.unbilled),
       outstanding: toAmount(position.outstanding),
@@ -309,7 +309,10 @@ export class ReceiptService {
 
     await this.receipts.withTransaction(async (tx) => {
       const mark = {
-        type: input.type,
+        // Always CANCELLED: that is the one word the shop writes on the face
+        // of a leaf. What distinguishes cancellations from one another is the
+        // successor's serial (§5.1 step 3), never the mark.
+        type: ReceiptVoidType.CANCELLED,
         reason: input.reason.trim(),
         voidedById: actor.id,
       };
@@ -334,82 +337,13 @@ export class ReceiptService {
       action: "void-receipt",
       payload: {
         documentNo: receipt.documentNo ?? "(no document issued)",
-        type: input.type,
+        type: ReceiptVoidType.CANCELLED,
         reason: input.reason.trim(),
         amount: receipt.amount,
       },
     });
 
     return { id: receipt.id, documentNo: receipt.documentNo };
-  }
-
-  /**
-   * Replace a receipt: mark the spoiled one REPLACED and issue its corrected
-   * successor, in ONE transaction. Doing both at once is what stops a
-   * REPLACED receipt ever being left pointing at nothing — §5.1 step 3 wants
-   * the two serials written on each other, so neither may exist alone.
-   */
-  async replaceReceipt(
-    actor: Actor,
-    input: ReplaceReceiptInput
-  ): Promise<IssueResult & { replacedDocumentNo: string }> {
-    assertCan(actor, "void", "Sale");
-    assertCan(actor, "create", "Sale");
-
-    const isCollection = input.kind === RECEIPT_KIND.COLLECTION;
-    const old = await this.findReceipt(input.receiptId, isCollection);
-
-    if (input.replacement.kind !== input.kind) {
-      // The replacement draws from the same booklet as the receipt it
-      // supersedes; crossing series would break both their sequences.
-      throw new ValidationError(
-        "A replacement must be the same receipt type as the one it replaces."
-      );
-    }
-
-    if (old.documentNo === null) {
-      // Replacing means reissuing under a NEW serial with the two written on
-      // each other (§5.1 step 3). A payment recorded without a receipt has no
-      // serial to supersede — cancel it and record it again.
-      throw new ValidationError(
-        "This payment was recorded without a Collection Receipt, so there is no " +
-          "document to replace. Cancel it and record the payment again."
-      );
-    }
-
-    const plan = await this.planIssue(input.replacement, old.id);
-    const result = await this.receipts.withTransaction(async (tx) => {
-      const issued = await this.issue(actor, plan, tx);
-      const mark = {
-        type: ReceiptVoidType.REPLACED,
-        reason: input.reason.trim(),
-        voidedById: actor.id,
-        replacedById: issued.id,
-      };
-      if (isCollection) {
-        // The superseded collection stops paying for anything; its successor
-        // writes its own allocations in the same transaction.
-        await this.receipts.reverseAllocations(old.id, tx);
-        await this.receipts.markCrVoid(old.id, mark, tx);
-      } else {
-        await this.receipts.markSaleVoid(old.id, mark, tx);
-      }
-      return issued;
-    });
-
-    await this.activity.log({
-      userId: actor.id,
-      entityType: isCollection ? "CollectionReceipt" : "Sale",
-      entityId: old.id,
-      action: "replace-receipt",
-      payload: {
-        documentNo: old.documentNo,
-        replacedBy: result.documentNo ?? "(no document issued)",
-        reason: input.reason.trim(),
-      },
-    });
-
-    return { ...result, replacedDocumentNo: old.documentNo };
   }
 
   /** Load a receipt that is about to be cancelled, and refuse the silly cases. */
@@ -431,13 +365,7 @@ export class ReceiptService {
    * JO, the VAT split, the tender lines, the change. Kept out of the tx so the
    * booklet row is locked for as short a time as possible.
    */
-  private async planIssue(
-    input: ReceivePaymentInput,
-    /** The receipt about to be superseded, if this is a replacement: it is
-     *  voided in the same transaction, so it must not count against the caps
-     *  its own successor is measured by. */
-    supersedesId?: string
-  ) {
+  private async planIssue(input: ReceivePaymentInput) {
     const jo = await this.receipts.findJobOrder(input.jobOrderId);
     if (!jo) throw new NotFoundError("Job order not found.");
 
@@ -447,32 +375,12 @@ export class ReceiptService {
     }
 
     const { sales, crs } = await this.receipts.listByJobOrder(input.jobOrderId);
-    const position = positionOf(
-      jo,
-      sales.filter((s) => s.id !== supersedesId),
-      crs.filter((c) => c.id !== supersedesId)
-    );
+    const position = positionOf(jo, sales, crs);
 
     const creditEnabled = await this.moduleEnabled("credit-control");
     const credit = await this.creditPositionOf(jo, creditEnabled);
-    // Same reason as above: a replacement must not be blocked by the credit a
-    // superseded charge invoice is still holding.
-    const superseded = sales.find((s) => s.id === supersedesId);
-    const creditHeldBySuperseded = superseded
-      ? openBalanceOf(
-          superseded.amount.toString(),
-          superseded.amountPaid.toString(),
-          superseded.settledAmount.toString()
-        )
-      : 0;
 
-    assertIssuable({
-      kind: input.kind,
-      amount,
-      position,
-      credit,
-      creditHeldBySuperseded,
-    });
+    assertIssuable({ kind: input.kind, amount, position, credit });
 
     // The tender lines ARE the money received: over the amount gives change,
     // under it is refused outright below. A single-method payment is the same
@@ -493,16 +401,42 @@ export class ReceiptService {
             `Issue a ${RECEIPT_KIND_LABEL.SI_VAT} or ${RECEIPT_KIND_LABEL.SI_NON_VAT} for what was actually paid.`
         );
       }
-    } else if (settled.balanceDue > 0) {
-      // Every other kind is handed over in exchange for money, so it must be
-      // covered in full. Short payment is not a partial invoice: it is either
-      // a smaller invoice for what was paid, or a Charge Invoice for the rest.
-      // Only SI_CHARGE may open a receivable (docs/sales.txt §3.1.3).
+    } else if (
+      input.kind !== RECEIPT_KIND.JO_RECEIPT &&
+      settled.balanceDue > 0
+    ) {
+      // A Sales Invoice is handed over in exchange for money and must be
+      // covered in full: short payment is not a partial invoice, it is a
+      // smaller invoice for what was paid.
+      //
+      // A JO slip is exempt, because the shop genuinely sells on utang across
+      // the counter without raising a Charge Invoice. Its balance opens a
+      // receivable like any other, and is aged and chased the same way.
       throw new ValidationError(
         `${toAmount(settled.received)} was received against a ${toAmount(amount)} ` +
           `${RECEIPT_KIND_LABEL[input.kind]}. Issue it for ${toAmount(settled.received)} instead, ` +
           `or put the balance on credit with a ${RECEIPT_KIND_LABEL.SI_CHARGE}.`
       );
+    }
+
+    // A JO slip left part-paid is credit extended, so it faces the same
+    // ceiling a Charge Invoice does — on the BALANCE, not on the face value.
+    // Without this a customer at their limit could take unlimited utang by
+    // paying ₱1 on each slip.
+    if (
+      input.kind === RECEIPT_KIND.JO_RECEIPT &&
+      settled.balanceDue > 0 &&
+      credit.enabled &&
+      credit.limit !== null
+    ) {
+      const available =
+        toCentavos(credit.limit) - toCentavos(credit.customerOutstanding);
+      if (settled.balanceDue > available) {
+        throw new ValidationError(
+          `${toAmount(settled.balanceDue)} left on utang would put this customer past their ${credit.limit} limit — ` +
+            `${credit.customerOutstanding} is already outstanding, leaving ${toAmount(Math.max(available, 0))} available.`
+        );
+      }
     }
 
     const header = settled.tenders.length
@@ -514,10 +448,15 @@ export class ReceiptService {
       throw new ValidationError("Invalid payment date.");
     }
 
-    // Terms are frozen onto the invoice at issue — see sale.prisma. Only a
-    // charge invoice falls due, and only while credit control is switched on.
+    // Terms are frozen onto the invoice at issue — see sale.prisma. Anything
+    // that leaves money owing falls due: a Charge Invoice always, and a JO slip
+    // whenever it was only part-paid. A receivable with no due date can never
+    // be overdue, so it would sit in CURRENT forever.
+    const opensCredit =
+      input.kind === RECEIPT_KIND.SI_CHARGE ||
+      (input.kind === RECEIPT_KIND.JO_RECEIPT && settled.balanceDue > 0);
     const dueDate =
-      input.kind === RECEIPT_KIND.SI_CHARGE &&
+      opensCredit &&
       creditEnabled &&
       jo.customer.creditTermDays !== null
         ? new Date(
@@ -727,20 +666,10 @@ export class ReceiptService {
   ): Promise<CollectResultDto> {
     assertCan(actor, "create", "Sale");
 
-    // A replacement supersedes a spoiled receipt: the old one is voided and
-    // the corrected one issued in the SAME transaction, so §5.1 step 3's pair
-    // of cross-referenced serials can never be left half-written.
-    const supersedes = input.replaces
-      ? await this.loadForReplacement(actor, input.replaces.receiptId)
-      : null;
-
     const customer = await this.customers.findById(input.customerId);
     if (!customer) throw new NotFoundError("Customer not found.");
 
-    const open = await this.openInvoicesFor(
-      input.customerId,
-      supersedes?.allocations
-    );
+    const open = await this.openInvoicesFor(input.customerId);
     if (open.length === 0) {
       throw new ValidationError(
         `${customer.name} has nothing outstanding — there is no invoice for this payment to settle.`
@@ -754,11 +683,7 @@ export class ReceiptService {
     const received = lines.reduce((t, l) => t + toCentavos(l.amount), 0);
     const settled = settleTenders(lines, received);
 
-    // Credit the superseded payment itself created is about to be withdrawn
-    // with it, so it is not available to fund its own replacement.
-    const available = (await this.credits.listOpen(input.customerId)).filter(
-      (c) => c.sourceCollectionReceiptId !== (supersedes?.id ?? null)
-    );
+    const available = await this.credits.listOpen(input.customerId);
     const creditAvailable = available.reduce(
       (t, c) => t + toCentavos(c.remaining),
       0
@@ -828,14 +753,6 @@ export class ReceiptService {
       : null;
 
     const result = await this.receipts.withTransaction(async (tx) => {
-      // Undo the superseded payment FIRST so the invoices it settled are open
-      // again by the time the replacement allocates against them — otherwise
-      // the guarded UPDATE would refuse, seeing them as already paid.
-      if (supersedes) {
-        await this.receipts.reverseAllocations(supersedes.id, tx);
-        await this.credits.reverseForCollection(supersedes.id, tx);
-      }
-
       const documentNo = undocumented
         ? null
         : await this.allocateNumber(BookletType.CR, tx);
@@ -897,19 +814,6 @@ export class ReceiptService {
         );
       }
 
-      if (supersedes) {
-        await this.receipts.markCrVoid(
-          supersedes.id,
-          {
-            type: ReceiptVoidType.REPLACED,
-            reason: input.replaces!.reason.trim(),
-            voidedById: actor.id,
-            replacedById: cr.id,
-          },
-          tx
-        );
-      }
-
       return { id: cr.id, documentNo: documentNo?.value ?? null };
     });
 
@@ -922,11 +826,10 @@ export class ReceiptService {
       userId: actor.id,
       entityType: "CollectionReceipt",
       entityId: result.id,
-      action: supersedes ? "replace-collection" : "collect-from-customer",
+      action: "collect-from-customer",
       payload: {
         customer: customer.name,
         documentNo: result.documentNo ?? "(no document issued)",
-        replaces: supersedes?.documentNo ?? "",
         received: toAmount(received),
         applied: toAmount(applied),
         creditUsed: toAmount(creditApplied),
@@ -943,63 +846,19 @@ export class ReceiptService {
       creditUsed: toAmount(creditApplied),
       creditCreated: toAmount(excess),
       invoicesClosed: closed,
-      replacedDocumentNo: supersedes?.documentNo ?? null,
     };
   }
 
-  /**
-   * The payment a replacement supersedes, with the checks that make replacing
-   * it safe at all.
-   */
-  private async loadForReplacement(actor: Actor, receiptId: string) {
-    assertCan(actor, "void", "Sale");
-
-    const old = await this.findReceipt(receiptId, true);
-    if (old.documentNo === null) {
-      // Replacing means reissuing under a NEW serial with the two written on
-      // each other. A payment with no serial has nothing to supersede.
-      throw new ValidationError(
-        "This payment was recorded without a Collection Receipt, so there is no " +
-          "document to replace. Cancel it and record the payment again."
-      );
-    }
-
-    const spent = await this.credits.spentFromCreditsCreatedBy(old.id);
-    if (spent > 0) {
-      throw new ValidationError(
-        `The credit this payment left on the account has already been spent on ${spent} later payment${spent === 1 ? "" : "s"}. Cancel those first.`
-      );
-    }
-
-    return {
-      id: old.id,
-      documentNo: old.documentNo,
-      allocations: await this.receipts.listAllocations(old.id),
-    };
-  }
-
-  /**
-   * A customer's open invoices across every job order, oldest first.
-   *
-   * `reopening` adds an about-to-be-reversed payment's allocations back onto
-   * the balances, so a replacement is measured against the debt as it will be
-   * once the old payment is withdrawn — not as it stands with that payment
-   * still counted.
-   */
-  private async openInvoicesFor(
-    customerId: string,
-    reopening?: { saleId: string; amount: string }[]
-  ) {
+  /** A customer's open invoices across every job order, oldest first. */
+  private async openInvoicesFor(customerId: string) {
     const rows = await this.receipts.listReceivables(customerId);
-    const readded = new Map<string, number>();
-    for (const a of reopening ?? []) {
-      readded.set(a.saleId, (readded.get(a.saleId) ?? 0) + toCentavos(a.amount));
-    }
     return rows
       .map((r) => {
-        const openBalance =
-          openBalanceOf(r.amount, r.amountPaid, r.settledAmount) +
-          (readded.get(r.id) ?? 0);
+        const openBalance = openBalanceOf(
+          r.amount,
+          r.amountPaid,
+          r.settledAmount
+        );
         // Suggested only — the cashier enters what the certificates actually
         // say. Both rates apply to the same VAT-EXCLUSIVE base, and the pair
         // is capped TOGETHER at the open balance: a government invoice carries
@@ -1510,6 +1369,28 @@ function openBalanceOf(
  * the job reopens and the counter can issue a fresh receipt (docs/sales.txt
  * §5). So every sum here runs over live rows only.
  */
+/**
+ * The downpayment the quotation agreed, priced against this job's total.
+ *
+ * Null when the job was encoded directly, or quoted at full payment — there is
+ * nothing to suggest, and suggesting zero would be worse than suggesting
+ * nothing. Rounded to the centavo the same way every other figure is.
+ */
+function agreedDownpaymentOf(
+  jo: JoForReceiptRecord,
+  joTotalCents: number
+): { rate: string; label: string | null; amount: string } | null {
+  const rate = jo.quotation?.downpaymentRate;
+  if (rate === null || rate === undefined) return null;
+  const fraction = Number(rate.toString());
+  if (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) return null;
+  return {
+    rate: rate.toString(),
+    label: jo.quotation?.paymentTermLabel ?? null,
+    amount: toAmount(Math.round(joTotalCents * fraction)),
+  };
+}
+
 function positionOf(
   jo: JoForReceiptRecord,
   sales: SaleRecord[],
@@ -1670,9 +1551,8 @@ function assertIssuable(args: {
   amount: number;
   position: JoPosition;
   credit: CreditPosition;
-  creditHeldBySuperseded: number;
 }): void {
-  const { kind, amount, position, credit, creditHeldBySuperseded } = args;
+  const { kind, amount, position, credit } = args;
 
   const reason = blockReasonFor(kind, position, credit);
   if (reason) throw new ValidationError(reason);
@@ -1694,9 +1574,7 @@ function assertIssuable(args: {
 
   if (kind === RECEIPT_KIND.SI_CHARGE && credit.enabled && credit.limit !== null) {
     const available =
-      toCentavos(credit.limit) -
-      toCentavos(credit.customerOutstanding) +
-      creditHeldBySuperseded;
+      toCentavos(credit.limit) - toCentavos(credit.customerOutstanding);
     if (amount > available) {
       throw new ValidationError(
         `${toAmount(amount)} on credit would put this customer past their ${credit.limit} limit — ` +

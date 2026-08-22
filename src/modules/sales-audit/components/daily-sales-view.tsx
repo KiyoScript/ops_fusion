@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { AuditFlagType } from "@/generated/prisma/enums";
 import {
   RECEIPT_KIND,
-  VOID_TYPE_LABEL,
+  VOID_MARK,
   type ReceiptRowDto,
 } from "../schemas/receipt";
 import { useAuditReceipt, useDailyReceipts, useDailySummary } from "../hooks/use-sales-audit";
@@ -293,10 +293,7 @@ function ReceiptRow({
         </span>
         {isVoid && (
           <div className="mt-0.5 grid justify-items-start gap-0.5">
-            <ColorBadge
-              tone="red"
-              label={VOID_TYPE_LABEL[row.voidType!].toUpperCase()}
-            />
+            <ColorBadge tone="red" label={VOID_MARK} />
             {/* The successor AND the reason — §5.1 asks for both: step 3 wants
                 the two serials written on each other, step 2 wants the reason
                 on the face of the receipt. Showing only the link left an

@@ -634,7 +634,7 @@ export function QuotationForm({
           </div>
 
           <div className="grid gap-2">
-            <Label>Payment term</Label>
+            <Label>Downpayment</Label>
             <Controller
               control={form.control}
               name="downpaymentRate"
@@ -643,7 +643,7 @@ export function QuotationForm({
                 return (
                   <div
                     role="radiogroup"
-                    aria-label="Payment term"
+                    aria-label="Downpayment"
                     className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
                   >
                     {PAYMENT_TERMS.map((t) => {

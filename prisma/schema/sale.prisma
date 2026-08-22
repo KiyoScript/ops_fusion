@@ -32,10 +32,20 @@ enum PaymentStatus {
 //
 // docs/sales.txt §5: a spoiled receipt is never thrown away or renumbered —
 // it stays in the booklet at its own serial position so all 50 leaves can be
-// accounted for. These three are the marks written on its face:
-//   CANCELLED — the transaction did not push through at all
-//   VOID      — the receipt itself was spoiled (wrong amount, misprint)
-//   REPLACED  — reissued under a new serial, and the two point at each other
+// accounted for.
+//
+// The shop writes ONE word on the face of the leaf — CANCELLED — whatever the
+// reason and whether or not a new receipt takes its place. There is no
+// separate physical "void" gesture and no separate "replace" gesture: you
+// cancel the leaf, and if the transaction still stands you write a new one.
+// So there is ONE action in the app, Cancel, and this enum is a system record
+// rather than a choice put to the cashier:
+//   CANCELLED — every cancellation. The only value anything writes.
+//   VOID      — legacy rows only; nothing writes it any more.
+//   REPLACED  — legacy rows only, from when reissuing was its own action.
+//               Paired with replacedById on those rows, which is what the day
+//               log still reads to show the two serials against each other.
+// The UI shows CANCELLED for all three, because that is what the paper says.
 enum ReceiptVoidType {
   CANCELLED
   VOID

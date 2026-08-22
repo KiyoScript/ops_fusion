@@ -12,7 +12,6 @@ import type {
   ReceiptListPageDto,
   ReceivePaymentInput,
   ReceivePaymentOptionsDto,
-  ReplaceReceiptInput,
   VoidReceiptInput,
 } from "../schemas/receipt";
 import type { AuditReceiptInput } from "../schemas/audit";
@@ -136,25 +135,6 @@ export function useVoidReceipt() {
     // ["receipts"] is a prefix of the payment-options key, so this refetch is
     // what reopens the JO's balance in the dialog.
     onSuccess: () => qc.invalidateQueries({ queryKey: ["receipts"] }),
-  });
-}
-
-/** Void a receipt and issue its corrected successor — one transaction. */
-export function useReplaceReceipt() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: ReplaceReceiptInput) =>
-      fetchJson<{
-        id: string;
-        documentNo: string | null;
-        changeGiven: string;
-        replacedDocumentNo: string;
-      }>("/api/receipts/void", json(input)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["receipts"] });
-      // A replacement consumes a fresh booklet number.
-      qc.invalidateQueries({ queryKey: ["booklets"] });
-    },
   });
 }
 

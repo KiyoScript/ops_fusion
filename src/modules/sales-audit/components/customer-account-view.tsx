@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftIcon, BanIcon, HandCoinsIcon, RefreshCwIcon } from "lucide-react";
+import { ArrowLeftIcon, BanIcon, HandCoinsIcon } from "lucide-react";
 import { fetchJson } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,10 +13,9 @@ import { cn } from "@/lib/utils";
 import {
   AGING_BUCKETS,
   AGING_BUCKET_LABEL,
-  VOID_TYPE_LABEL,
+  VOID_MARK,
   type AgingBucket,
   type CustomerAccountDto,
-  type CustomerPaymentDto,
 } from "../schemas/receipt";
 import { CollectPaymentDialog } from "./collect-payment-dialog";
 import { VoidReceiptDialog, type VoidTarget } from "./void-receipt-dialog";
@@ -68,7 +67,6 @@ export function CustomerAccountView({
 }) {
   const [collecting, setCollecting] = useState(false);
   const [voiding, setVoiding] = useState<VoidTarget | null>(null);
-  const [replacing, setReplacing] = useState<CustomerPaymentDto | null>(null);
 
   const account = useQuery({
     queryKey: ["receivables", "account", customerId],
@@ -311,10 +309,7 @@ export function CustomerAccountView({
                       )}
                       {isVoid && p.voidType && (
                         <span className="grid justify-items-start gap-0.5">
-                          <ColorBadge
-                            tone="red"
-                            label={VOID_TYPE_LABEL[p.voidType].toUpperCase()}
-                          />
+                          <ColorBadge tone="red" label={VOID_MARK} />
                           {/* Successor AND reason: §5.1 wants the two serials
                               written on each other (step 3) and the reason on
                               the face of the receipt (step 2). */}
@@ -391,32 +386,21 @@ export function CustomerAccountView({
                     {/* A cancelled payment is already marked; there is nothing
                         left to do to it. §5.1 step 6 wants a supervisor. */}
                     {!isVoid && canVoid && (
-                      <span className="flex justify-end gap-1">
-                        {p.documentIssued && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setReplacing(p)}
-                          >
-                            <RefreshCwIcon /> Replace
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            setVoiding({
-                              id: p.id,
-                              kind: "COLLECTION",
-                              documentNo: p.documentNo,
-                              kindLabel: "Collection Receipt",
-                              amount: peso(p.amount),
-                            })
-                          }
-                        >
-                          <BanIcon /> Cancel
-                        </Button>
-                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setVoiding({
+                            id: p.id,
+                            kind: "COLLECTION",
+                            documentNo: p.documentNo,
+                            kindLabel: "Collection Receipt",
+                            amount: peso(p.amount),
+                          })
+                        }
+                      >
+                        <BanIcon /> Cancel
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -429,19 +413,6 @@ export function CustomerAccountView({
       <CollectPaymentDialog
         customerId={collecting ? customerId : null}
         onClose={() => setCollecting(false)}
-      />
-      <CollectPaymentDialog
-        customerId={replacing ? customerId : null}
-        replaces={
-          replacing && replacing.documentNo
-            ? {
-                id: replacing.id,
-                documentNo: replacing.documentNo,
-                amount: replacing.amount,
-              }
-            : null
-        }
-        onClose={() => setReplacing(null)}
       />
       <VoidReceiptDialog receipt={voiding} onClose={() => setVoiding(null)} />
     </div>

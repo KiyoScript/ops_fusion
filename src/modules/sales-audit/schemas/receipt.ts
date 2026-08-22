@@ -150,44 +150,33 @@ export const receivePaymentInput = z.object({
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// CANCEL / VOID / REPLACE — docs/sales.txt §5.
+// CANCELLING A RECEIPT — docs/sales.txt §5.
 //
 // The receipt keeps its serial number and stays in the booklet; it simply
 // stops counting as revenue, which reopens the Job Order's balance so the
-// counter can issue a fresh one. A REPLACED receipt is voided and reissued in
-// the same breath, and the two point at each other.
+// counter can issue a fresh one.
+//
+// ONE MARK, ONE ACTION. The shop writes CANCELLED on the face of the leaf in
+// every case — there is no separate physical "void" gesture and no separate
+// "replace" gesture: you cancel the leaf, and if the transaction still stands
+// you write a new one. So the app offers Cancel and nothing else, and the
+// cashier is never asked to classify a cancellation.
+//
+// Reissuing is therefore two ordinary steps at the counter: cancel, which
+// reopens the job's balance, then issue the corrected receipt from this same
+// dialog. `ReceiptVoidType` stays in the schema so rows written by the old
+// reissue action keep reading correctly.
 // ══════════════════════════════════════════════════════════════════════════
 
-export const VOID_TYPE_LABEL: Record<ReceiptVoidType, string> = {
-  CANCELLED: "Cancelled",
-  VOID: "Void",
-  REPLACED: "Replaced",
-};
-
-/** Why each mark is used — shown to whoever is signing the cancellation off. */
-export const VOID_TYPE_HINT: Record<ReceiptVoidType, string> = {
-  CANCELLED: "The transaction did not push through.",
-  VOID: "The receipt itself was spoiled — wrong amount, misprint, torn.",
-  REPLACED: "Reissued under a new serial number, linked to this one.",
-};
+/** What goes on the face of a cancelled leaf, and on its badge everywhere. */
+export const VOID_MARK = "CANCELLED";
 
 export const voidReceiptInput = z.object({
   receiptId: z.string().min(1, "Receipt is required."),
   kind: z.enum(RECEIPT_KIND),
-  /** REPLACED is not accepted here — use `replaceReceipt`, which reissues. */
-  type: z.enum([ReceiptVoidType.CANCELLED, ReceiptVoidType.VOID]),
   // §5.1 step 2: the reason is written on the face of the receipt, so it is
   // never optional.
   reason: z.string().trim().min(3, "Write the reason for the cancellation.").max(500),
-});
-
-/** Void a receipt and issue its replacement in one transaction. */
-export const replaceReceiptInput = z.object({
-  receiptId: z.string().min(1, "Receipt is required."),
-  kind: z.enum(RECEIPT_KIND),
-  reason: z.string().trim().min(3, "Write the reason for the replacement.").max(500),
-  /** The corrected receipt. Same shape as a fresh Receive Payment. */
-  replacement: receivePaymentInput,
 });
 
 export const receiptListFilters = z.object({
@@ -204,7 +193,6 @@ export const receiptListFilters = z.object({
 export type PaymentLineInput = z.infer<typeof paymentLineInput>;
 export type ReceivePaymentInput = z.infer<typeof receivePaymentInput>;
 export type VoidReceiptInput = z.infer<typeof voidReceiptInput>;
-export type ReplaceReceiptInput = z.infer<typeof replaceReceiptInput>;
 export type ReceiptListFilters = z.infer<typeof receiptListFilters>;
 
 // ——— DTOs ———
@@ -303,6 +291,22 @@ export type ReceivePaymentOptionsDto = {
     vatRegistered: boolean;
   };
   joTotal: string;
+  /**
+   * What the quotation this job came from agreed as a downpayment — null for
+   * a job encoded directly, or one quoted with no downpayment.
+   *
+   * The counter opens pre-filled with it rather than leaving the cashier to
+   * work out 50% of ₱4,720.80 in their head, which is where the quoted figure
+   * and the collected one start to disagree.
+   */
+  agreedDownpayment: {
+    /** "0.50" — the fraction agreed. */
+    rate: string;
+    /** "50% Downpayment", as written on the quotation. */
+    label: string | null;
+    /** rate × job total, already worked out. */
+    amount: string;
+  } | null;
   /** Money actually in against this JO — invoices paid at the counter plus
    *  every collection since. */
   totalReceived: string;
@@ -665,22 +669,6 @@ export const collectFromCustomerInput = z.object({
   issueDocument: z.boolean().optional(),
   receivedAt: z.string().optional(),
   notes: z.string().trim().max(2000).optional(),
-
-  /**
-   * Reissue a spoiled Collection Receipt (docs/sales.txt §5.1). The old one is
-   * marked REPLACED and this one issued in the SAME transaction, with the two
-   * serials written on each other — neither may exist alone.
-   */
-  replaces: z
-    .object({
-      receiptId: z.string().min(1),
-      reason: z
-        .string()
-        .trim()
-        .min(3, "Write the reason for the replacement.")
-        .max(500),
-    })
-    .optional(),
 });
 
 export type CollectFromCustomerInput = z.infer<typeof collectFromCustomerInput>;
@@ -740,8 +728,6 @@ export type CollectResultDto = {
   creditCreated: string;
   /** Invoices this payment closed outright. */
   invoicesClosed: number;
-  /** The serial this one supersedes, when it was issued as a replacement. */
-  replacedDocumentNo: string | null;
 };
 
 /**
