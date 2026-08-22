@@ -30,6 +30,10 @@ model ReceiptPayment {
   /// Order as entered at the counter, so the receipt reprints identically.
   seq       Int           @default(0)
 
+  /// Present only on a CHECK line. A cheque is not money until it clears, so
+  /// it carries its own lifecycle — see cheque.prisma.
+  cheque Cheque?
+
   createdAt DateTime @default(now())
 
   @@index([saleId])

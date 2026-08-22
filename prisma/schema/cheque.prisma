@@ -1,0 +1,73 @@
+// ============================================================
+// SALES / AUDIT — CHEQUES
+// ============================================================
+
+// Where a cheque is in its life. The whole point of this model is that the
+// first two states are NOT money yet:
+//
+//   RECEIVED  — in the drawer. Undeposited funds (account 1112), not bank.
+//   DEPOSITED — lodged with the bank, still not cleared. Float.
+//   CLEARED   — the funds are actually there. Only now is it money.
+//   BOUNCED   — returned: DAIF, DAUD, account closed, stop payment.
+//
+// A cheque recorded as a payment and never tracked past RECEIVED is how a
+// receivable gets closed by money that never arrived.
+enum ChequeStatus {
+  RECEIVED
+  DEPOSITED
+  CLEARED
+  BOUNCED
+}
+
+// One cheque, tracked from the counter to the bank.
+//
+// A cheque IS a tender line — the row in ReceiptPayment that says "₱2,000 came
+// in as CHECK". This hangs off that line one-to-one, so a receipt settled with
+// two cheques has two tender lines and two of these, each with its own number
+// and its own fate. That matters: two cheques are two cheque numbers, and one
+// of them bouncing says nothing about the other.
+//
+// The AMOUNT deliberately lives on the tender line and is not copied here.
+// Money with two homes drifts, and the tender line is the one the receipt
+// totals are built from (R1).
+model Cheque {
+  id String @id @default(cuid())
+
+  receiptPaymentId String         @unique
+  receiptPayment   ReceiptPayment @relation(fields: [receiptPaymentId], references: [id], onDelete: Cascade)
+
+  /// As written on the face of the cheque.
+  chequeNo String
+  /// Drawee bank, for the deposit slip and the bank reconciliation.
+  bank     String?
+  /// The date on the face. Null when it was not recorded at the counter.
+  /// A POST-DATED cheque is an ordinary thing here: this is the earliest the
+  /// bank will take it, and depositing before it is what causes a DAUD return.
+  chequeDate DateTime?
+
+  status ChequeStatus @default(RECEIVED)
+
+  /// Deposit slip reference, so a bank line can be traced back to the cheques
+  /// that made it up without a separate batching model.
+  depositSlipNo String?
+  depositedAt   DateTime?
+  depositedById String?
+  depositedBy   User?     @relation("ChequeDepositedBy", fields: [depositedById], references: [id])
+
+  clearedAt   DateTime?
+  clearedById String?
+  clearedBy   User?     @relation("ChequeClearedBy", fields: [clearedById], references: [id])
+
+  bouncedAt    DateTime?
+  bouncedById  String?
+  bouncedBy    User?     @relation("ChequeBouncedBy", fields: [bouncedById], references: [id])
+  /// Why the bank returned it — DAIF, DAUD, account closed, stop payment.
+  bounceReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([chequeDate])
+  @@index([depositSlipNo])
+}

@@ -3,6 +3,7 @@ export { getReceiptService, ReceiptService } from "./receipt-service";
 export { getReceivableService, ReceivableService } from "./receivable-service";
 export { getWithholdingService, WithholdingService } from "./withholding-service";
 export { getBacklogService, BacklogService } from "./backlog-service";
+export { getChequeService, ChequeService } from "./cheque-service";
 export {
   splitVat,
   settleTenders,

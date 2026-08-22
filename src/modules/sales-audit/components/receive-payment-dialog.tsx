@@ -711,6 +711,12 @@ export function ReceivePaymentDialog({
                           cashIn={cashIn}
                           joTotal={num(jo?.joTotal ?? "0")}
                           paidBefore={num(jo?.totalReceived ?? "0")}
+                          // Bill what was actually handed over. On a Sales
+                          // Invoice this is the only way forward — the receipt
+                          // must be settled in full — and on a JO slip it is
+                          // the difference between a downpayment (the rest
+                          // stays invoiceable) and utang (the rest is a debt).
+                          onBillReceived={() => setAmountEdit(received.toFixed(2))}
                         />
                       </div>
                     )}
@@ -1133,6 +1139,7 @@ function Settlement({
   cashIn,
   joTotal,
   paidBefore,
+  onBillReceived,
 }: {
   kind: ReceiptKind;
   received: number;
@@ -1147,6 +1154,8 @@ function Settlement({
   joTotal: number;
   /** Money already in against this job, before this receipt. */
   paidBefore: number;
+  /** Drop the amount invoiced to what was actually received. */
+  onBillReceived: () => void;
 }) {
   // Change handed back is not money the shop kept, so it never counts toward
   // the job — otherwise over-tendering ₱1,000 on a ₱700 job would read as
@@ -1181,6 +1190,22 @@ function Settlement({
               ? `Stays owing on this job. It lands on the A/R ledger, ages from today, and is collected later.`
               : `A ${RECEIPT_KIND_LABEL[kind]} is settled in full when it is issued. Invoice ${peso(received)} instead, or put the rest on credit with a ${RECEIPT_KIND_LABEL.SI_CHARGE}.`}
           </span>
+
+          {/* The way out of the shortfall, one click. Only offered when money
+              actually came in: billing ₱0 is not a smaller invoice, it is a
+              Charge Invoice, and that is a different document the cashier
+              picks deliberately. */}
+          {received > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-1 justify-self-start"
+              onClick={onBillReceived}
+            >
+              Bill only {peso(received)} instead
+            </Button>
+          )}
         </div>
       )}
 

@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { ConflictError } from "@/lib/errors";
 import type { Prisma } from "@/generated/prisma/client";
+import { PaymentMethod } from "@/generated/prisma/enums";
 import type {
   AuditEntryStatus,
   AuditFlagType,
-  PaymentMethod,
   PaymentStatus,
   ReceiptVoidType,
   SaleType,
@@ -572,6 +572,36 @@ export interface IReceiptRepository {
   ): Promise<{ saleId: string; amount: string; ewtWithheld: string; vatWithheld: string }[]>;
 }
 
+/**
+ * Give every CHECK tender line on a freshly written receipt its own cheque.
+ *
+ * Done HERE, inside the two create methods, rather than by their callers: a
+ * cheque nobody is tracking is a receivable that closes on money which never
+ * arrived, and that is precisely the failure this model exists to prevent. If
+ * a new receipt path is ever added, it gets the tracking for free.
+ *
+ * The cheque number is whatever the counter typed into the line's reference —
+ * that is where the dialog already puts it. A blank one is recorded as such
+ * rather than silently dropped: an untracked cheque is worse than an
+ * unnumbered one.
+ */
+async function trackCheques(
+  owner: { saleId: string } | { collectionReceiptId: string },
+  tx: DbTx
+): Promise<void> {
+  const lines = await tx.receiptPayment.findMany({
+    where: { ...owner, method: PaymentMethod.CHECK },
+    select: { id: true, reference: true },
+  });
+  if (lines.length === 0) return;
+  await tx.cheque.createMany({
+    data: lines.map((l) => ({
+      receiptPaymentId: l.id,
+      chequeNo: l.reference?.trim() || "(number not recorded)",
+    })),
+  });
+}
+
 export class PrismaReceiptRepository implements IReceiptRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T> {
     return prisma.$transaction(fn);
@@ -586,10 +616,12 @@ export class PrismaReceiptRepository implements IReceiptRepository {
 
   async createSale(data: SaleCreateData, tx: DbTx): Promise<{ id: string }> {
     const { payments, ...header } = data;
-    return tx.sale.create({
+    const created = await tx.sale.create({
       data: { ...header, payments: { create: payments } },
       select: { id: true },
     });
+    await trackCheques({ saleId: created.id }, tx);
+    return created;
   }
 
   async createCr(data: CrCreateData, tx: DbTx): Promise<{ id: string }> {
@@ -600,6 +632,7 @@ export class PrismaReceiptRepository implements IReceiptRepository {
       data: { ...header, payments: { create: payments } },
       select: { id: true },
     });
+    await trackCheques({ collectionReceiptId: created.id }, tx);
     if (allocations.length > 0) {
       await this.allocate(created.id, allocations, tx);
     }
