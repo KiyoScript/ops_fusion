@@ -41,7 +41,7 @@ const products: {
   basePrice: number;
   description: string;
 }[] = [
-  { name: "Tarpaulin", category: "Large Format", unit: "sqft", basePrice: 50, description: "Rate per sqft · rush +150 · design fee +250" },
+  { name: "Tarpaulin", category: "Large Format", unit: "sqft", basePrice: 20, description: "₱20 per sqft · rush +150 · design fee +250" },
   { name: "Signage (Metal Frame)", category: "Signage", unit: "sqft", basePrice: 0, description: "Parametric pricing — price DB 'Signage New' (single/double face, 3D build-up, mounting & complexity surcharges)" },
   { name: "Acrylic Signage", category: "Acrylic", unit: "sqft", basePrice: 600, description: "Min 1×1 ft; smaller charged as 1×1 · customized shape, 1 layer" },
   { name: "Acrylic Display", category: "Acrylic", unit: "sqft", basePrice: 200, description: "2mm 200 / 3mm 225 per sqft · min 1×1 ft" },
@@ -85,8 +85,9 @@ type RuleSeed = {
 };
 
 const priceRules: Record<string, RuleSeed[]> = {
+  // Tarpaulin is area-priced (₱/sqft on basePrice) — no pickable variant; the
+  // rate lives on the product, eyelets are a free spec, Art Work / Rush are ADDONs.
   Tarpaulin: [
-    { type: "VARIANT", label: "Standard rate", unitPrice: 50 },
     { type: "ADDON", label: "Rush fee", amount: 150 },
     { type: "ADDON", label: "Design fee", amount: 250 },
   ],

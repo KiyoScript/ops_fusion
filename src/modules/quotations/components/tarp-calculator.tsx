@@ -21,7 +21,17 @@ const UNITS = [
   { value: "m", label: "Meters", toFt: 3.28084 },
 ] as const;
 
-const EYELETS = ["With Eyelets", "No Eyelet"] as const;
+// Eyelet position — spec only, no price effect (legacy Tarpauline.html: all
+// positions are "INCLUDED"). Three positions, matching the legacy wizard.
+const EYELETS = ["No Eyelet", "Top Only", "All Sides"] as const;
+
+/** Old lines stored "With Eyelets"; map it to the closest legacy position. */
+function normalizeEyelet(value: string | undefined): string {
+  if (value === "With Eyelets") return "All Sides";
+  return (EYELETS as readonly string[]).includes(value ?? "")
+    ? (value as string)
+    : "No Eyelet";
+}
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -77,7 +87,7 @@ export function TarpCalculator({
   const [height, setHeight] = useState(saved.height ? String(saved.height) : "");
   const [unit, setUnit] = useState(saved.unit ?? "ft");
   const [rate, setRate] = useState(String(saved.ratePerSqft ?? baseRate));
-  const [eyelet, setEyelet] = useState<string>(saved.eyelet ?? "With Eyelets");
+  const [eyelet, setEyelet] = useState<string>(normalizeEyelet(saved.eyelet));
   // Checked add-on labels; migrate legacy rush/design specs from older lines.
   const [checked, setChecked] = useState<string[]>(() => {
     if (Array.isArray(saved.addons)) return saved.addons.map((a) => a.label);
@@ -118,7 +128,7 @@ export function TarpCalculator({
   };
   const parts = [
     `Tarpaulin ${w} × ${h} ${unit} (${sqftPerPc.toFixed(2)} sqft/pc)`,
-    eyelet === "With Eyelets" ? "With eyelets" : "No eyelets",
+    eyelet === "No Eyelet" ? "No eyelets" : `Eyelets: ${eyelet}`,
   ];
   for (const a of chosenAddons) parts.push(a.label);
   const result = {
