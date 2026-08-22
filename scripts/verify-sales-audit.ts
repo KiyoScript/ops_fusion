@@ -175,7 +175,7 @@ async function main() {
   const makeJo = async (n: number, amount: string) =>
     jos.create(actor, {
       joNumber: `${PREFIX}JO-${n}`,
-      isPO: false, isNonJo: true, customerName: CUSTOMER,
+      isPO: false, customerName: CUSTOMER,
       items: [{
         description: `Tarpaulin ${n}`, qty: "1", amount,
         deadline: dateStr(1), isLFP: false, isRush: false,

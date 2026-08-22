@@ -38,7 +38,6 @@ model JobOrder {
   // number; when both are false the number is auto-generated
   // (JO-ORM-YYMM-##### format — the shared PREFIX-BRANCH-YYMM-#### convention).
   isPO                 Boolean           @default(false)
-  isNonJo              Boolean           @default(false)
   // Customer approval gate (fusion-only): checking this REQUIRES at least one
   // attachment as proof (signed quote, photo, any file) — the signal that the
   // JO is final and production may start. The printable says "THIS IS FOR

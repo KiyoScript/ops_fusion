@@ -79,11 +79,7 @@ export function JobOrderForm({
     ),
     defaultValues: initialValues ?? {
       joNumber: "",
-      // Quotation-first (ruling 2026-07-15): production JOs and POs are born
-      // by CONVERTING a quotation — direct entry here is for walk-in Non-JO
-      // counter jobs only (xerox, photocopies, supplies).
       isPO: false,
-      isNonJo: true,
       customerName: "",
       notes: "",
       planDateStart: "",
@@ -94,7 +90,6 @@ export function JobOrderForm({
   const items = useFieldArray({ control: form.control, name: "items" });
   const watchedItems = useWatch({ control: form.control, name: "items" });
   const watchedIsPO = useWatch({ control: form.control, name: "isPO" });
-  const watchedIsNonJo = useWatch({ control: form.control, name: "isNonJo" });
   const { errors, isSubmitting } = form.formState;
 
   // Maintained dropdown lists (Maintenance → Job Orders). Statuses fall back
@@ -168,35 +163,17 @@ export function JobOrderForm({
           }
         >
           <div className="grid gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label htmlFor="joNumber">
-                {watchedIsPO
-                  ? "PO Number"
-                  : watchedIsNonJo
-                    ? "Reference #"
-                    : "JO Number"}
-              </Label>
-              {mode === "create" && (
-                // Quotation-first: only walk-in Non-JO counter jobs are
-                // encoded directly — JOs/POs arrive by converting a quotation.
-                <span
-                  className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
-                  title="Walk-in counter job — xerox, photocopies, supplies. Production JOs and POs are created by converting a quotation."
-                >
-                  Non-JO · walk-in
-                </span>
-              )}
-            </div>
+            <Label htmlFor="joNumber">
+              {watchedIsPO ? "PO Number" : "JO Number"}
+            </Label>
             <Input
               id="joNumber"
               placeholder={
                 watchedIsPO
                   ? "Type the customer's PO number"
-                  : watchedIsNonJo
-                    ? "Type the reference number"
-                    : "Auto-generated (JO-ORM-…)"
+                  : "Auto-generated (JO-ORM-…)"
               }
-              disabled={mode === "edit" || (!watchedIsPO && !watchedIsNonJo)}
+              disabled={mode === "edit" || !watchedIsPO}
               aria-invalid={!!errors.joNumber}
               {...form.register("joNumber")}
             />
@@ -440,9 +417,8 @@ export function JobOrderForm({
                   </p>
                 )}
 
-              {/* LFP is a Product attribute now (fixed-standard production) —
-                  Non-JO walk-ins (xerox/photocopy/supplies) are never large
-                  format, so no manual LFP flag/dimensions here. Production JOs
+              {/* LFP is a Product attribute now (fixed-standard production), so
+                  there is no manual LFP flag/dimensions here. Production JOs
                   inherit LFP from the quotation's products. */}
             </div>
           ))}

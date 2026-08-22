@@ -143,8 +143,8 @@ export const demoQuotes: DemoQuote[] = [
     ],
   },
   {
-    number: `NJ-ORM-${QUOTE_YYMM}-00001`,
-    type: QuotationType.NON_JO,
+    number: `QT-ORM-${QUOTE_YYMM}-00005`,
+    type: QuotationType.SALES,
     status: QuotationStatus.DRAFT,
     taxType: TaxType.NON_VAT,
     customer: 3,

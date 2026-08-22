@@ -65,7 +65,7 @@ async function main() {
   const paper = await mats.create(actor, materialInput.parse({ code: "VMR-001", name: "MR Paper", unit: "sheet", unitCost: 5, openingQty: 100 }));
   const ink = await mats.create(actor, materialInput.parse({ code: "VMR-002", name: "MR Ink", unit: "bottle", unitCost: 10, openingQty: 100 }));
   const jo = await jos.create(actor, {
-    joNumber: "VMR-JO-1", isPO: false, isNonJo: true, customerName: CUST,
+    joNumber: "VMR-JO-1", isPO: false, customerName: CUST,
     items: [{ description: "Tarp", qty: "1", amount: "100", deadline: dateStr(1), isLFP: false, isRush: false }],
   });
 

@@ -20,16 +20,13 @@ enum TaxType {
   VAT_INCLUSIVE
 }
 
-// Single-table discriminator (mirrors JobOrder.isPO/isNonJo). One Quotation
-// table, three flavors:
-//   SALES  — the default sales quotation (auto-numbered Q-…)
-//   PO     — quote raised against a customer's Purchase Order (poNumber set)
-//   NON_JO — quote for work that never becomes a JO (photocopy, supplies,
-//            walk-in) — priced and billed, but no production job.
+// Single-table discriminator (mirrors JobOrder.isPO). One Quotation table,
+// two flavors:
+//   SALES — the default sales quotation (auto-numbered Q-…)
+//   PO    — quote raised against a customer's Purchase Order (poNumber set)
 enum QuotationType {
   SALES
   PO
-  NON_JO
 }
 
 model Quotation {

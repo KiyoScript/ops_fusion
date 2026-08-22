@@ -175,7 +175,7 @@ export async function renderJoProductionPdf(
   };
   const rule = (yy: number, ch = "-") => t(ruleStr(ch), M, yy, S, font, GRAY);
 
-  const docType = jo.isPO ? "P U R C H A S E   O R D E R" : jo.isNonJo ? "N O N - J O" : "J O B   O R D E R";
+  const docType = jo.isPO ? "P U R C H A S E   O R D E R" : "J O B   O R D E R";
 
   const drawHeader = () => {
     t(COMPANY.name.toUpperCase(), M, y, 10, bold);

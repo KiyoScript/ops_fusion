@@ -144,21 +144,22 @@ async function main() {
     isLFP: false,
     isRush: false,
   });
-  await jos.create(actor, {
-    joNumber: "VERIFY-SM-1",
-    isPO: false, isNonJo: true, customerName: "Verify Customer A",
+  // Plain (non-PO) JOs auto-number now that Non-JO is removed, so the typed
+  // reference is ignored — capture each fixture's real JO number to assert on.
+  const sm1Created = await jos.create(actor, {
+    isPO: false, customerName: "Verify Customer A",
     items: [mkItem("Waiting - Sales & Marketing", dateStr(-1))],
   });
   await jos.create(actor, {
-    joNumber: "VERIFY-SM-2",
-    isPO: false, isNonJo: true, customerName: "Verify Customer A",
+    isPO: false, customerName: "Verify Customer A",
     items: [mkItem("Waiting - Sales & Marketing", dateStr(2))],
   });
-  await jos.create(actor, {
-    joNumber: "VERIFY-CA-1",
-    isPO: false, isNonJo: true, customerName: "Verify Customer A",
+  const ca1Created = await jos.create(actor, {
+    isPO: false, customerName: "Verify Customer A",
     items: [mkItem("Waiting - Customers Approval", dateStr(10))],
   });
+  const sm1No = (await jos.get(actor, sm1Created.id)).joNumber;
+  const ca1No = (await jos.get(actor, ca1Created.id)).joNumber;
   const m = await jos.getBoardMetrics();
   check("all +3", m.all === baseline.all + 3, [baseline.all, m.all]);
   check("smOverdue +1", m.smOverdue === baseline.smOverdue + 1, [baseline.smOverdue, m.smOverdue]);
@@ -167,8 +168,8 @@ async function main() {
   check("overdue +1 (SM-1 past deadline)", m.overdue === baseline.overdue + 1, [baseline.overdue, m.overdue]);
   check("ongoing includes imported 'Ongoing - Printing'", m.ongoing >= 1, m.ongoing);
   check("waiting includes imported pickup item", m.waiting >= 1, m.waiting);
-  const smView = await jos.list(actor, { q: "VERIFY", view: "smOverdue", take: 25 });
-  check("smOverdue view lists VERIFY-SM-1 only", smView.rows.length === 1 && smView.rows[0]!.joNumber === "VERIFY-SM-1", smView.rows.map(r => r.joNumber));
+  const smView = await jos.list(actor, { q: "Verify Customer A", view: "smOverdue", take: 25 });
+  check("smOverdue view lists the SM-1 fixture only", smView.rows.length === 1 && smView.rows[0]!.joNumber === sm1No, smView.rows.map(r => r.joNumber));
 
   console.log("4b2) Calendar (legacy getJODeadlinesForMonth + deadline move)");
   const now = new Date();
@@ -186,14 +187,13 @@ async function main() {
     !inThisMonth(deadline) || calNums.includes(joNumber);
   check(
     "SM/CA pins on this month's calendar (in-month deadlines only)",
-    pinnedIfInMonth("VERIFY-SM-1", dateStr(-1)) && pinnedIfInMonth("VERIFY-CA-1", dateStr(10)),
-    calNums.filter((n) => n.startsWith("VERIFY"))
+    pinnedIfInMonth(sm1No, dateStr(-1)) && pinnedIfInMonth(ca1No, dateStr(10)),
+    calNums.filter((n) => n === sm1No || n === ca1No)
   );
   check("waiting-pickup item excluded from calendar", !cal.some((r) => r.lineItemId === "VERIFY-001-02"));
   check("archived item excluded from calendar", !calNums.includes("VERIFY-002"));
 
-  const sm1 = await jos.list(actor, { q: "VERIFY-SM-1", view: "all", take: 5 });
-  const sm1Id = sm1.rows[0]!.id;
+  const sm1Id = sm1Created.id;
   const moved = await jos.moveJoDeadline(actor, { jobOrderId: sm1Id, newDate: dateStr(6) });
   check("deadline move updates all open items", moved.itemsMoved === 1, moved);
   const sm1After = await jos.get(actor, sm1Id);
@@ -214,7 +214,7 @@ async function main() {
   console.log("4c) Validation parity (legacy submitNewJO)");
   const noDeadline = {
     joNumber: "VERIFY-VAL-1",
-    isPO: false, isNonJo: false, customerName: "X",
+    isPO: false, customerName: "X",
     items: [{ description: "d", qty: "1", amount: "5", isLFP: false, isRush: false }],
   };
   const createParse = jobOrderCreateInput.safeParse(noDeadline);
@@ -236,7 +236,7 @@ async function main() {
     isRush: false,
   };
   const auto1 = await jos.create(actor, {
-    isPO: false, isNonJo: false, customerName: "Verify Customer A",
+    isPO: false, customerName: "Verify Customer A",
     items: [plainItem, { ...plainItem, description: "second item" }],
   });
   const auto1Detail = await jos.get(actor, auto1.id);
@@ -249,7 +249,7 @@ async function main() {
     auto1Detail.items.map((i) => i.lineItemId)
   );
   const auto2 = await jos.create(actor, {
-    isPO: false, isNonJo: false, customerName: "Verify Customer A",
+    isPO: false, customerName: "Verify Customer A",
     items: [plainItem],
   });
   const auto2Detail = await jos.get(actor, auto2.id);
@@ -257,7 +257,7 @@ async function main() {
 
   const po = await jos.create(actor, {
     joNumber: "VERIFY-PO # 998877",
-    isPO: true, isNonJo: false, customerName: "Verify Customer A",
+    isPO: true, customerName: "Verify Customer A",
     items: [plainItem],
   });
   const poDetail = await jos.get(actor, po.id);
@@ -265,23 +265,20 @@ async function main() {
 
   let noNum = "";
   try {
-    await jos.create(actor, { isPO: true, isNonJo: false, customerName: "X", items: [plainItem] });
+    await jos.create(actor, { isPO: true, customerName: "X", items: [plainItem] });
   } catch (e) { noNum = (e as Error).constructor.name; }
   check("PO without a number rejected", noNum === "ValidationError", noNum);
-  const bothFlags = jobOrderCreateInput.safeParse({
-    isPO: true, isNonJo: true, joNumber: "X-1", customerName: "X",
-    items: [plainItem],
-  });
-  check("both PO + Non-JO rejected by schema", !bothFlags.success && bothFlags.error?.issues.some((i) => i.message.includes("not both")));
   // numbering fixtures are not part of the later board counts — remove them
   await prisma.jobOrder.deleteMany({
     where: { id: { in: [auto1.id, auto2.id, po.id] } },
   });
 
   console.log("5) Create / duplicate / status flow / edit / delete");
+  // A PO keeps its typed number, so it exercises the duplicate-number guard
+  // (plain JOs auto-number and can't collide).
   const created = await jos.create(actor, {
     joNumber: "VERIFY-NEW-1",
-    isPO: false, isNonJo: true, customerName: "Verify Customer C",
+    isPO: true, customerName: "Verify Customer C",
     notes: "from verify script",
     items: [
       {
@@ -303,7 +300,7 @@ async function main() {
   try {
     await jos.create(actor, {
       joNumber: "verify-new-1", // case-insensitive duplicate
-      isPO: false, isNonJo: true, customerName: "X",
+      isPO: true, customerName: "X",
       items: [{ description: "d", qty: "1", amount: "1", isLFP: false, isRush: false }],
     });
   } catch (e) {
@@ -335,7 +332,7 @@ async function main() {
   await jos.update(actor, {
     id: created.id,
     joNumber: "VERIFY-NEW-1",
-    isPO: false, isNonJo: true, customerName: "Verify Customer C",
+    isPO: false, customerName: "Verify Customer C",
     items: [
       { id: itemId, description: "Mug print", qty: "12", amount: "1000", isLFP: false, isRush: false },
       { description: "Extra keychains", qty: "5", amount: "250", isLFP: false, isRush: false },
@@ -351,7 +348,7 @@ async function main() {
   try {
     await jos.create(viewer, {
       joNumber: "VERIFY-NOPE",
-      isPO: false, isNonJo: true, customerName: "X",
+      isPO: false, customerName: "X",
       items: [{ description: "d", qty: "1", amount: "1", isLFP: false, isRush: false }],
     });
   } catch (e) {
@@ -362,7 +359,7 @@ async function main() {
   console.log("5b) Per-item board + edit-modal path (updateItem)");
   const board = await jos.listItems(actor, { q: "VERIFY", view: "all", take: 50 });
   check("board lists one row per item (9)", board.rows.length === 9, board.rows.length);
-  check("board rows carry JO + customer", board.rows.every((r) => r.joNumber.startsWith("VERIFY") && r.customerName.length > 0));
+  check("board rows carry JO + customer", board.rows.every((r) => r.joNumber.length > 0 && r.customerName.length > 0));
 
   const keychain = d.items.find((i) => i.description === "Extra keychains")!;
   await jos.updateItem(actor, {
@@ -427,7 +424,7 @@ async function main() {
   await jos.update(actor, {
     id: created.id,
     joNumber: "VERIFY-NEW-1",
-    isPO: false, isNonJo: true, customerName: "Verify Customer C",
+    isPO: false, customerName: "Verify Customer C",
     items: [
       {
         id: itemId,
@@ -486,9 +483,10 @@ async function main() {
     productionStatus: status, isLFP: false, isRush: false,
   });
   const before = await jos.getEodReport(actor);
-  await jos.create(actor, { joNumber: "VERIFY-RPT-OD", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Waiting - Sales & Marketing", dateStr(-2), "500")] });
-  await jos.create(actor, { joNumber: "VERIFY-RPT-DUE", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Ongoing - Printing", dateStr(0), "300")] });
-  await jos.create(actor, { joNumber: "VERIFY-RPT-SOON", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Ongoing - Production", dateStr(2))] });
+  const rptOd = await jos.create(actor, { isPO: false, customerName: "Verify Customer A", items: [rItem("Waiting - Sales & Marketing", dateStr(-2), "500")] });
+  await jos.create(actor, { isPO: false, customerName: "Verify Customer A", items: [rItem("Ongoing - Printing", dateStr(0), "300")] });
+  await jos.create(actor, { isPO: false, customerName: "Verify Customer A", items: [rItem("Ongoing - Production", dateStr(2))] });
+  const rptOdNo = (await jos.get(actor, rptOd.id)).joNumber;
   const eod = await jos.getEodReport(actor);
   check("received today +3", eod.receivedToday.count === before.receivedToday.count + 3, [before.receivedToday.count, eod.receivedToday.count]);
   check("overdue +1 (past-deadline, not waiting-pickup)", eod.overdue.count === before.overdue.count + 1, [before.overdue.count, eod.overdue.count]);
@@ -500,7 +498,7 @@ async function main() {
   check("EOD amounts formatted as peso", eod.text.includes("P") && /P[\d,]+\.\d{2}/.test(eod.text));
 
   const reportRows = await jos.getReportRows();
-  check("dept report lists active items", reportRows.some((r) => r.joNumber === "VERIFY-RPT-OD"));
+  check("dept report lists active items", reportRows.some((r) => r.joNumber === rptOdNo));
   check("dept report sorted by status then days-left", (() => {
     for (let i = 1; i < reportRows.length; i++) {
       const a = reportRows[i - 1]!, b = reportRows[i]!;
@@ -511,14 +509,14 @@ async function main() {
     return true;
   })());
   // waiting-pickup items must NOT be counted overdue even when past deadline
-  await jos.create(actor, { joNumber: "VERIFY-RPT-WP", isPO: false, isNonJo: true, customerName: "Verify Customer A", items: [rItem("Waiting - For Pick up / Delivery", dateStr(-5))] });
+  await jos.create(actor, { joNumber: "VERIFY-RPT-WP", isPO: false, customerName: "Verify Customer A", items: [rItem("Waiting - For Pick up / Delivery", dateStr(-5))] });
   const eod2 = await jos.getEodReport(actor);
   check("waiting-pickup past-deadline excluded from overdue", eod2.overdue.count === eod.overdue.count, [eod.overdue.count, eod2.overdue.count]);
 
   console.log("5e) Customer approval (attachment required) + PDF printable");
   const apJo = await jos.create(actor, {
     joNumber: "VERIFY-AP-1",
-    isPO: false, isNonJo: true, customerName: "Verify Customer A",
+    isPO: false, customerName: "Verify Customer A",
     items: [plainItem],
   });
   let noFile = "";
@@ -533,7 +531,7 @@ async function main() {
   check("attachment stored + listed", apDetail.attachments.length === 1 && apDetail.attachments[0]!.fileName === "signed-quote.png", apDetail.attachments);
   const att = await jos.getAttachment(actor, apDetail.attachments[0]!.id);
   check("attachment downloadable (bytes + mime)", att.data.length === 4 && att.mimeType === "image/png");
-  const apRows = await jos.listItems(actor, { q: "VERIFY-AP-1", view: "all", take: 5 });
+  const apRows = await jos.listItems(actor, { q: apDetail.joNumber, view: "all", take: 5 });
   check("board row carries approved flag", apRows.rows[0]!.joIsApproved === true);
 
   // (The customer-approval JO PDF was removed — the Quotation PDF is the one

@@ -100,13 +100,12 @@ export class QuotationService {
   /** Blueprint document-number format: PREFIX-ORM-YYMM-#####
    *  (e.g. QT-ORM-2607-00123) — ORM is the Ormoc branch code, the series
    *  resets monthly per type. The discriminator prefix keeps the flavor
-   *  readable at a glance: SALES → QT · PO → PO · NON_JO → NJ. */
+   *  readable at a glance: SALES → QT · PO → PO. */
   private async generateQuoteNumber(
     type: QuotationType,
     tx: DbTx
   ): Promise<string> {
-    const prefix =
-      type === QuotationType.PO ? "PO" : type === QuotationType.NON_JO ? "NJ" : "QT";
+    const prefix = type === QuotationType.PO ? "PO" : "QT";
     const yymm = format(new Date(), "yyMM");
     const seq = await this.quotations.nextCounter(
       `quotation:${prefix}:${yymm}`,
@@ -421,14 +420,6 @@ export class QuotationService {
         "Only an approved or sent quotation can be converted to a JO."
       );
     }
-    // A NON_JO quote is priced/billed but never becomes a production JO —
-    // it settles directly on the Sales side (spec / ERD W1b).
-    if (detail.type === QuotationType.NON_JO) {
-      throw new ValidationError(
-        "A Non-JO quotation does not convert to a Job Order — it is billed directly on the Sales side."
-      );
-    }
-
     // Mirror the quote type onto the JO (single-table discriminator). A PO
     // quote → PO JO carrying the customer's PO number (typed JO number);
     // a Sales quote → a regular auto-numbered JO.
@@ -456,7 +447,6 @@ export class QuotationService {
         {
           joNumber,
           isPO,
-          isNonJo: false,
           quotationId: detail.id,
           customerId: detail.customer.id,
           status: JobOrderStatus.DRAFT,

@@ -49,13 +49,11 @@ const TYPE_VIEWS = [
   { value: "all", label: "All types" },
   { value: "SALES", label: "Sales" },
   { value: "PO", label: "PO" },
-  { value: "NON_JO", label: "Non-JO" },
 ] as const;
 
 const TYPE_BADGES: Record<string, { tone: BadgeTone; label: string }> = {
   SALES: { tone: "blue", label: "Sales" },
   PO: { tone: "purple", label: "PO" },
-  NON_JO: { tone: "amber", label: "Non-JO" },
 };
 
 const COLS = 9;

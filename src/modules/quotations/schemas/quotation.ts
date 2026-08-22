@@ -66,13 +66,13 @@ export const quotationItemInput = z.object({
   specs: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const QUOTATION_TYPES = ["SALES", "PO", "NON_JO"] as const;
+export const QUOTATION_TYPES = ["SALES", "PO"] as const;
 
 const quotationBaseInput = z
   .object({
-    // SALES / PO (needs poNumber) / NON_JO. Single-table discriminator,
-    // same idea as JobOrder.isPO/isNonJo. Callers always send it (the form
-    // defaults to SALES), so it stays required for a clean form type.
+    // SALES / PO (needs poNumber). Single-table discriminator, same idea as
+    // JobOrder.isPO. Callers always send it (the form defaults to SALES), so it
+    // stays required for a clean form type.
     type: z.enum(QUOTATION_TYPES),
     poNumber: z.string().trim().max(80).optional(),
     customerName: z
@@ -158,7 +158,7 @@ export const quotationListFilters = z.object({
       "CONVERTED",
     ])
     .default("open"),
-  type: z.enum(["all", "SALES", "PO", "NON_JO"]).default("all"),
+  type: z.enum(["all", "SALES", "PO"]).default("all"),
   cursor: z.string().optional(),
   take: z.coerce.number().int().min(1).max(100).default(25),
 });

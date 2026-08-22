@@ -76,7 +76,6 @@ const jobOrderBaseInput = z
   .object({
     joNumber: z.string().trim().max(60).optional(),
     isPO: z.boolean(),
-    isNonJo: z.boolean(),
     customerName: z.string().trim().min(1, "Customer Name is required.").max(200),
     notes: z.string().trim().max(2000).optional(),
     planDateStart: dateString,
@@ -84,20 +83,10 @@ const jobOrderBaseInput = z
     items: z.array(jobOrderItemInput).min(1, "At least one item is required."),
   })
   .check((ctx) => {
-    if (ctx.value.isPO && ctx.value.isNonJo) {
+    if (ctx.value.isPO && !ctx.value.joNumber) {
       ctx.issues.push({
         code: "custom",
-        message: "Pick either PO or Non-JO, not both.",
-        path: ["isPO"],
-        input: ctx.value,
-      });
-    }
-    if ((ctx.value.isPO || ctx.value.isNonJo) && !ctx.value.joNumber) {
-      ctx.issues.push({
-        code: "custom",
-        message: ctx.value.isPO
-          ? "PO Number is required."
-          : "Reference number is required.",
+        message: "PO Number is required.",
         path: ["joNumber"],
         input: ctx.value,
       });
@@ -320,7 +309,6 @@ export type JobOrderItemRowDto = JobOrderItemDto & {
   joNumber: string;
   customerName: string;
   joIsPO: boolean;
-  joIsNonJo: boolean;
   joIsApproved: boolean;
   /** Per-JO Capture toggle — adds the Capture production step to every item. */
   joNeedsCapture: boolean;
@@ -347,7 +335,6 @@ export type JobOrderDetailDto = {
   joNumber: string;
   status: string;
   isPO: boolean;
-  isNonJo: boolean;
   isApprovedByCustomer: boolean;
   customerApprovedAt: string | null;
   attachments: AttachmentDto[];

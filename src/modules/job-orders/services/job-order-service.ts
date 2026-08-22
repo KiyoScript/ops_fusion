@@ -418,15 +418,13 @@ export class JobOrderService {
   ): Promise<{ id: string }> {
     assertCan(actor, "create", "JobOrder");
 
-    // PO and non-JO numbers are typed by the user; a plain JO gets an
-    // auto-generated "JO-ORM-{yymm}-{seq}" (fusion-only behavior).
-    const manual = input.isPO || input.isNonJo;
+    // A PO's number is typed by the user; a plain JO gets an auto-generated
+    // "JO-ORM-{yymm}-{seq}" (fusion-only behavior).
+    const manual = input.isPO;
     const typedNumber = input.joNumber?.trim() ?? "";
     if (manual) {
       if (!typedNumber) {
-        throw new ValidationError(
-          input.isPO ? "PO Number is required." : "Reference number is required."
-        );
+        throw new ValidationError("PO Number is required.");
       }
       if (await this.jobOrders.existsJoNumber(typedNumber)) {
         throw new ConflictError(`JO Number "${typedNumber}" already exists.`);
@@ -457,7 +455,6 @@ export class JobOrderService {
         {
           joNumber,
           isPO: input.isPO,
-          isNonJo: input.isNonJo,
           customerId: customer.id,
           // Matches legacy JOWebApp semantics: a submitted JO is already in
           // production. DRAFT/PENDING_REVIEW are reserved for the future
@@ -636,7 +633,6 @@ export class JobOrderService {
         {
           joNumber,
           isPO: false,
-          isNonJo: false,
           customerId: input.customerId,
           status: JobOrderStatus.PENDING_REVIEW,
           deadline: header.deadline,
@@ -1416,7 +1412,6 @@ function mapItemRow(record: JobOrderItemBoardRecord): JobOrderItemRowDto {
     joNumber: record.jobOrder.joNumber,
     customerName: record.jobOrder.customer.name,
     joIsPO: record.jobOrder.isPO,
-    joIsNonJo: record.jobOrder.isNonJo,
     joIsApproved: record.jobOrder.isApprovedByCustomer,
     joNeedsCapture: record.jobOrder.needsCapture,
   };
@@ -1464,7 +1459,6 @@ function mapDetail(detail: JobOrderDetailRecord): JobOrderDetailDto {
     joNumber: detail.joNumber,
     status: detail.status,
     isPO: detail.isPO,
-    isNonJo: detail.isNonJo,
     isApprovedByCustomer: detail.isApprovedByCustomer,
     customerApprovedAt: toIso(detail.customerApprovedAt),
     attachments: detail.attachments.map((a) => ({

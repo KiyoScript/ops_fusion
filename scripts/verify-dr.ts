@@ -40,7 +40,7 @@ async function main() {
   console.log("Setup: create a JO with 2 items, mark both done");
   const created = await jos.create(actor, {
     joNumber: "VDR-JO-1",
-    isPO: false, isNonJo: true, customerName: "Verify DR Customer",
+    isPO: false, customerName: "Verify DR Customer",
     items: [
       { description: "Tarpaulin 3x5", qty: "10", amount: "5000", deadline: dateStr(1), isLFP: false, isRush: false },
       { description: "Stickers", qty: "4", amount: "800", deadline: dateStr(1), isLFP: false, isRush: false },
@@ -160,7 +160,7 @@ async function main() {
 
   console.log("Undone items can't be delivered / can't make a DR Full");
   const jo2 = await jos.create(actor, {
-    joNumber: "VDR-JO-2", isPO: false, isNonJo: true, customerName: "Verify DR Customer",
+    joNumber: "VDR-JO-2", isPO: false, customerName: "Verify DR Customer",
     items: [
       { description: "Flyers", qty: "50", amount: "2500", deadline: dateStr(1), isLFP: false, isRush: false },
       { description: "Calendars", qty: "30", amount: "3000", deadline: dateStr(1), isLFP: false, isRush: false },

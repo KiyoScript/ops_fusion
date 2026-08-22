@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { useQueryState } from "nuqs";
 import { format } from "date-fns";
-import { PencilIcon, PlusIcon, ReceiptTextIcon } from "lucide-react";
+import { PencilIcon, ReceiptTextIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ColorBadge } from "@/components/color-badge";
 import { Button } from "@/components/ui/button";
@@ -122,11 +121,6 @@ export function JobOrdersView({
         <div className="ml-auto flex items-center gap-2">
           {canImport && <ImportDialog />}
           {canWrite && <ReorderDialog />}
-          {canWrite && (
-            <Button nativeButton={false} render={<Link href="/job-orders/new" />}>
-              <PlusIcon /> New Non-JO
-            </Button>
-          )}
         </div>
       </div>
 
@@ -181,7 +175,6 @@ export function JobOrdersView({
                           {row.lineItemId ?? row.joNumber}
                         </span>
                         {row.joIsPO && <ColorBadge tone="purple" label="PO" />}
-                        {row.joIsNonJo && <ColorBadge tone="gray" label="NON-JO" />}
                         {row.isRush && <ColorBadge tone="red" label="🔥 RUSH" />}
                         {row.joIsApproved ? (
                           <ColorBadge tone="green" label="✓ Approved" />

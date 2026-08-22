@@ -59,8 +59,7 @@ async function main() {
   for (const q of demoQuotes) {
     // Track the highest sequence per prefix so we can push the live counter
     // past these numbers (the app's generator never re-checks existence).
-    const prefix =
-      q.type === QuotationType.PO ? "PO" : q.type === QuotationType.NON_JO ? "NJ" : "QT";
+    const prefix = q.type === QuotationType.PO ? "PO" : "QT";
     const seq = Number.parseInt(q.number.slice(q.number.lastIndexOf("-") + 1), 10);
     maxSeqByPrefix[prefix] = Math.max(maxSeqByPrefix[prefix] ?? 0, seq);
 

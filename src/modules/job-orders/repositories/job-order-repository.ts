@@ -71,7 +71,6 @@ const detailSelect = {
   joNumber: true,
   status: true,
   isPO: true,
-  isNonJo: true,
   isApprovedByCustomer: true,
   customerApprovedAt: true,
   notes: true,
@@ -119,7 +118,6 @@ const itemBoardInclude = {
       id: true,
       joNumber: true,
       isPO: true,
-      isNonJo: true,
       isApprovedByCustomer: true,
       needsCapture: true,
       customer: { select: { name: true } },
@@ -181,7 +179,6 @@ export type ItemUpdateData = Omit<
 export type JobOrderCreateData = {
   joNumber: string;
   isPO?: boolean;
-  isNonJo?: boolean;
   /** Set when the JO was converted from a quotation (1—0..1 link). */
   quotationId?: string | null;
   customerId: string;

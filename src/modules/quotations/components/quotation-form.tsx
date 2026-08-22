@@ -41,7 +41,7 @@ import {
 import { TarpCalculator } from "./tarp-calculator";
 import { AreaCalculator } from "./area-calculator";
 import { NewspaperCalculator } from "./newspaper-calculator";
-import { VariantPicker } from "./variant-picker";
+import { VariantPicker, resolveTierPrice } from "./variant-picker";
 import { ProductCombobox } from "./product-combobox";
 
 // Products priced by the square foot get the dimension calculator (W × H →
@@ -62,9 +62,6 @@ const TAX_OPTIONS = [
   { value: "VAT_INCLUSIVE", label: "VAT Inclusive" },
 ] as const;
 
-// NON_JO is deliberately NOT offered at quote creation — the non-JO decision is
-// made in the Job Order module / at Convert (the "non-JO escape hatch"). The
-// QuotationType enum still carries NON_JO for existing quotes + convert refusal.
 const QUOTE_TYPES = [
   { value: "SALES", label: "Sales Quotation", hint: "Standard quote → becomes a Job Order" },
   { value: "PO", label: "PO Quotation", hint: "Against a customer purchase order" },
@@ -152,6 +149,34 @@ export function QuotationForm({
     // Newspaper is priced from the Newspaper Pricing list (the picker), never
     // from a master base price.
     const isNewspaper = product.name === "Newspaper";
+    const isTarp = product.name === "Tarpaulin";
+    const isArea =
+      !isTarp && !isNewspaper && AREA_UNITS.has(product.unit.toLowerCase());
+    const variantLabels = [
+      ...new Set(
+        product.rules.filter((r) => r.type === "VARIANT").map((r) => r.label)
+      ),
+    ];
+    // A plain product with exactly ONE variant (e.g. a tiered mug type) auto-
+    // selects it, so its qty tier applies right away — the salesperson doesn't
+    // have to click the lone variant card first. Multi-variant products still
+    // wait for an explicit pick.
+    if (!isNewspaper && !isTarp && !isArea && variantLabels.length === 1) {
+      const label = variantLabels[0]!;
+      const qty = parseInt(current.qty || "1", 10) || 1;
+      const tier = resolveTierPrice(product.rules, label, qty);
+      if (tier) {
+        form.setValue(`items.${index}.specs`, {
+          ...(current.specs ?? {}),
+          variant: label,
+        });
+        applyFees(index, parseFloat(tier.price) || 0, []);
+        if (!current.description) {
+          form.setValue(`items.${index}.description`, product.name);
+        }
+        return;
+      }
+    }
     if (!isNewspaper && !current.unitPrice && parseFloat(product.basePrice) > 0) {
       form.setValue(`items.${index}.unitPrice`, product.basePrice);
     }
@@ -219,10 +244,25 @@ export function QuotationForm({
       addons?: string[];
       baseUnit?: string;
       calculator?: string;
+      variant?: string;
     };
     // Tarp/area calculators re-price themselves on qty change (their own effect
     // reruns), including the min-charge floor — don't double-compute here.
     if (specs.calculator) return;
+    const product = current.productId
+      ? productById.get(current.productId)
+      : undefined;
+    const qty = parseInt(current.qty || "1", 10) || 1;
+    // A picked variant re-resolves its qty tier automatically, so the price
+    // follows the quantity (e.g. Inner Color Mug: 5→₱190, 10→₱160). The new
+    // tier becomes the base and any checked fees fold back onto it.
+    if (specs.variant && product) {
+      const tier = resolveTierPrice(product.rules, specs.variant, qty);
+      if (tier) {
+        applyFees(index, parseFloat(tier.price) || 0, specs.addons ?? []);
+        return;
+      }
+    }
     if (!specs.addons?.length) return;
     const base =
       specs.baseUnit != null
