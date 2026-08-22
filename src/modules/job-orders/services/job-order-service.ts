@@ -16,6 +16,7 @@ import type {
   JobOrderItemBoardRecord,
   JobOrderItemRecord,
   JobOrderListRecord,
+  QuoteFinancials,
 } from "../repositories/job-order-repository";
 import type {
   BoardMetricsDto,
@@ -36,7 +37,6 @@ import type {
   JobOrderListPageDto,
   JobOrderListRowDto,
   JobOrderUpdateInput,
-  ProductionStepLine,
 } from "../schemas/job-order";
 import {
   appendHistory,
@@ -362,16 +362,13 @@ export class JobOrderService {
   async getProductionData(
     _actor: Actor,
     id: string
-  ): Promise<{ jo: JobOrderDetailDto; stepsByItem: Record<string, ProductionStepLine[]> }> {
+  ): Promise<{ jo: JobOrderDetailDto; fin: QuoteFinancials | null }> {
     const detail = await this.jobOrders.findDetail(id);
     if (!detail) throw new NotFoundError("Job order not found.");
     const jo = mapDetail(detail);
-    const steps = await this.jobOrders.listItemStepsForJob(id);
-    const stepsByItem: Record<string, ProductionStepLine[]> = {};
-    for (const s of steps) {
-      (stepsByItem[s.jobOrderItemId] ??= []).push({ name: s.name, done: s.doneAt !== null });
-    }
-    return { jo, stepsByItem };
+    // Tax/downpayment terms from the source quote drive the print footer.
+    const fin = await this.jobOrders.findQuoteFinancials(id);
+    return { jo, fin };
   }
 
   /** Per-step status histories of one JO item (stepId → history text) — for
