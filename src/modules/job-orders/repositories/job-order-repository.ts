@@ -2,6 +2,13 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { JobOrderStatus } from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
+// The payment position is finance-owned maths (docs/sales-contract.md). The
+// board reads the SAME functions the Receive Payment dialog does, so the badge
+// and the dialog can never disagree about whether a job is paid.
+import {
+  joCollectedCentavos,
+  joTotalCentavos,
+} from "@/modules/sales-audit/services/money";
 import { DONE_KEYWORDS } from "../services/production-status";
 
 export type QuoteFinancials = {
@@ -357,8 +364,9 @@ export interface IJobOrderRepository {
   listItemsPage(
     filter: ListFilter
   ): Promise<{ rows: JobOrderItemBoardRecord[]; nextCursor: string | null }>;
-  /** Received-vs-total per JO (from non-voided Sales receipts), for the board's
-   *  payment column. Keyed by jobOrderId; JOs with no receipts read 0 received. */
+  /** Received-vs-total per JO, for the board's payment column. Both figures
+   *  are INTEGER CENTAVOS — money never crosses this boundary as a float.
+   *  Keyed by jobOrderId; JOs with no receipts read 0 received. */
   getJoPaymentStatus(
     jobOrderIds: string[]
   ): Promise<Map<string, { received: number; total: number }>>;
@@ -642,34 +650,56 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     const map = new Map<string, { received: number; total: number }>();
     if (jobOrderIds.length === 0) return map;
 
-    const [jos, sales] = await Promise.all([
+    const [jos, sales, crs] = await Promise.all([
       prisma.jobOrder.findMany({
         where: { id: { in: jobOrderIds } },
-        select: { id: true, total: true },
+        // Line totals come along because a legacy JO imported from the sheet
+        // carries no header total; joTotalCentavos falls back to summing them
+        // rather than reading the job as worth ₱0.
+        select: { id: true, total: true, items: { select: { lineTotal: true } } },
       }),
-      // Non-voided receipts against these JOs. Received = cash collected on the
-      // receipt (amountPaid) + later collections applied to a charge invoice
-      // (settledAmount).
+      // Live receipts only — a cancelled one is a spoiled leaf, not money (R2).
       prisma.sale.findMany({
         where: { jobOrderId: { in: jobOrderIds }, voidedAt: null, deletedAt: null },
         select: { jobOrderId: true, amountPaid: true, settledAmount: true },
       }),
+      // Collections written before allocations existed settle no invoice, so
+      // their money appears in no `settledAmount` and would otherwise be
+      // invisible here. `take: 1` is enough — joCollectedCentavos only asks
+      // whether the list is empty.
+      prisma.collectionReceipt.findMany({
+        where: { jobOrderId: { in: jobOrderIds }, voidedAt: null, deletedAt: null },
+        select: {
+          jobOrderId: true,
+          amount: true,
+          allocations: { select: { id: true }, take: 1 },
+        },
+      }),
     ]);
 
-    const receivedByJo = new Map<string, number>();
+    const salesByJo = new Map<string, typeof sales>();
     for (const s of sales) {
       if (!s.jobOrderId) continue;
-      receivedByJo.set(
-        s.jobOrderId,
-        (receivedByJo.get(s.jobOrderId) ?? 0) +
-          parseFloat(s.amountPaid.toString()) +
-          parseFloat(s.settledAmount.toString())
-      );
+      const bucket = salesByJo.get(s.jobOrderId);
+      if (bucket) bucket.push(s);
+      else salesByJo.set(s.jobOrderId, [s]);
     }
+
+    const crsByJo = new Map<string, typeof crs>();
+    for (const c of crs) {
+      if (!c.jobOrderId) continue;
+      const bucket = crsByJo.get(c.jobOrderId);
+      if (bucket) bucket.push(c);
+      else crsByJo.set(c.jobOrderId, [c]);
+    }
+
     for (const jo of jos) {
       map.set(jo.id, {
-        received: receivedByJo.get(jo.id) ?? 0,
-        total: parseFloat(jo.total.toString()),
+        received: joCollectedCentavos({
+          sales: salesByJo.get(jo.id) ?? [],
+          crs: crsByJo.get(jo.id) ?? [],
+        }),
+        total: joTotalCentavos(jo),
       });
     }
     return map;

@@ -57,6 +57,8 @@ import { formatDocumentNo } from "./booklet-service";
 import {
   computeWithholding,
   dominantTender,
+  joCollectedCentavos,
+  joTotalCentavos,
   paymentStatusOf,
   settleTenders,
   splitVat,
@@ -1405,27 +1407,10 @@ function positionOf(
     0
   );
 
-  // Money in AGAINST THIS JOB: paid at the counter, plus everything collected
-  // against its invoices since.
-  //
-  // Read off the invoices' settledAmount rather than off this job's own
-  // collection receipts, because a customer-level payment settles invoices
-  // across several job orders at once and is attached to none of them. Summing
-  // the job's own CRs would miss that money entirely — and double-count it
-  // whenever a CR happened to be job-scoped.
-  const collected =
-    liveSales.reduce(
-      (t, s) =>
-        t +
-        toCentavos(s.amountPaid.toString()) +
-        toCentavos(s.settledAmount.toString()),
-      0
-    ) +
-    // Legacy collections written before allocations existed carry no
-    // settledAmount to be found in, so they are counted from their own face.
-    liveCrs
-      .filter((c) => c.allocations.length === 0)
-      .reduce((t, c) => t + toCentavos(c.amount.toString()), 0);
+  // Money in AGAINST THIS JOB. Shared with the Job Order board, which shows
+  // the same figure as a Paid / Partial / Unpaid badge — see money.ts for why
+  // it is read off the invoices rather than off this job's own collections.
+  const collected = joCollectedCentavos({ sales: liveSales, crs: liveCrs });
 
   const openInvoices = liveSales
     .map((sale) => ({
@@ -1820,12 +1805,6 @@ function kindOfBooklet(type: BookletType): ReceiptKind {
 }
 
 /** JO total, falling back to the sum of its line items when total is unset. */
-function joTotalCentavos(jo: JoForReceiptRecord): number {
-  const header = toCentavos(jo.total.toString());
-  if (header > 0) return header;
-  return jo.items.reduce((t, i) => t + toCentavos(i.lineTotal.toString()), 0);
-}
-
 /** Local-day window [00:00, next 00:00) for a YYYY-MM-DD key. */
 // ——— sales report helpers ————————————————————————————————————————————
 

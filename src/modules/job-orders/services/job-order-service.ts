@@ -44,6 +44,9 @@ import {
   isDoneStatus,
   isWaitingPickupStatus,
 } from "./production-status";
+// Centavo → "1234.50". Same formatter the receipts use, so the board and the
+// printed document render an amount identically.
+import { toAmount } from "@/modules/sales-audit/services/money";
 import { composeJobDescription } from "./job-description";
 import { getProductionWorkflowService } from "./production-workflow-service";
 
@@ -1073,18 +1076,29 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
   };
 }
 
+/**
+ * The board's Paid / Partial / Unpaid badge.
+ *
+ * Both figures arrive as INTEGER CENTAVOS from the repository, which computes
+ * them with the finance track's shared maths — so this badge and the Receive
+ * Payment dialog are reading the same number and cannot disagree.
+ *
+ * There is no rounding tolerance here any more. The old float version needed a
+ * half-centavo epsilon to decide "paid", which is exactly the drift R1 exists
+ * to prevent; in centavos, `>=` is simply true or false.
+ */
 function toPaymentDto(received: number, total: number): JoPaymentDto {
   const status: JoPaymentDto["status"] =
-    total > 0 && received >= total - 0.005
+    total > 0 && received >= total
       ? "PAID"
       : received > 0
         ? "PARTIAL"
         : "UNPAID";
   return {
     status,
-    paid: received.toFixed(2),
-    total: total.toFixed(2),
-    balance: Math.max(total - received, 0).toFixed(2),
+    paid: toAmount(received),
+    total: toAmount(total),
+    balance: toAmount(Math.max(total - received, 0)),
   };
 }
 

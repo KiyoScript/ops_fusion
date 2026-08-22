@@ -200,6 +200,68 @@ export function settleTenders(
   };
 }
 
+// ——— a job order's money position ———
+//
+// These two are the ONLY definitions of "what is this job worth" and "how much
+// has come in against it". They live here, next to the rest of the centavo
+// arithmetic, because two callers need them and used to answer them
+// differently: the Receive Payment dialog counted legacy collections and fell
+// back to line items, and the Job Order board did neither — so a job could
+// read Paid in the dialog and Unpaid on the board behind it.
+
+/**
+ * A job order's own total, in centavos.
+ *
+ * Falls back to the sum of its line items when the header total is zero.
+ * Legacy JOs imported from the sheet carry no header total, and treating one
+ * as a ₱0 job makes every payment figure derived from it meaningless — a job
+ * cannot be "fully paid" against a total of nothing, so it reads as Partial
+ * forever no matter how much money came in.
+ */
+export function joTotalCentavos(jo: {
+  total: { toString(): string };
+  items: { lineTotal: { toString(): string } }[];
+}): number {
+  const header = toCentavos(jo.total.toString());
+  if (header > 0) return header;
+  return jo.items.reduce((t, i) => t + toCentavos(i.lineTotal.toString()), 0);
+}
+
+/**
+ * Money actually received against a job order, in centavos.
+ *
+ * Read off the INVOICES (`amountPaid` at issue + `settledAmount` collected
+ * since) rather than off the job's own collection receipts, because a
+ * customer-level payment settles invoices across several jobs at once and is
+ * attached to none of them. Summing the job's own CRs would miss that money
+ * entirely — and double-count it whenever a CR happened to be job-scoped.
+ *
+ * The exception is a legacy collection: one written before allocations
+ * existed has no `settledAmount` anywhere to be found in, so it is counted
+ * from its own face. An empty allocation list is exactly what identifies one.
+ *
+ * Cancelled receipts contribute nothing — pass live rows only (R2).
+ */
+export function joCollectedCentavos(input: {
+  sales: {
+    amountPaid: { toString(): string };
+    settledAmount: { toString(): string };
+  }[];
+  crs: { amount: { toString(): string }; allocations: unknown[] }[];
+}): number {
+  const fromInvoices = input.sales.reduce(
+    (t, s) =>
+      t +
+      toCentavos(s.amountPaid.toString()) +
+      toCentavos(s.settledAmount.toString()),
+    0
+  );
+  const fromLegacyCrs = input.crs
+    .filter((c) => c.allocations.length === 0)
+    .reduce((t, c) => t + toCentavos(c.amount.toString()), 0);
+  return fromInvoices + fromLegacyCrs;
+}
+
 /** PAID / PARTIAL / UNPAID, derived — never set by hand. */
 export function paymentStatusOf(
   applied: number,

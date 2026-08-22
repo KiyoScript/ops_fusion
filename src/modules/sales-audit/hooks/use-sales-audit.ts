@@ -22,6 +22,36 @@ const json = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+/**
+ * Every cache a peso moving touches.
+ *
+ * Issuing, collecting and cancelling all change the SAME underlying numbers —
+ * `Sale.voidedAt`, `Sale.settledAmount`, `CrAllocation` — and those numbers are
+ * read by screens far outside Sales & Audit. The Job Orders board derives its
+ * Payment badge from them (`getJoPaymentStatus`), the A/R ledger derives the
+ * open balance from them (R3), the pipeline derives "unbilled" from them, and
+ * the customer directory derives exposure from them.
+ *
+ * Invalidating only ["receipts"] left every one of those screens showing a
+ * figure the database no longer agreed with — a cancelled receipt still read
+ * as "✓ Paid" on the JO board until a hard refresh. So the whole set moves
+ * together, always, rather than each mutation guessing which screens care.
+ */
+function invalidateMoney(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of [
+    ["receipts"], // day log, payment options, summary, sales report
+    ["receivables"], // A/R ledger, statements, customer account
+    ["booklets"], // a leaf was consumed or cancelled in place
+    ["job-orders"], // the JO board's Payment column — getJoPaymentStatus
+    ["pipeline"], // backlog / unbilled partition moves when billing moves
+    ["customers"], // customer directory shows balance + exposure
+    ["companies"], // company-wide exposure aggregates across contacts (R15)
+    ["delivery-receipts"], // DR issuance is gated on the payment position
+  ]) {
+    qc.invalidateQueries({ queryKey: key });
+  }
+}
+
 // ——— booklets ———
 
 export function useBooklets() {
@@ -112,11 +142,9 @@ export function useReceivePayment() {
         /** Unsettled remainder — straight to A/R. "0.00" on a cash sale. */
         balanceDue: string;
       }>("/api/receipts", json(input)),
-    onSuccess: () => {
-      // A payment consumes a booklet number and lands on the day's log.
-      qc.invalidateQueries({ queryKey: ["receipts"] });
-      qc.invalidateQueries({ queryKey: ["booklets"] });
-    },
+    // A payment consumes a booklet number, lands on the day's log, moves the
+    // JO's payment position, and — for a Charge Invoice — opens a receivable.
+    onSuccess: () => invalidateMoney(qc),
   });
 }
 
@@ -133,8 +161,9 @@ export function useVoidReceipt() {
         json(input)
       ),
     // ["receipts"] is a prefix of the payment-options key, so this refetch is
-    // what reopens the JO's balance in the dialog.
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["receipts"] }),
+    // what reopens the JO's balance in the dialog — but the cancellation also
+    // reopens it on the JO board, the A/R ledger and the pipeline.
+    onSuccess: () => invalidateMoney(qc),
   });
 }
 
@@ -161,12 +190,10 @@ export function useCollectFromCustomer() {
         `/api/receivables/${customerId}/collect`,
         json(body)
       ),
-    onSuccess: () => {
-      // The debt, the day's log and the booklet all move together.
-      qc.invalidateQueries({ queryKey: ["receivables"] });
-      qc.invalidateQueries({ queryKey: ["receipts"] });
-      qc.invalidateQueries({ queryKey: ["booklets"] });
-    },
+    // The debt, the day's log and the booklet all move together — and so does
+    // the Payment badge on every JO whose invoice this collection settled,
+    // which is why a customer-level collection has to reach the JO board too.
+    onSuccess: () => invalidateMoney(qc),
   });
 }
 
