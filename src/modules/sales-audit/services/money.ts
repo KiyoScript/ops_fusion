@@ -262,6 +262,33 @@ export function joCollectedCentavos(input: {
   return fromInvoices + fromLegacyCrs;
 }
 
+/**
+ * Still owed on ONE invoice, in centavos, never below zero.
+ *
+ * R3 — this is the only way to ask what is owed, and the reason it cannot be
+ * read off `paymentStatus` is that `paymentStatus` records the position AT
+ * ISSUE and is deliberately frozen: a charge invoice settled by a collection
+ * next month still carries UNPAID, because the receipt is a legal record that
+ * must not be rewritten. `amountPaid` is what the printed invoice says was
+ * handed over at the counter; `settledAmount` is everything collected since.
+ *
+ * Note what this is NOT: a job order's total less what it has received. Work
+ * that has never been invoiced is not owed by anybody, so a receivable is only
+ * ever the sum of this across a job's live invoices.
+ */
+export function openBalanceOf(invoice: {
+  amount: { toString(): string };
+  amountPaid: { toString(): string };
+  settledAmount: { toString(): string };
+}): number {
+  return Math.max(
+    toCentavos(invoice.amount.toString()) -
+      toCentavos(invoice.amountPaid.toString()) -
+      toCentavos(invoice.settledAmount.toString()),
+    0
+  );
+}
+
 /** PAID / PARTIAL / UNPAID, derived — never set by hand. */
 export function paymentStatusOf(
   applied: number,

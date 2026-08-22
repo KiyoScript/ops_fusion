@@ -59,6 +59,7 @@ import {
   dominantTender,
   joCollectedCentavos,
   joTotalCentavos,
+  openBalanceOf as sharedOpenBalanceOf,
   paymentStatusOf,
   settleTenders,
   splitVat,
@@ -1352,16 +1353,19 @@ export class ReceiptService {
 
 // ——— position: what a job order has been billed, and what it has paid ———
 
-/** Still owed on one invoice, never below zero. All three args are Decimals. */
+/**
+ * Still owed on one invoice, never below zero. All three args are Decimals.
+ *
+ * Positional wrapper over the canonical `openBalanceOf` in money.ts — the
+ * maths has exactly one definition; this is only the shape the call sites in
+ * this file already use.
+ */
 function openBalanceOf(
   amount: string,
   amountPaid: string,
   settledAmount: string
 ): number {
-  return Math.max(
-    toCentavos(amount) - toCentavos(amountPaid) - toCentavos(settledAmount),
-    0
-  );
+  return sharedOpenBalanceOf({ amount, amountPaid, settledAmount });
 }
 
 /**

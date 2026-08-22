@@ -29,7 +29,12 @@ import {
   type SetWithholdingInput,
   type StatementOfAccountDto,
 } from "../schemas/receipt";
-import { VAT_WITHHOLDING_RATE_PCT, toAmount, toCentavos } from "./money";
+import {
+  VAT_WITHHOLDING_RATE_PCT,
+  openBalanceOf as sharedOpenBalanceOf,
+  toAmount,
+  toCentavos,
+} from "./money";
 
 // ══════════════════════════════════════════════════════════════════════════
 // ACCOUNTS RECEIVABLE — who owes us what, and for how long.
@@ -61,15 +66,14 @@ const formatAging = (
     AGING_BUCKETS.map((b) => [b, toAmount(buckets[b])])
   ) as Record<AgingBucket, string>;
 
-/** Still owed on one invoice, never below zero. */
-function openBalanceOf(r: ReceivableRecord): number {
-  return Math.max(
-    toCentavos(r.amount) -
-      toCentavos(r.amountPaid) -
-      toCentavos(r.settledAmount),
-    0
-  );
-}
+/**
+ * Still owed on one invoice, never below zero.
+ *
+ * Re-exported under the name this file's call sites already use; the maths
+ * itself lives once, in money.ts, so the A/R ledger, the job-order position
+ * and the archive guard can never drift apart on what "owed" means.
+ */
+const openBalanceOf = (r: ReceivableRecord): number => sharedOpenBalanceOf(r);
 
 /**
  * Days past due, floored at 0. Null when the invoice carries no terms.

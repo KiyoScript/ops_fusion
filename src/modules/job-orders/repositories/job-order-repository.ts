@@ -11,6 +11,16 @@ import {
 } from "@/modules/sales-audit/services/money";
 import { DONE_KEYWORDS } from "../services/production-status";
 
+/** One live invoice raised against a JO — just enough to ask what is still
+ *  owed on it. `documentNo` is carried so the block message can name the
+ *  receipt the counter has to deal with. */
+export type JoInvoiceRecord = {
+  documentNo: string;
+  amount: Prisma.Decimal;
+  amountPaid: Prisma.Decimal;
+  settledAmount: Prisma.Decimal;
+};
+
 export type QuoteFinancials = {
   taxType: "NON_VAT" | "VAT_EXCLUSIVE" | "VAT_INCLUSIVE";
   downpaymentRate: number;
@@ -370,6 +380,10 @@ export interface IJobOrderRepository {
   getJoPaymentStatus(
     jobOrderIds: string[]
   ): Promise<Map<string, { received: number; total: number }>>;
+  /** The JO's LIVE invoices, for the archive guard's open-balance check.
+   *  Cancelled and deleted receipts are excluded — a spoiled leaf owes
+   *  nothing (R2). The service does the arithmetic, not this method. */
+  listJoInvoices(jobOrderId: string): Promise<JoInvoiceRecord[]>;
   /** LFP flag of the given catalog products — line items inherit it. */
   getProductLFPMap(productIds: string[]): Promise<Map<string, boolean>>;
   updateItem(
@@ -703,6 +717,19 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       });
     }
     return map;
+  }
+
+  async listJoInvoices(jobOrderId: string): Promise<JoInvoiceRecord[]> {
+    return prisma.sale.findMany({
+      where: { jobOrderId, voidedAt: null, deletedAt: null },
+      select: {
+        documentNo: true,
+        amount: true,
+        amountPaid: true,
+        settledAmount: true,
+      },
+      orderBy: { saleDate: "asc" },
+    });
   }
 
   async getProductLFPMap(productIds: string[]): Promise<Map<string, boolean>> {
