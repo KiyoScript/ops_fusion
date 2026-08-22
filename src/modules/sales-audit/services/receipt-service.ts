@@ -10,6 +10,7 @@ import {
   SaleType,
 } from "@/generated/prisma/enums";
 import { resolveEnabledModules } from "@/lib/modules";
+import { getJobOrderService } from "@/modules/job-orders/services";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type { IModuleFlagRepository } from "@/modules/shared/repositories/module-flag-repository";
@@ -261,6 +262,12 @@ export class ReceiptService {
         balanceDue: result.balanceDue,
       },
     });
+
+    // A payment can push the JO to fully paid — if it is also fully delivered,
+    // the JO auto-completes (its DR steps + team status → Done). No-op
+    // otherwise. Cross-track write into the JO production side, kept to a single
+    // call (docs/sales-contract.md — flagged).
+    await getJobOrderService().syncDrCompletion(actor, input.jobOrderId);
 
     return result;
   }

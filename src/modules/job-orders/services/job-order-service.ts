@@ -131,6 +131,74 @@ export class JobOrderService {
     return this.jobOrders.countBoardMetrics();
   }
 
+  /** Payment position of ONE JO (paid / owed / status) — the same finance
+   *  maths as the board's payment column, exposed for the DR module (payment
+   *  balance display + fully-paid auto-completion). */
+  async getPayment(actor: Actor, jobOrderId: string): Promise<JoPaymentDto> {
+    // R9: a read of a JO's payment position is gated (the board already shows
+    // it to any role that can read job orders).
+    assertCan(actor, "read", "JobOrder");
+    const map = await this.jobOrders.getJoPaymentStatus([jobOrderId]);
+    const p = map.get(jobOrderId) ?? { received: 0, total: 0 };
+    return toPaymentDto(p.received, p.total);
+  }
+
+  /** DR auto-completion: when a JO is fully DELIVERED (every active item's
+   *  qtyDelivered has caught up, and it has ≥1 issued DR) AND fully PAID, it
+   *  completes each item — marks its production steps done and its team status
+   *  "Done" (which auto-archives) — and rolls the JO to COMPLETED. Idempotent
+   *  and a no-op until BOTH conditions hold; called after a DR is issued and
+   *  after a payment is recorded (the latter from the Sales & Audit side). */
+  async syncDrCompletion(actor: Actor, jobOrderId: string): Promise<void> {
+    const detail = await this.jobOrders.findDetail(jobOrderId);
+    if (!detail) return;
+    const active = detail.items.filter((i) => i.archivedAt === null);
+    if (active.length === 0) return;
+    // Fully delivered: every active item has been handed over in full.
+    if (!active.every((i) => i.qtyDelivered >= i.qty)) return;
+    if (!(await this.jobOrders.hasIssuedDr(jobOrderId))) return;
+    const payment = await this.getPayment(actor, jobOrderId);
+    if (payment.status !== "PAID") return;
+
+    const now = new Date();
+    await this.jobOrders.withTransaction(async (tx) => {
+      await this.jobOrders.markItemStepsDone(
+        active.map((i) => i.id),
+        actor.id,
+        now,
+        tx
+      );
+      for (const item of active) {
+        await this.jobOrders.updateItemProduction(
+          item.id,
+          {
+            productionStatus: "Done",
+            department: departmentOf("Done"),
+            statusHistory: appendHistory(
+              item.statusHistory,
+              "Done — delivered in full & fully paid"
+            ),
+            waitingPickupSince: null,
+            archivedAt: item.archivedAt ?? now,
+            actualDate: item.actualDate ?? now,
+          },
+          tx
+        );
+      }
+      await this.syncJoStatus(actor, jobOrderId, detail.status, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: jobOrderId,
+          action: "dr-auto-complete",
+          payload: { joNumber: detail.joNumber, items: active.length },
+        },
+        tx
+      );
+    });
+  }
+
   /** Calendar pins for one month (legacy getJODeadlinesForMonth). */
   async listCalendar(
     _actor: Actor,
@@ -268,7 +336,24 @@ export class JobOrderService {
     _actor: Actor,
     filters: JobOrderListFilters
   ): Promise<JobOrderItemsPageDto> {
-    const { rows, nextCursor } = await this.jobOrders.listItemsPage(filters);
+    // Payment is not a DB column — it's received-vs-total across the JO's
+    // receipts. When the Transactions History filters on it, resolve the whole
+    // matching set of JO ids first, then let the paginated query narrow to them
+    // (`restrictJoIds`) so cursoring stays a plain, correct query.
+    let query: JobOrderListFilters & { restrictJoIds?: string[] } = filters;
+    if (filters.payment) {
+      const candidateIds = await this.jobOrders.listCandidateJoIds(filters);
+      const payments = await this.jobOrders.getJoPaymentStatus(candidateIds);
+      const matching = candidateIds.filter((id) => {
+        const p = payments.get(id);
+        return p
+          ? toPaymentDto(p.received, p.total).status === filters.payment
+          : filters.payment === "UNPAID"; // no receipts at all reads as unpaid
+      });
+      query = { ...filters, restrictJoIds: matching };
+    }
+
+    const { rows, nextCursor } = await this.jobOrders.listItemsPage(query);
     const dtos = rows.map(mapItemRow);
     // Attach each JO's payment standing (received vs total) so the board shows
     // paid / partial / unpaid without opening the Receive Payment dialog.
@@ -1353,6 +1438,7 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
         : null,
     fromQuote: item.fromQuote,
     qty: item.qty,
+    qtyDelivered: item.qtyDelivered,
     unitPrice: item.unitPrice.toString(),
     lineTotal: item.lineTotal.toString(),
     productionStatus: item.productionStatus,
@@ -1410,6 +1496,7 @@ function mapItemRow(record: JobOrderItemBoardRecord): JobOrderItemRowDto {
     ...mapItem(record),
     jobOrderId: record.jobOrder.id,
     joNumber: record.jobOrder.joNumber,
+    joCreatedAt: record.jobOrder.createdAt.toISOString(),
     customerName: record.jobOrder.customer.name,
     joIsPO: record.jobOrder.isPO,
     joIsApproved: record.jobOrder.isApprovedByCustomer,

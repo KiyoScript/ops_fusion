@@ -14,6 +14,7 @@ import type {
   DrListPageDto,
   DrMetricsDto,
 } from "../schemas/delivery-receipt";
+import type { JoPaymentDto } from "@/modules/job-orders/schemas/job-order";
 
 export function useDrMetrics() {
   return useQuery({
@@ -63,6 +64,18 @@ export function useDrDetail(id: string | null) {
     queryKey: ["delivery-receipts", "detail", id],
     queryFn: () => fetchJson<DrDetailDto>(`/api/delivery-receipts/${id}`),
     enabled: id !== null,
+  });
+}
+
+/** The DR's job order payment position (paid / owed) — connects the DR to the
+ *  sales / collection balance. Uses the JO module's finance maths. */
+export function useJoPayment(jobOrderId: string | null) {
+  return useQuery({
+    queryKey: ["job-orders", "payment", jobOrderId],
+    queryFn: () =>
+      fetchJson<JoPaymentDto>(`/api/job-orders/${jobOrderId}/payment`),
+    enabled: jobOrderId !== null,
+    staleTime: 15_000,
   });
 }
 

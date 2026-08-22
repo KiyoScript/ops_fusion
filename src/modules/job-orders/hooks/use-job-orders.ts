@@ -24,6 +24,17 @@ import type {
 
 export type JobOrderListParams = { q: string; view: string };
 
+/** Transactions History filters, layered on top of the item board query. */
+export type TransactionFilterParams = {
+  from?: string;
+  to?: string;
+  payment?: "PAID" | "PARTIAL" | "UNPAID";
+  delivery?: "full" | "partial" | "none";
+  production?: "done" | "in_progress";
+  customerId?: string;
+  type?: "JO" | "PO";
+};
+
 export function useJobOrdersInfinite(params: JobOrderListParams) {
   return useInfiniteQuery({
     queryKey: ["job-orders", params],
@@ -53,6 +64,31 @@ export function useJoItemsInfinite(params: JobOrderListParams) {
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     // Keep prior rows visible while a debounced search / filter refetches.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Transactions History: the whole JO ledger (view "all") plus the filter bar. */
+export function useTransactionsInfinite(
+  params: { q: string } & TransactionFilterParams
+) {
+  return useInfiniteQuery({
+    queryKey: ["job-orders", "transactions", params],
+    queryFn: ({ pageParam }) => {
+      const search = new URLSearchParams({ view: "all" });
+      if (params.q) search.set("q", params.q);
+      if (params.from) search.set("from", params.from);
+      if (params.to) search.set("to", params.to);
+      if (params.payment) search.set("payment", params.payment);
+      if (params.delivery) search.set("delivery", params.delivery);
+      if (params.production) search.set("production", params.production);
+      if (params.customerId) search.set("customerId", params.customerId);
+      if (params.type) search.set("type", params.type);
+      if (pageParam) search.set("cursor", pageParam);
+      return fetchJson<JobOrderItemsPageDto>(`/api/job-orders/items?${search}`);
+    },
+    initialPageParam: "",
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     placeholderData: keepPreviousData,
   });
 }

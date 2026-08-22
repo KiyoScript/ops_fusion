@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { JobOrderStatus } from "@/generated/prisma/enums";
+import { DeliveryReceiptStatus, JobOrderStatus } from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
 // The payment position is finance-owned maths (docs/sales-contract.md). The
 // board reads the SAME functions the Receive Payment dialog does, so the badge
@@ -120,6 +120,7 @@ const itemBoardInclude = {
       isPO: true,
       isApprovedByCustomer: true,
       needsCapture: true,
+      createdAt: true,
       customer: { select: { name: true } },
     },
   },
@@ -248,6 +249,17 @@ export type ListFilter = {
     | "all";
   cursor?: string;
   take: number;
+  // Transactions History filters (optional; ignored by the board views).
+  from?: string;
+  to?: string;
+  delivery?: "full" | "partial" | "none";
+  production?: "done" | "in_progress";
+  customerId?: string;
+  type?: "JO" | "PO";
+  // Payment is a computed field: the service resolves it to a set of matching
+  // JO ids first, then passes them here so pagination stays a plain query.
+  payment?: "PAID" | "PARTIAL" | "UNPAID";
+  restrictJoIds?: string[];
 };
 
 // ——— board metrics (semantics ported 1:1 from legacy JO_METRICS in
@@ -335,6 +347,98 @@ export function boardMetricItemWhere(
   }
 }
 
+/**
+ * The WHERE for the per-item board / Transactions History list.
+ *
+ * The `view` picks the base slice (active board, done, a metric card, …); the
+ * optional Transactions filters (date range, delivery, production, customer,
+ * type, and a pre-resolved payment id set) narrow it further. The board views
+ * never send those extra fields, so their query is byte-for-byte unchanged.
+ */
+function buildItemListWhere(
+  filter: ListFilter
+): Prisma.JobOrderItemWhereInput {
+  const where: Prisma.JobOrderItemWhereInput = {
+    jobOrder: { deletedAt: null },
+  };
+
+  switch (filter.view) {
+    case "done":
+      where.archivedAt = { not: null };
+      break;
+    case "all":
+      break;
+    case "active":
+      where.archivedAt = null;
+      where.jobOrder = { deletedAt: null, status: { not: JobOrderStatus.CANCELLED } };
+      break;
+    case "review":
+      // Reorder JOs awaiting the admin sign-off (PENDING_REVIEW).
+      where.archivedAt = null;
+      where.jobOrder = { deletedAt: null, status: JobOrderStatus.PENDING_REVIEW };
+      break;
+    default:
+      Object.assign(where, boardMetricItemWhere(filter.view));
+      where.archivedAt = null;
+      where.jobOrder = { deletedAt: null, status: { not: JobOrderStatus.CANCELLED } };
+      break;
+  }
+
+  const and: Prisma.JobOrderItemWhereInput[] = [];
+
+  if (filter.q) {
+    and.push({
+      OR: [
+        { description: { contains: filter.q, mode: "insensitive" } },
+        { lineItemId: { contains: filter.q, mode: "insensitive" } },
+        { jobOrder: { joNumber: { contains: filter.q, mode: "insensitive" } } },
+        { jobOrder: { customer: { name: { contains: filter.q, mode: "insensitive" } } } },
+      ],
+    });
+  }
+
+  // ── Transactions History filters (all optional) ──
+  if (filter.from) {
+    and.push({ jobOrder: { createdAt: { gte: new Date(filter.from) } } });
+  }
+  if (filter.to) {
+    const end = new Date(filter.to);
+    end.setUTCHours(23, 59, 59, 999); // inclusive of the whole to-day
+    and.push({ jobOrder: { createdAt: { lte: end } } });
+  }
+  if (filter.customerId) {
+    and.push({ jobOrder: { customerId: filter.customerId } });
+  }
+  if (filter.type) {
+    and.push({ jobOrder: { isPO: filter.type === "PO" } });
+  }
+  if (filter.production === "done") {
+    and.push({ archivedAt: { not: null } });
+  } else if (filter.production === "in_progress") {
+    and.push({ archivedAt: null });
+  }
+  // Delivery compares two columns (qtyDelivered vs qty) via Prisma field refs.
+  if (filter.delivery === "full") {
+    and.push({ qtyDelivered: { gte: prisma.jobOrderItem.fields.qty } });
+  } else if (filter.delivery === "partial") {
+    and.push({
+      AND: [
+        { qtyDelivered: { gt: 0 } },
+        { qtyDelivered: { lt: prisma.jobOrderItem.fields.qty } },
+      ],
+    });
+  } else if (filter.delivery === "none") {
+    and.push({ qtyDelivered: { lte: 0 } });
+  }
+  // Payment is pre-resolved by the service into this id set (see listItems).
+  if (filter.restrictJoIds) {
+    and.push({ jobOrderId: { in: filter.restrictJoIds } });
+  }
+
+  if (and.length > 0) where.AND = and;
+  return where;
+}
+
 /** Active board = unarchived items of non-deleted, non-cancelled JOs. */
 const boardBase: Prisma.JobOrderItemWhereInput = {
   archivedAt: null,
@@ -389,6 +493,9 @@ export interface IJobOrderRepository {
   listItemsPage(
     filter: ListFilter
   ): Promise<{ rows: JobOrderItemBoardRecord[]; nextCursor: string | null }>;
+  /** Distinct JO ids of every item matching a filter (no pagination). Used to
+   *  pre-resolve the computed payment filter before the paginated query runs. */
+  listCandidateJoIds(filter: ListFilter): Promise<string[]>;
   /** Received-vs-total per JO, for the board's payment column. Both figures
    *  are INTEGER CENTAVOS — money never crosses this boundary as a float.
    *  Keyed by jobOrderId; JOs with no receipts read 0 received. */
@@ -456,6 +563,16 @@ export interface IJobOrderRepository {
   /** Every line item this customer has ordered on a live JO (newest first),
    *  for the reorder picker — deduped downstream in the service. */
   listCustomerReorderItems(customerId: string): Promise<CustomerReorderItemRecord[]>;
+  /** Whether the JO has an issued (non-cancelled) Delivery Receipt. */
+  hasIssuedDr(jobOrderId: string): Promise<boolean>;
+  /** Mark every not-yet-done production step of these items complete (DR
+   *  auto-completion). */
+  markItemStepsDone(
+    jobOrderItemIds: string[],
+    userId: string,
+    now: Date,
+    tx?: DbTx
+  ): Promise<void>;
   existsJoNumber(
     joNumber: string,
     excludeId?: string,
@@ -604,63 +721,7 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
   async listItemsPage(
     filter: ListFilter
   ): Promise<{ rows: JobOrderItemBoardRecord[]; nextCursor: string | null }> {
-    const where: Prisma.JobOrderItemWhereInput = {
-      jobOrder: { deletedAt: null },
-    };
-
-    switch (filter.view) {
-      case "done":
-        where.archivedAt = { not: null };
-        break;
-      case "all":
-        break;
-      case "active":
-        where.archivedAt = null;
-        where.jobOrder = {
-          deletedAt: null,
-          status: { not: JobOrderStatus.CANCELLED },
-        };
-        break;
-      case "review":
-        // Reorder JOs awaiting the admin sign-off (PENDING_REVIEW).
-        where.archivedAt = null;
-        where.jobOrder = {
-          deletedAt: null,
-          status: JobOrderStatus.PENDING_REVIEW,
-        };
-        break;
-      default:
-        Object.assign(where, boardMetricItemWhere(filter.view));
-        where.archivedAt = null;
-        where.jobOrder = {
-          deletedAt: null,
-          status: { not: JobOrderStatus.CANCELLED },
-        };
-        break;
-    }
-
-    if (filter.q) {
-      where.AND = [
-        {
-          OR: [
-            { description: { contains: filter.q, mode: "insensitive" } },
-            { lineItemId: { contains: filter.q, mode: "insensitive" } },
-            {
-              jobOrder: {
-                joNumber: { contains: filter.q, mode: "insensitive" },
-              },
-            },
-            {
-              jobOrder: {
-                customer: {
-                  name: { contains: filter.q, mode: "insensitive" },
-                },
-              },
-            },
-          ],
-        },
-      ];
-    }
+    const where = buildItemListWhere(filter);
 
     // Newest JO first (ruling 2026-07-15): a freshly converted quotation must
     // appear at the top of the board immediately. Deadline urgency stays
@@ -685,6 +746,18 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       rows: page,
       nextCursor: hasMore ? page[page.length - 1]!.id : null,
     };
+  }
+
+  async listCandidateJoIds(filter: ListFilter): Promise<string[]> {
+    // Same slice + filters as the paginated query, but resolve every matching
+    // JO id in one distinct query (payment isn't a DB column, so the service
+    // scores these ids and feeds the winners back via restrictJoIds).
+    const rows = await prisma.jobOrderItem.findMany({
+      where: buildItemListWhere(filter),
+      select: { jobOrderId: true },
+      distinct: ["jobOrderId"],
+    });
+    return rows.map((r) => r.jobOrderId);
   }
 
   async getJoPaymentStatus(
@@ -1045,6 +1118,29 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       joNumber: r.jobOrder.joNumber,
       createdAt: r.jobOrder.createdAt,
     }));
+  }
+
+  async hasIssuedDr(jobOrderId: string): Promise<boolean> {
+    const count = await prisma.deliveryReceipt.count({
+      where: {
+        jobOrderId,
+        status: { not: DeliveryReceiptStatus.CANCELLED },
+      },
+    });
+    return count > 0;
+  }
+
+  async markItemStepsDone(
+    jobOrderItemIds: string[],
+    userId: string,
+    now: Date,
+    tx?: DbTx
+  ): Promise<void> {
+    if (jobOrderItemIds.length === 0) return;
+    await (tx ?? prisma).jobOrderItemStep.updateMany({
+      where: { jobOrderItemId: { in: jobOrderItemIds }, doneAt: null },
+      data: { doneAt: now, doneById: userId },
+    });
   }
 
   async existsJoNumber(

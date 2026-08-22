@@ -35,6 +35,7 @@ import {
   useDrDetail,
   useDrEditOptions,
   useInvalidateDrs,
+  useJoPayment,
 } from "../hooks/use-delivery-receipts";
 
 const peso = (v: string) => {
@@ -57,6 +58,8 @@ export function DrDetailDialog({
   const invalidate = useInvalidateDrs();
   const detail = useDrDetail(drId);
   const dr = detail.data;
+  // The DR is connected to the JO's sales balance — show what's paid / owed.
+  const payment = useJoPayment(dr?.jobOrder.id ?? null);
   const [pending, startTransition] = useTransition();
 
   const [editing, setEditing] = useState(false);
@@ -199,6 +202,38 @@ export function DrDetailDialog({
                 </div>
               )}
             </div>
+
+            {/* Payment position of the DR's job order — the DR is connected to
+                the sales / collection balance, not just the JO. */}
+            {payment.data && (
+              <div className="grid gap-2 rounded-lg border bg-muted/30 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">
+                    Payment · {dr.jobOrder.joNumber}
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      payment.data.status === "PAID" &&
+                        "border-green-500/40 text-green-700 dark:text-green-300",
+                      payment.data.status === "PARTIAL" &&
+                        "border-amber-500/40 text-amber-700 dark:text-amber-300"
+                    )}
+                  >
+                    {payment.data.status === "PAID"
+                      ? "Fully paid"
+                      : payment.data.status === "PARTIAL"
+                        ? "Partial"
+                        : "Unpaid"}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-3 gap-x-6 text-sm">
+                  <Field label="Invoiced" value={peso(payment.data.total)} />
+                  <Field label="Paid" value={peso(payment.data.paid)} />
+                  <Field label="Balance" value={peso(payment.data.balance)} />
+                </div>
+              </div>
+            )}
 
             {editing ? (
               /* ── Edit mode: pick which JO line items this DR delivers ── */

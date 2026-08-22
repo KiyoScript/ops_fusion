@@ -134,8 +134,9 @@ const navGroups: { label: string; items: NavItem[] }[] = [
         children: [
           { title: "Calendar", href: "/job-orders/calendar" },
           { title: "Reports", href: "/job-orders/reports" },
-          // Legacy rule: the archive is admin-only
-          { title: "Archive", href: "/job-orders/archive", requires: ["read", "Archive"] },
+          // Transactions History (replaces the legacy Archive JOs page) — the
+          // whole JO ledger with filters. Admin-only, per the old archive rule.
+          { title: "Transactions", href: "/job-orders/transactions", requires: ["read", "Archive"] },
         ],
       },
       { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck, module: "delivery-receipts" },

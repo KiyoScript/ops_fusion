@@ -388,7 +388,39 @@ export function QuotationForm({
     downpaymentRate: parseFloat(watched.downpaymentRate || "0.5") || 0,
   });
 
+  // A selected variant can carry a MINIMUM order qty — its smallest tier
+  // (e.g. Mug "Inner Color Mug" starts at 5). Ordering below it is invalid.
+  const variantMinQty = (
+    productId: string | null | undefined,
+    variantLabel: string | undefined
+  ): number => {
+    if (!productId || !variantLabel) return 1;
+    const p = productById.get(productId);
+    if (!p) return 1;
+    const mins = p.rules
+      .filter((r) => r.type === "VARIANT" && r.label === variantLabel && r.minQty > 0)
+      .map((r) => r.minQty);
+    return mins.length ? Math.min(...mins) : 1;
+  };
+  const findQtyBelowMin = (): { variant: string; min: number } | null => {
+    for (const it of form.getValues().items ?? []) {
+      const variant = (it?.specs as { variant?: string } | undefined)?.variant;
+      if (!variant) continue;
+      const min = variantMinQty(it?.productId, variant);
+      const qty = parseInt(it?.qty ?? "", 10) || 0;
+      if (min > 1 && qty > 0 && qty < min) return { variant, min };
+    }
+    return null;
+  };
+
   const onSubmit = form.handleSubmit(async (values) => {
+    // Enforce variant minimum-order quantities (not expressible in the static
+    // Zod schema — the threshold depends on the picked variant's tiers).
+    const below = findQtyBelowMin();
+    if (below) {
+      toast.error(`"${below.variant}" needs a minimum quantity of ${below.min}.`);
+      return;
+    }
     const result =
       mode === "create"
         ? await createQuotationAction(values)
@@ -842,10 +874,16 @@ export function QuotationForm({
               // The unit price is computed (not hand-typed) when a variant is
               // selected or a calculator prices the line — lock the field so it
               // can only change via the qty/variant/calculator.
-              const hasVariant = !!(
+              const variantLabel = (
                 watchedItem?.specs as { variant?: string } | undefined
               )?.variant;
+              const hasVariant = !!variantLabel;
               const priceLocked = hasVariant || isTarp || isArea || isNewspaper;
+              // Variant minimum-order qty (e.g. 5+) — flag a qty below it.
+              const lineMinQty = variantMinQty(watchedItem?.productId, variantLabel);
+              const liveLineQty = parseInt(watchedItem?.qty ?? "", 10) || 0;
+              const qtyBelowMin =
+                lineMinQty > 1 && liveLineQty > 0 && liveLineQty < lineMinQty;
               return (
               <div key={field.id} className="grid gap-3 rounded-lg border p-3">
                 <div className="grid gap-1 sm:max-w-96">
@@ -884,11 +922,16 @@ export function QuotationForm({
                   <Input
                     id={`item-qty-${index}`}
                     inputMode="numeric"
-                    aria-invalid={!!errors.items?.[index]?.qty}
+                    aria-invalid={!!errors.items?.[index]?.qty || qtyBelowMin}
                     {...form.register(`items.${index}.qty`, {
                       onChange: () => refoldFees(index),
                     })}
                   />
+                  {qtyBelowMin && (
+                    <p className="text-xs text-destructive">
+                      Min {lineMinQty} for {variantLabel}
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-1">
                   <Label htmlFor={`item-price-${index}`}>Unit price (₱)</Label>

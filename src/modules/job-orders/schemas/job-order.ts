@@ -132,6 +132,15 @@ export const jobOrderListFilters = z.object({
     .default("active"),
   cursor: z.string().optional(),
   take: z.coerce.number().int().min(1).max(100).default(25),
+  // Transactions History filters (all optional; the board views ignore them).
+  // Dates are inclusive and filter on the JO's createdAt (the booking date).
+  from: z.string().trim().optional(),
+  to: z.string().trim().optional(),
+  payment: z.enum(["PAID", "PARTIAL", "UNPAID"]).optional(),
+  delivery: z.enum(["full", "partial", "none"]).optional(),
+  production: z.enum(["done", "in_progress"]).optional(),
+  customerId: z.string().trim().optional(),
+  type: z.enum(["JO", "PO"]).optional(),
 });
 
 export const importRequestInput = z.object({
@@ -242,6 +251,7 @@ export type JobOrderItemDto = {
   specs: Record<string, unknown> | null; // quote-line specs
   fromQuote: boolean; // description is locked (copied from an approved quote)
   qty: number;
+  qtyDelivered: number; // running total delivered via DRs (drives full/partial/none)
   unitPrice: string;
   lineTotal: string;
   productionStatus: string | null;
@@ -299,6 +309,7 @@ export type JoPaymentDto = {
 export type JobOrderItemRowDto = JobOrderItemDto & {
   jobOrderId: string;
   joNumber: string;
+  joCreatedAt: string; // JO booking date — the Transactions History "Date" column
   customerName: string;
   joIsPO: boolean;
   joIsApproved: boolean;

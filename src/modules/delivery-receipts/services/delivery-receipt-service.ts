@@ -4,6 +4,7 @@ import type { Actor } from "@/lib/authz";
 import { assertCan } from "@/lib/ability";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
+import { getJobOrderService } from "@/modules/job-orders/services";
 import type {
   DrDetailRecord,
   DrListRecord,
@@ -133,7 +134,7 @@ export class DeliveryReceiptService {
     const isFullDelivery =
       allItems.length > 0 && allItems.every((it) => deliveredIds.has(it.id));
 
-    return this.drs.withTransaction(async (tx) => {
+    const result = await this.drs.withTransaction(async (tx) => {
       const drNumber = manualNumber || (await this.generateDrNumber(tx));
       const created = await this.drs.createDr(
         {
@@ -167,6 +168,10 @@ export class DeliveryReceiptService {
       );
       return { id: created.id };
     });
+    // After the DR + qtyDelivered are committed, try to auto-complete the JO —
+    // a no-op unless it's now fully delivered AND fully paid (issue #1).
+    await getJobOrderService().syncDrCompletion(actor, input.jobOrderId);
+    return result;
   }
 
   async list(_actor: Actor, filters: DrListFilters): Promise<DrListPageDto> {
