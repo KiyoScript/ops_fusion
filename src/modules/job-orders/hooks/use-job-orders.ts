@@ -17,6 +17,8 @@ import type {
   JobOrderItemRowDto,
   JobOrderItemsPageDto,
   JobOrderListPageDto,
+  ReorderCreateInput,
+  ReorderItemDto,
   ReportRowDto,
 } from "../schemas/job-order";
 
@@ -113,6 +115,51 @@ export function useJoBoardMetrics() {
 export function useInvalidateJobOrders() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ["job-orders"] });
+}
+
+/** A customer's previously-ordered items, for the reorder picker. */
+export function useReorderItems(customerId: string | null) {
+  return useQuery({
+    queryKey: ["job-orders", "reorder-items", customerId],
+    queryFn: () =>
+      fetchJson<ReorderItemDto[]>(
+        `/api/job-orders/reorder-items?customerId=${encodeURIComponent(customerId ?? "")}`
+      ),
+    enabled: !!customerId,
+    staleTime: 30_000,
+  });
+}
+
+/** Create a JO from picked reorder items (lands in PENDING_REVIEW). */
+export function useCreateReorder() {
+  const invalidate = useInvalidateJobOrders();
+  return useMutation({
+    mutationFn: (input: ReorderCreateInput) =>
+      fetchJson<{ id: string }>("/api/job-orders/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+/** Admin approve / reject a reorder JO awaiting review. */
+export function useReviewJo() {
+  const invalidate = useInvalidateJobOrders();
+  return useMutation({
+    mutationFn: (input: {
+      joId: string;
+      action: "approve" | "reject" | "resubmit";
+      reason?: string;
+    }) =>
+      fetchJson<null>(`/api/job-orders/${input.joId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: input.action, reason: input.reason }),
+      }),
+    onSuccess: () => invalidate(),
+  });
 }
 
 export function useImportLegacyCsv() {

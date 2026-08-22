@@ -57,7 +57,7 @@ async function cleanup() {
   await prisma.jobOrder.deleteMany({
     where: { joNumber: { startsWith: "VERIFY-" } },
   });
-  // auto-numbered fixtures (R-AD…) are only traceable via their customer
+  // auto-numbered fixtures (JO-ORM-…) are only traceable via their customer
   await prisma.jobOrder.deleteMany({
     where: {
       customer: { name: { in: ["X"], mode: "insensitive" } },
@@ -174,7 +174,21 @@ async function main() {
   const now = new Date();
   const cal = await jos.listCalendar(actor, now.getFullYear(), now.getMonth() + 1);
   const calNums = cal.map((r) => r.joNumber);
-  check("SM/CA pins on this month's calendar", calNums.includes("VERIFY-SM-1") && calNums.includes("VERIFY-CA-1"), calNums.filter((n) => n.startsWith("VERIFY")));
+  // SM-1 (deadline dateStr(-1)) and CA-1 (deadline dateStr(10)) pin on the
+  // calendar — but only assert a fixture when its deadline actually lands in the
+  // current month: dates near month-end spill into next month's grid, so
+  // dateStr(10) can be excluded legitimately in the last ~10 days of a month.
+  const inThisMonth = (iso: string) => {
+    const d = new Date(`${iso}T00:00:00`);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  };
+  const pinnedIfInMonth = (joNumber: string, deadline: string) =>
+    !inThisMonth(deadline) || calNums.includes(joNumber);
+  check(
+    "SM/CA pins on this month's calendar (in-month deadlines only)",
+    pinnedIfInMonth("VERIFY-SM-1", dateStr(-1)) && pinnedIfInMonth("VERIFY-CA-1", dateStr(10)),
+    calNums.filter((n) => n.startsWith("VERIFY"))
+  );
   check("waiting-pickup item excluded from calendar", !cal.some((r) => r.lineItemId === "VERIFY-001-02"));
   check("archived item excluded from calendar", !calNums.includes("VERIFY-002"));
 
@@ -212,7 +226,7 @@ async function main() {
   );
   check("edit allows blank deadline (imported data)", jobOrderEditFormInput.safeParse(noDeadline).success);
 
-  console.log("4d) JO/PO numbering (fusion: auto R-AD, manual for PO/non-JO)");
+  console.log("4d) JO/PO numbering (fusion: auto JO-ORM-{yymm}-{seq}, manual for PO/non-JO)");
   const plainItem = {
     description: "auto-numbered item",
     qty: "1",
@@ -226,8 +240,8 @@ async function main() {
     items: [plainItem, { ...plainItem, description: "second item" }],
   });
   const auto1Detail = await jos.get(actor, auto1.id);
-  const rx = /^R-AD\d{4}-\d{2}-\d{2}-\d{2,}$/;
-  check("auto-generated number matches R-AD{date}-{seq}", rx.test(auto1Detail.joNumber), auto1Detail.joNumber);
+  const rx = /^JO-ORM-\d{4}-\d{5}$/;
+  check("auto-generated number matches JO-ORM-{yymm}-{seq}", rx.test(auto1Detail.joNumber), auto1Detail.joNumber);
   check(
     "line items get -01/-02 suffixes",
     auto1Detail.items[0]!.lineItemId === `${auto1Detail.joNumber}-01` &&

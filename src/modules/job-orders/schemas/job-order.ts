@@ -144,6 +144,7 @@ export const jobOrderListFilters = z.object({
       "custApproval",
       "smAlarming",
       "smOverdue",
+      "review",
       "done",
       "all",
     ])
@@ -179,6 +180,63 @@ export const moveDeadlineInput = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format. Expected YYYY-MM-DD."),
 });
+
+// ——— Reorder (New JO from a customer's order history) ———
+// Staff pick a customer, then tick previously-ordered items (qty + price
+// editable). The created JO lands in PENDING_REVIEW and needs the customer's
+// sign-off (attach proof) AND an admin "review" before it enters production.
+const reorderItemInput = z.object({
+  description: z.string().trim().min(1, "Job description is required").max(2000),
+  qty: qtyString,
+  unitPrice: z
+    .string()
+    .trim()
+    .regex(/^\d+(\.\d{1,2})?$/, "Enter a valid price"),
+  productId: z.string().nullable().optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  isLFP: z.boolean().default(false),
+  lfpWidth: z.string().trim().max(20).nullable().optional(),
+  lfpHeight: z.string().trim().max(20).nullable().optional(),
+  lfpUnit: z.string().trim().max(20).nullable().optional(),
+  // Carried verbatim from the past item so specs-driven views (tarp decode,
+  // composed job description) keep working; opaque JSON, validated loosely.
+  specs: z.unknown().optional(),
+});
+
+export const reorderCreateInput = z.object({
+  customerId: z.string().min(1, "Pick a customer."),
+  deadline: dateString,
+  items: z.array(reorderItemInput).min(1, "Pick at least one item to reorder."),
+});
+
+export const reorderReviewInput = z.object({
+  action: z.enum(["approve", "reject", "resubmit"]),
+  reason: z.string().trim().max(500).optional(),
+});
+
+export type ReorderItemInput = z.infer<typeof reorderItemInput>;
+export type ReorderCreateInput = z.infer<typeof reorderCreateInput>;
+export type ReorderReviewInput = z.infer<typeof reorderReviewInput>;
+
+// One distinct thing a customer has ordered before, for the reorder picker.
+export type ReorderItemDto = {
+  key: string; // stable row id (normalized description + specs)
+  description: string;
+  jobDescription: string; // composed, for display
+  specs: Record<string, unknown> | null;
+  productId: string | null;
+  service: string | null; // product name, if catalog-linked
+  category: string | null;
+  isLFP: boolean;
+  lfpWidth: string | null;
+  lfpHeight: string | null;
+  lfpUnit: string | null;
+  unitPrice: string; // most-recent price
+  lastQty: number;
+  timesOrdered: number;
+  lastOrderedAt: string; // ISO
+  lastJoNumber: string;
+};
 
 export type JobOrderItemInput = z.infer<typeof jobOrderItemInput>;
 export type ItemEditInput = z.infer<typeof itemEditInput>;

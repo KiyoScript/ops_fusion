@@ -27,6 +27,23 @@ export type QuoteFinancials = {
   paymentTermLabel: string | null;
 };
 
+// One past line item of a customer (raw), for building the reorder picker.
+export type CustomerReorderItemRecord = {
+  description: string;
+  specs: Prisma.JsonValue;
+  productId: string | null;
+  productName: string | null;
+  category: string | null;
+  isLFP: boolean;
+  lfpWidth: string | null;
+  lfpHeight: string | null;
+  lfpUnit: string | null;
+  unitPrice: Prisma.Decimal;
+  qty: number;
+  joNumber: string;
+  createdAt: Date;
+};
+
 // ——— selection shapes (single source of truth for what queries fetch) ———
 
 const listSelect = {
@@ -229,6 +246,7 @@ export type ListFilter = {
     | "custApproval"
     | "smAlarming"
     | "smOverdue"
+    | "review"
     | "done"
     | "all";
   cursor?: string;
@@ -438,6 +456,9 @@ export interface IJobOrderRepository {
   ): Promise<void>;
   findDetail(id: string): Promise<JobOrderDetailRecord | null>;
   findQuoteFinancials(joId: string): Promise<QuoteFinancials | null>;
+  /** Every line item this customer has ordered on a live JO (newest first),
+   *  for the reorder picker — deduped downstream in the service. */
+  listCustomerReorderItems(customerId: string): Promise<CustomerReorderItemRecord[]>;
   existsJoNumber(
     joNumber: string,
     excludeId?: string,
@@ -549,6 +570,9 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       case "active":
         where.status = { in: OPEN_STATUSES };
         break;
+      case "review":
+        where.status = JobOrderStatus.PENDING_REVIEW;
+        break;
       case "done":
         where.status = JobOrderStatus.COMPLETED;
         break;
@@ -598,6 +622,14 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
         where.jobOrder = {
           deletedAt: null,
           status: { not: JobOrderStatus.CANCELLED },
+        };
+        break;
+      case "review":
+        // Reorder JOs awaiting the admin sign-off (PENDING_REVIEW).
+        where.archivedAt = null;
+        where.jobOrder = {
+          deletedAt: null,
+          status: JobOrderStatus.PENDING_REVIEW,
         };
         break;
       default:
@@ -971,6 +1003,51 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       downpaymentRate: Number(q.downpaymentRate),
       paymentTermLabel: q.paymentTermLabel,
     };
+  }
+
+  async listCustomerReorderItems(
+    customerId: string
+  ): Promise<CustomerReorderItemRecord[]> {
+    const rows = await prisma.jobOrderItem.findMany({
+      where: {
+        jobOrder: {
+          customerId,
+          deletedAt: null,
+          status: { not: JobOrderStatus.CANCELLED },
+        },
+      },
+      orderBy: { jobOrder: { createdAt: "desc" } },
+      take: 500,
+      select: {
+        description: true,
+        specs: true,
+        productId: true,
+        category: true,
+        isLFP: true,
+        lfpWidth: true,
+        lfpHeight: true,
+        lfpUnit: true,
+        unitPrice: true,
+        qty: true,
+        product: { select: { name: true } },
+        jobOrder: { select: { joNumber: true, createdAt: true } },
+      },
+    });
+    return rows.map((r) => ({
+      description: r.description,
+      specs: r.specs,
+      productId: r.productId,
+      productName: r.product?.name ?? null,
+      category: r.category,
+      isLFP: r.isLFP,
+      lfpWidth: r.lfpWidth,
+      lfpHeight: r.lfpHeight,
+      lfpUnit: r.lfpUnit,
+      unitPrice: r.unitPrice,
+      qty: r.qty,
+      joNumber: r.jobOrder.joNumber,
+      createdAt: r.jobOrder.createdAt,
+    }));
   }
 
   async existsJoNumber(

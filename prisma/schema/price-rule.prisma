@@ -14,11 +14,13 @@ enum PriceRuleType {
   ADDON
 }
 
-// An ADDON either attaches to each quote line (design fee) or applies once to
-// the whole job order / quotation (delivery fee).
+// An ADDON attaches to each quote line (design fee), applies once to the whole
+// job order / quotation (delivery fee), or BOTH — offered in each place so the
+// user picks where it applies per quotation.
 enum AddonScope {
   PER_LINE_ITEM
   WHOLE_JO
+  BOTH
 }
 
 model PriceRule {

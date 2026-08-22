@@ -1,8 +1,17 @@
 "use client";
 
-import { useInfiniteQuery, keepPreviousData } from "@tanstack/react-query";
+import { useInfiniteQuery, keepPreviousData, useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api-client";
 import type { CustomerListPageDto } from "../schemas/customer";
+
+/** Active credit-term day options (for the inline customer-create form). */
+export function useCreditTerms() {
+  return useQuery({
+    queryKey: ["credit-terms"],
+    queryFn: () => fetchJson<number[]>("/api/customers/credit-terms"),
+    staleTime: 300_000,
+  });
+}
 
 export function useCustomers(filters: {
   q?: string;

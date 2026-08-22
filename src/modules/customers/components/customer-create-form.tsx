@@ -20,28 +20,58 @@ import { ContactField, TinField, isValidPhContact } from "@/components/validated
 import { addCustomerAction } from "@/app/(app)/customers/actions";
 import { CompanyCombobox } from "./company-combobox";
 import { PersonNameFields } from "./person-name-fields";
+import { composePersonName } from "../person-name";
 import type { CompanyPickerDto } from "../schemas/company";
 
 type Kind = "COMPANY" | "INDIVIDUAL";
 type Vat = "" | "VAT" | "NON_VAT" | "NO_TIN";
 
+// Best-effort split of a free-typed display name into last / first, to prefill
+// the structured fields when the form opens from a "create '<name>'" action.
+function splitName(full: string): { last: string; first: string } {
+  const t = full.trim();
+  if (!t) return { last: "", first: "" };
+  if (t.includes(",")) {
+    const [l, f] = t.split(",");
+    return { last: (l ?? "").trim(), first: (f ?? "").trim() };
+  }
+  const parts = t.split(/\s+/);
+  if (parts.length === 1) return { last: "", first: parts[0]! };
+  return { last: parts[parts.length - 1]!, first: parts.slice(0, -1).join(" ") };
+}
+
 export function CustomerCreateForm({
   creditTerms,
   initialCompany,
+  initialName,
+  onCreated,
+  onCancel,
 }: {
   creditTerms: number[];
   /** When set, the form opens in COMPANY mode locked to this company (adding a
    *  contact to it). */
   initialCompany?: CompanyPickerDto | null;
+  /** Prefill the individual name (from a "create '<name>'" action). */
+  initialName?: string;
+  /** Embedded mode: when set, success calls this with the new customer instead
+   *  of navigating to the customer page. */
+  onCreated?: (customer: {
+    id: string;
+    name: string;
+    contactNumber: string | null;
+  }) => void;
+  /** Embedded cancel — replaces the "back to Customers" link. */
+  onCancel?: () => void;
 }) {
   const router = useRouter();
+  const seedName = initialName ? splitName(initialName) : null;
   const [kind, setKind] = useState<Kind>(initialCompany ? "COMPANY" : "INDIVIDUAL");
   const [pending, start] = useTransition();
   const [attempted, setAttempted] = useState(false);
 
   // shared / individual — structured person name (Lastname, Firstname MI.)
-  const [lastName, setLastName] = useState("");
-  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState(seedName?.last ?? "");
+  const [firstName, setFirstName] = useState(seedName?.first ?? "");
   const [middleInitial, setMiddleInitial] = useState("");
   const [contact, setContact] = useState("");
   const [email, setEmail] = useState("");
@@ -105,8 +135,16 @@ export function CustomerCreateForm({
         });
         if (!res.ok) { toast.error(res.error); return; }
         toast.success("Customer added.");
-        router.push(`/customers/${res.data.customerId}`);
-        router.refresh();
+        if (onCreated) {
+          onCreated({
+            id: res.data.customerId,
+            name: composePersonName({ lastName, firstName, middleInitial }),
+            contactNumber: contact.trim() || null,
+          });
+        } else {
+          router.push(`/customers/${res.data.customerId}`);
+          router.refresh();
+        }
       });
       return;
     }
@@ -148,8 +186,16 @@ export function CustomerCreateForm({
       });
       if (!res.ok) { toast.error(res.error); return; }
       toast.success("Company + contact added.");
-      router.push(`/customers/${res.data.customerId}`);
-      router.refresh();
+      if (onCreated) {
+        onCreated({
+          id: res.data.customerId,
+          name: composePersonName({ lastName: cpLast, firstName: cpFirst, middleInitial: cpMi }),
+          contactNumber: cpContact.trim() || null,
+        });
+      } else {
+        router.push(`/customers/${res.data.customerId}`);
+        router.refresh();
+      }
     });
   };
 
@@ -268,7 +314,11 @@ export function CustomerCreateForm({
 
         <div className="flex gap-2">
           <Button onClick={submit} disabled={pending}>{pending ? "Saving…" : "Add customer"}</Button>
-          <Button variant="ghost" nativeButton={false} render={<Link href="/customers" />}>Cancel</Button>
+          {onCancel ? (
+            <Button variant="ghost" onClick={onCancel} disabled={pending}>Cancel</Button>
+          ) : (
+            <Button variant="ghost" nativeButton={false} render={<Link href="/customers" />}>Cancel</Button>
+          )}
         </div>
       </CardContent>
     </Card>

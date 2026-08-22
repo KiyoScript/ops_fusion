@@ -14,6 +14,8 @@ export default async function JobOrdersPage() {
   const canReceivePayment = ability.can("create", "Sale");
   // Cancelling one takes a supervisor — docs/sales.txt §5.1 step 6.
   const canVoidReceipt = ability.can("void", "Sale");
+  // Admin-side gate that releases a reorder JO from PENDING_REVIEW.
+  const canReview = ability.can("review", "JobOrder");
 
   return (
     <>
@@ -26,6 +28,7 @@ export default async function JobOrdersPage() {
         canImport={canImport}
         canReceivePayment={canReceivePayment}
         canVoidReceipt={canVoidReceipt}
+        canReview={canReview}
       />
     </>
   );

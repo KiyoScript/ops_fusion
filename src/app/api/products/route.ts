@@ -12,7 +12,7 @@ export type ProductRuleDto = {
   minCharge: string | null;
   amount: string | null;
   pct: string | null;
-  scope: "PER_LINE_ITEM" | "WHOLE_JO"; // ADDON scope (VARIANT: ignored)
+  scope: "PER_LINE_ITEM" | "WHOLE_JO" | "BOTH"; // ADDON scope (VARIANT: ignored)
   notes: string | null;
 };
 

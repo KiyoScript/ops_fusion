@@ -152,7 +152,8 @@ export async function renderDrPdf(dr: DrDetailDto): Promise<Uint8Array> {
   const boxesY = Math.max(y, M + 150);
   checkbox(M, boxesY, "Full Delivery", dr.isFullDelivery);
   checkbox(M + 150, boxesY, "Partial Delivery", !dr.isFullDelivery);
-  rightTxt("TOTAL:", PAGE_W - M - 60, boxesY - 6, { size: 10, font: bold });
+  rightTxt("TOTAL:", PAGE_W - M - 78, boxesY - 6, { size: 10, font: bold });
+  rightTxt(money(dr.amount), PAGE_W - M, boxesY - 6, { size: 10, font: bold });
 
   // ——— signatures ———
   const sigY = M + 90;

@@ -13,7 +13,9 @@ export const jobOrderPolicy: Policy = ({ role, can }) => {
     can(["create", "update"], "JobOrderItem");
   }
   if (role === Role.MANAGER) {
-    can(["archive", "import", "move-deadline"], "JobOrder");
+    // "review" = the admin-side gate that releases a reorder JO from
+    // PENDING_REVIEW into production (ADMIN inherits it via manage-all).
+    can(["archive", "import", "move-deadline", "review"], "JobOrder");
   }
   // "Archive" (the archived-JOs page) is deliberately NOT granted here:
   // it stays admin-only via the manage-all rule, like the legacy page.
