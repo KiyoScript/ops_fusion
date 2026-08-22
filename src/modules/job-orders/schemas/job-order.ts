@@ -44,31 +44,23 @@ const itemFields = z.object({
   isRush: z.boolean(),
 });
 
-const lfpCheck = (ctx: {
-  value: { isLFP: boolean; lfpWidth?: string; lfpHeight?: string };
-  issues: z.core.$ZodRawIssue[];
-}) => {
-  if (ctx.value.isLFP && (!ctx.value.lfpWidth || !ctx.value.lfpHeight)) {
-    ctx.issues.push({
-      code: "custom",
-      message: "Width and height are required for LFP items",
-      path: ["lfpWidth"],
-      input: ctx.value,
-    });
-  }
-};
-
-export const jobOrderItemInput = itemFields.check(lfpCheck);
+// NOTE: no LFP width/height validation — LFP is a product attribute now and its
+// dimensions live in the item's specs (the tarp/area calculators). Neither the
+// create nor edit form enters manual LFP dimensions, and the service derives
+// isLFP from the catalog. Enforcing width/height would silently block saving any
+// LFP item (tarpaulin etc.) whose lfpWidth/lfpHeight columns are null.
+export const jobOrderItemInput = itemFields;
 
 // Per-item edit modal (legacy updateJORow): item fields + optional status
-// change with remark, in one save.
-export const itemEditInput = itemFields
-  .extend({
-    id: z.string().min(1),
-    jobOrderId: z.string().min(1),
-    remark: z.string().trim().max(500).optional(),
-  })
-  .check(lfpCheck);
+// change with remark, in one save. NOTE: no lfpCheck here — LFP is a product
+// attribute now and its dimensions live in the item's specs, so the edit dialog
+// never shows width/height. Enforcing them would silently block saving ANY LFP
+// item (tarpaulin etc.) whose lfpWidth/lfpHeight columns are null.
+export const itemEditInput = itemFields.extend({
+  id: z.string().min(1),
+  jobOrderId: z.string().min(1),
+  remark: z.string().trim().max(500).optional(),
+});
 
 // JO/PO typing (fusion-only, not in legacy): PO and non-JO numbers are typed
 // manually; a plain JO gets an auto-generated "JO-ORM-{yymm}-{seq}".

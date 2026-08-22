@@ -132,25 +132,35 @@ export function ItemEditDialog({
   const pesoFmt = (n: number) =>
     n.toLocaleString("en-PH", { minimumFractionDigits: 2 });
 
-  const onSubmit = form.handleSubmit(async (values) => {
-    // Quote-derived amount is always qty × unit price (the field is read-only).
-    const payload = row?.fromQuote
-      ? {
-          ...values,
-          amount: (
-            Math.round(Math.max(parseInt(values.qty, 10) || 0, 0) * unitPrice * 100) / 100
-          ).toFixed(2),
-        }
-      : values;
-    const result = await updateItemAction(payload);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
+  const onSubmit = form.handleSubmit(
+    async (values) => {
+      // Quote-derived amount is always qty × unit price (the field is read-only).
+      const payload = row?.fromQuote
+        ? {
+            ...values,
+            amount: (
+              Math.round(Math.max(parseInt(values.qty, 10) || 0, 0) * unitPrice * 100) / 100
+            ).toFixed(2),
+          }
+        : values;
+      const result = await updateItemAction(payload);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Item updated.");
+      invalidate();
+      onClose();
+    },
+    // Never fail silently: surface the first validation error even for fields
+    // that aren't rendered here (e.g. a stale constraint on a hidden field).
+    (formErrors) => {
+      const first = Object.values(formErrors).find(
+        (e): e is { message?: string } => !!e && typeof e === "object" && "message" in e
+      );
+      toast.error(first?.message || "Please fix the highlighted fields before saving.");
     }
-    toast.success("Item updated.");
-    invalidate();
-    onClose();
-  });
+  );
 
   return (
     <Dialog open={row !== null} onOpenChange={(open) => !open && onClose()}>

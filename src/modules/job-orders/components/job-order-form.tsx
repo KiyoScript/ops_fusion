@@ -139,6 +139,11 @@ export function JobOrderForm({
     }
     router.push("/job-orders");
     router.refresh();
+  },
+  // Never fail silently: some validation errors (e.g. a per-item constraint on a
+  // field not shown here) would otherwise block the save with no feedback.
+  () => {
+    toast.error("Please fix the highlighted fields before saving.");
   });
 
   return (
